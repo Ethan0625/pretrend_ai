@@ -55,3 +55,12 @@ artifacts/
 # --- Docker / Compose ---
 docker-compose.override.yml
 *.pid
+
+# VS Code local settings (user-specific, not project)
+.vscode/settings.json
+.vscode/launch.json
+*.code-workspace
+
+# VS Code auto-generated
+.vscode/*.db
+.vscode/*.log
