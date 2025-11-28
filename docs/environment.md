@@ -7,34 +7,66 @@
 
 # 1. 시스템 사양
 
-| 항목 | 내용 |
-|------|------|
-| OS | Ubuntu Linux |
-| CPU | AMD Threadripper PRO |
-| RAM | 128GB |
-| GPU | RTX 4090 × 4 |
-| CUDA(nvcc) | 11.8 |
-| PyTorch CUDA | 12.8 |
-| Python | 3.11 |
-| Conda env | `pretrend-dev` |
+| 항목           | 내용               |
+|---------------|--------------------|
+| OS            | Ubuntu Linux       |
+| CPU           | AMD Threadripper PRO |
+| RAM           | 128GB              |
+| GPU           | RTX 4090 × 4       |
+| CUDA (nvcc)   | 11.8               |
+| PyTorch CUDA  | 12.8               |
+| Python        | 3.11               |
+| Conda env     | `pretrend-dev`     |
+
+현재 머신 PyTorch 결과:
+
+| Key                    | Value            |
+|------------------------|------------------|
+| `torch.__version__`    | 2.9.0+cu128      |
+| `torch.version.cuda`   | 12.8             |
+| `torch.cuda.is_available` | True         |
+| `device_count`         | 4 (RTX 4090 × 4) |
 
 ---
 
 # 2. 폴더 구조
 
 ```text
-pretrend-ai/
+pretrend_ai/
+├─ README.md
+├─ requirements.txt
+├─ .env.example
+│
+├─ docs/
+│  ├─ dev_plan.md
+│  ├─ environment.md
+│  ├─ architecture.md
+│  ├─ api_spec.md
+│  └─ changelog.md
+│
+├─ src/
+│  └─ pretrend/
+│      ├─ pipeline/
+│      ├─ signals/
+│      ├─ llm/
+│      ├─ config/
+│      └─ utils/
+│
 ├─ backend_api/
 │  ├─ app/
-│  ├─ tests/
+│  └─ tests/
 │
-├─ llm_server/
-├─ data_pipeline/
-├─ signal_generator/
-├─ research/
+├─ tests/
+│  └─ pipeline/
+│
 ├─ deploy/
-├─ docs/
+│  ├─ docker/
+│  ├─ compose/
+│  └─ k8s/
+│
 └─ .github/
+   └─ workflows/
+      └─ ci.yml
 ```
 
 ---
@@ -132,7 +164,7 @@ curl http://100.x.x.x:8100/health
 ## 8.1 최소 테스트(gpt2)
 
 ```bash
-CUDA_VISIBLE_DEVICES=2 python -m vllm.entrypoints.openai.api_server   --model gpt2   --port 8101   --tensor-parallel-size 1
+CUDA_VISIBLE_DEVICES=2 python -m vllm.entrypoints.openai.api_server   --model gpt2   --port 9000   --tensor-parallel-size 1
 ```
 
 확인:
@@ -144,7 +176,7 @@ curl http://127.0.0.1:8101/v1/models
 ## 8.2 실제 모델(Qwen2-7B)
 
 ```bash
-CUDA_VISIBLE_DEVICES=2 python -m vllm.entrypoints.openai.api_server   --model Qwen/Qwen2-7B-Instruct   --host 0.0.0.0   --port 8101   --tensor-parallel-size 1   --max-model-len 4096   --dtype float16
+CUDA_VISIBLE_DEVICES=2 python -m vllm.entrypoints.openai.api_server   --model Qwen/Qwen2-7B-Instruct   --host 0.0.0.0   --port 9000   --tensor-parallel-size 1   --max-model-len 4096   --dtype float16
 ```
 
 ---
@@ -158,7 +190,7 @@ CUDA_VISIBLE_DEVICES=2 python -m vllm.entrypoints.openai.api_server   --model Qw
 
 ```env
 API_PORT=8100
-VLLM_PORT=8101
+VLLM_PORT=9000
 VLLM_MODEL_NAME=Qwen/Qwen2-7B-Instruct
 ```
 
