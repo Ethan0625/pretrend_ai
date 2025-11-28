@@ -1,0 +1,57 @@
+# --- 일반 ---
+.DS_Store
+Thumbs.db
+
+# --- 가상환경 / 패키지 ---
+.venv/
+venv/
+env/
+ENV/
+*.env.bak
+
+# --- Jupyter ---
+.ipynb_checkpoints/
+
+# --- IDE / Editor ---
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# --- Python 빌드/캐시 ---
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+build/
+dist/
+.eggs/
+*.egg-info/
+
+# --- ML / Experiment / Cache ---
+mlruns/
+.cache/
+.huggingface/
+.vllm_cache/
+.pytest_cache/
+.mypy_cache/
+
+# --- 데이터 / 모델 (원본/중간/아티팩트) ---
+data/
+datasets/
+raw/
+tmp/
+temp/
+cache/
+checkpoints/
+models/
+artifacts/
+
+# --- 환경 변수 파일 ---
+.env
+.env.*
+!.env.example     # 예시 파일만 허용
+
+# --- Docker / Compose ---
+docker-compose.override.yml
+*.pid
