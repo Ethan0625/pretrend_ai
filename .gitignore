@@ -1,45 +1,81 @@
-# --- 일반 ---
+# --- OS / 시스템 파일 ---
 .DS_Store
 Thumbs.db
 
-# --- 가상환경 / 패키지 ---
-.venv/
-venv/
-env/
-ENV/
-*.env.bak
-
-# --- Jupyter ---
-.ipynb_checkpoints/
-
-# --- IDE / Editor ---
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# --- Python 빌드/캐시 ---
+# --- Python 바이트코드 / 캐시 ---
 __pycache__/
 *.py[cod]
 *.pyo
 *.pyd
+
+# --- 빌드 / 배포 산출물 ---
 build/
 dist/
 .eggs/
 *.egg-info/
+*.manifest
+*.spec
 
-# --- ML / Experiment / Cache ---
-mlruns/
+# --- 가상환경 / 패키지 매니저 ---
+.venv/
+venv/
+env/
+ENV/
+.conda/
+pip-wheel-metadata/
+
+# --- 환경 변수 파일 / 시크릿 ---
+.env
+.env.*
+!.env.example        # 예시용 env 파일만 허용
+secrets/
+config/local_*.yaml
+config/*.local.yaml
+
+# --- Jupyter Notebook ---
+.ipynb_checkpoints/
+*.ipynb_tmp
+
+# --- IDE / Editor 설정 ---
+.vscode/settings.json
+.vscode/launch.json
+*.code-workspace
+
+# (참고) VS Code 확장 추천 목록은 커밋 허용
+# .vscode/extensions.json 은 허용 상태
+
+.idea/
+*.swp
+*.swo
+
+# --- 로그 / 런타임 출력 ---
+logs/
+*.log
+
+# --- 테스트 / 정적 분석 캐시 ---
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.coverage
+coverage.xml
+htmlcov/
+
+# --- ML / Experiment / LLM 캐시 ---
+mlruns/              
+wandb/
+lightning_logs/
 .cache/
 .huggingface/
 .vllm_cache/
 .pytest_cache/
 .mypy_cache/
 
-# --- 데이터 / 모델 (원본/중간/아티팩트) ---
+# --- 데이터 / 모델 / 아티팩트 ---
 data/
 datasets/
-raw/
+raw
+raw_data/
 tmp/
 temp/
 cache/
@@ -47,20 +83,14 @@ checkpoints/
 models/
 artifacts/
 
-# --- 환경 변수 파일 ---
-.env
-.env.*
-!.env.example     # 예시 파일만 허용
+# --- 세부디렉토리 ---
+data_pipeline/data/
+signal_generator/checkpoints/
+research/indexes/
 
-# --- Docker / Compose ---
+# --- Docker / 컨테이너 런타임 ---
 docker-compose.override.yml
 *.pid
 
-# VS Code local settings (user-specific, not project)
-.vscode/settings.json
-.vscode/launch.json
-*.code-workspace
-
-# VS Code auto-generated
-.vscode/*.db
-.vscode/*.log
+# --- OS 별 기타 ---
+Desktop.ini
