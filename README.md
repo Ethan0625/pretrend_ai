@@ -22,10 +22,11 @@
 ## 1. 폴더 구조
 
 ```text
-pretrend-ai/
+pretrend_ai/
 ├─ .gitignore
 ├─ .env.example
 ├─ README.md
+├─ requirements.txt
 │
 ├─ docs/
 │  ├─ dev_plan.md
@@ -33,6 +34,16 @@ pretrend-ai/
 │  ├─ architecture.md
 │  ├─ api_spec.md
 │  └─ changelog.md
+│
+├─ src/
+│  └─ pretrend/
+│      ├─ pipeline/       # 데이터 파이프라인 (EOD, 뉴스, 거시 등)
+│      │   ├─ __init__.py
+│      │   └─ eod_ingest.py
+│      ├─ signals/        # 신호/전략 모듈
+│      ├─ llm/            # LLM 클라이언트, RAG, 프롬프트 템플릿
+│      ├─ config/         # 설정/스키마 정의 
+│      └─ utils/          # 공통 유틸
 │
 ├─ backend_api/
 │  ├─ app/
@@ -44,25 +55,10 @@ pretrend-ai/
 │  │  └─ models/
 │  └─ tests/
 │
-├─ llm_server/
-│  ├─ client.py
-│  ├─ config.py
-│  └─ scripts/
-│     └─ run_vllm_server.sh
-│
-├─ data_pipeline/
-│  ├─ dags/
-│  ├─ scripts/
-│  └─ config/
-│
-├─ signal_generator/
-│  ├─ core/
-│  ├─ factors/
-│  └─ backtest/
-│
-├─ research/
-│  ├─ notebooks/
-│  └─ experiments/
+├─ tests/
+│  ├─ pipeline/
+│  │  └─ test_step1_eod_ingest.py
+│  └─ ...
 │
 ├─ deploy/
 │  ├─ docker/
