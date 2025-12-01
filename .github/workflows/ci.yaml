@@ -24,6 +24,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install pytest
           pip install pandas
+          pip install -e . --no-deps
 
       - name: Run pytest
         run: |
