@@ -1,86 +1,279 @@
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
-from datetime import date, datetime
-from typing import Any, Dict, Optional
+from typing import Any, List, Optional
 
 import pandas as pd
+import requests
 
-from .base import BaseFetcher, BaseNormalizer, BaseWriter, IngestContext
+from .base import IngestContext, BaseFetcher, BaseNormalizer, BaseWriter
 
 
 @dataclass
-class MacroConfig:
-    fred_api_key: str
-    news_api_key: Optional[str] = None
-    # TODO: base_url, timeout 등 필요시 확장
+class FredSeriesSpec:
+    """
+    FRED 개별 시리즈 정의.
+    - series_id: FRED 시리즈 ID (예: CPIAUCSL, UNRATE, FEDFUNDS ...)
+    - indicator_id: 내부에서 사용할 지표 식별자
+    - unit: 값의 단위 설명
+    - source: 데이터 출처
+    """
+    series_id: str
+    indicator_id: str
+    unit: str
+    source: str = "FRED"
+
+
+@dataclass
+class FredMacroConfig:
+    api_key: str
+    base_url: str = "https://api.stlouisfed.org/fred/series/observations"
+    series_list: List[FredSeriesSpec] = None
+
+    @classmethod
+    def from_env_cpi_only(cls) -> "FredMacroConfig":
+        """
+        Step 1: CPI만 수집하는 구성.
+        """
+        api_key = os.getenv("FRED_API_KEY")
+        if not api_key:
+            raise RuntimeError("환경변수 FRED_API_KEY가 설정되지 않았습니다.")
+
+        series_list = [
+            FredSeriesSpec(
+                series_id="CPIAUCSL",              # 미국 CPI (도시 소비자, SA)
+                indicator_id="CPI_US_ALL_ITEMS_SA",
+                unit="Index 1982-84=100",
+            )
+        ]
+        return cls(api_key=api_key, series_list=series_list)
+
+    @classmethod
+    def from_env_with_defaults(cls) -> "FredMacroConfig":
+        """
+        Step 2: CPI + Core CPI + 실업률 + 기준금리 + 10Y 국채수익률 등
+        (CPI 검증 후 이 옵션으로 확장)
+        """
+        api_key = os.getenv("FRED_API_KEY")
+        if not api_key:
+            raise RuntimeError("환경변수 FRED_API_KEY가 설정되지 않았습니다.")
+
+        series_list = [
+            FredSeriesSpec(
+                series_id="CPIAUCSL",
+                indicator_id="CPI_US_ALL_ITEMS_SA",
+                unit="Index 1982-84=100",
+            ),
+            FredSeriesSpec(
+                series_id="CPILFESL",
+                indicator_id="CPI_US_CORE_SA",
+                unit="Index 1982-84=100",
+            ),
+            FredSeriesSpec(
+                series_id="UNRATE",
+                indicator_id="US_UNEMPLOYMENT_RATE",
+                unit="Percent",
+            ),
+            FredSeriesSpec(
+                series_id="FEDFUNDS",
+                indicator_id="US_FED_FUNDS_RATE",
+                unit="Percent",
+            ),
+            FredSeriesSpec(
+                series_id="DGS10",
+                indicator_id="US_TREASURY_10Y_YIELD",
+                unit="Percent",
+            ),
+        ]
+        return cls(api_key=api_key, series_list=series_list)
 
 
 class MacroFetcher(BaseFetcher):
-    def __init__(self, config: MacroConfig) -> None:
-        self.config = config
+    """
+    FRED Macro Fetcher (초기엔 CPI만, 이후 여러 지표 확장)
+    fetch() → DataFrame
+    columns:
+        date, value, indicator_id, unit, source, series_id
+    """
 
-    def fetch(self, context: IngestContext, **kwargs: Any) -> Dict[str, pd.DataFrame]:
-        """
-        econ_indicators, news_headlines 두 데이터셋을 반환하는 형태로 설계.
-        MVP 초기에는 로컬 CSV/dummy 데이터로 먼저 구조 검증 후,
-        실제 FRED/News API 연동을 추가하는 순서로 가는 것을 권장.
-        """
-        # TODO: 실제 구현
-        econ_df = pd.DataFrame()   # FRED API 결과를 담을 예정
-        news_df = pd.DataFrame()   # News API / RSS 결과를 담을 예정
+    def __init__(self, config: Optional[FredMacroConfig] = None):
+        # Step1: CPI만 수집
+        self.config = config or FredMacroConfig.from_env_with_defaults()
+        # CPI 검증 완료. 251202 -> 추가지표수집
 
-        return {
-            "econ_indicators": econ_df,
-            "news_headlines": news_df,
+    def _fetch_single_series(
+        self,
+        context: IngestContext,
+        spec: FredSeriesSpec,
+    ) -> pd.DataFrame:
+        params: dict[str, Any] = {
+            "series_id": spec.series_id,
+            "api_key": self.config.api_key,
+            "file_type": "json",
         }
+
+        if context.start_date:
+            params["observation_start"] = context.start_date.strftime("%Y-%m-%d")
+        if context.end_date:
+            params["observation_end"] = context.end_date.strftime("%Y-%m-%d")
+
+        resp = requests.get(self.config.base_url, params=params, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+
+        observations = data.get("observations", [])
+
+        rows: list[dict[str, Any]] = []
+        for obs in observations:
+            value_str = obs.get("value")
+            if value_str is None or value_str == ".":
+                continue
+            rows.append(
+                {
+                    "date": obs.get("date"),          # string
+                    "value": value_str,               # string
+                    "indicator_id": spec.indicator_id,
+                    "unit": spec.unit,
+                    "source": spec.source,
+                    "series_id": spec.series_id,
+                }
+            )
+
+        if not rows:
+            return pd.DataFrame(
+                columns=[
+                    "date",
+                    "value",
+                    "indicator_id",
+                    "unit",
+                    "source",
+                    "series_id",
+                ]
+            )
+
+        return pd.DataFrame(rows)
+    
+    def fetch(self, context: IngestContext, **kwargs: Any) -> pd.DataFrame:
+        frames: list[pd.DataFrame] = []
+
+        for spec in self.config.series_list:
+            df_spec = self._fetch_single_series(context, spec)
+            if not df_spec.empty:
+                frames.append(df_spec)
+
+        if not frames:
+            print("[MacroFetcher] No data fetched")
+            return pd.DataFrame(
+                columns=[
+                    "date",
+                    "value",
+                    "indicator_id",
+                    "unit",
+                    "source",
+                    "series_id",
+                ]
+            )
+
+        merged = pd.concat(frames, ignore_index=True)
+        return merged
 
 
 class MacroNormalizer(BaseNormalizer):
+    """
+    Raw macro DataFrame을 표준 스키마로 정규화.
+
+    입력(raw_df):
+        date(str), value(str), indicator_id, unit, source, series_id
+    출력(normalized_df):
+        indicator_id, date, value, unit, source, run_id, ingestion_ts
+    """
+
     def normalize(
         self,
         context: IngestContext,
-        raw_data: Dict[str, pd.DataFrame],
-    ) -> Dict[str, pd.DataFrame]:
-        econ_df = raw_data["econ_indicators"].copy()
-        news_df = raw_data["news_headlines"].copy()
+        raw_df: pd.DataFrame,
+    ) -> pd.DataFrame:
+        if raw_df is None or raw_df.empty:
+            print("[MacroNormalizer] empty input, skip")
+            return pd.DataFrame(
+                columns=[
+                    "indicator_id",
+                    "date",
+                    "value",
+                    "unit",
+                    "source",
+                    "run_id",
+                    "ingestion_ts",
+                ]
+            )
 
-        ingestion_ts = pd.Timestamp.utcnow()
+        df = raw_df.copy()
 
-        # TODO: indicator_id 매핑, 타입 캐스팅, 결측치 처리 등 구현
-        # 예시:
-        # econ_df["indicator_id"] = econ_df["indicator_name"].map(...)
-        econ_df["run_id"] = context.run_id
-        econ_df["ingestion_ts"] = ingestion_ts
+        # 타입 정리
+        df["date"] = pd.to_datetime(df["date"]).dt.date
+        df["value"] = pd.to_numeric(df["value"], errors="coerce")
 
-        news_df["run_id"] = context.run_id
-        news_df["ingestion_ts"] = ingestion_ts
+        # 공통 메타 정보
+        df["run_id"] = context.run_id
+        df["ingestion_ts"] = context.ingestion_ts
 
-        return {
-            "econ_indicators": econ_df,
-            "news_headlines": news_df,
-        }
+        # 최종 스키마 순서 정리
+        df = df[
+            [
+                "indicator_id",
+                "date",
+                "value",
+                "unit",
+                "source",
+                "run_id",
+                "ingestion_ts",
+            ]
+        ]
+
+        return df
 
 
 class MacroWriter(BaseWriter):
+    """
+    정규화된 매크로 지표를 parquet로 저장.
+
+    저장 경로:
+        {output_root}/{domain}/{dataset}/year=YYYY/month=MM/{indicator_id}_YYYYMM.parquet
+
+    예:
+        data/bronze/macro/econ_indicators/year=2015/month=01/CPI_US_ALL_ITEMS_SA_201501.parquet
+    """
+
     def write(
         self,
         context: IngestContext,
-        normalized_data: Dict[str, pd.DataFrame],
+        normalized_df: pd.DataFrame,
     ) -> None:
-        """
-        - /tmp/pretrend/.../{run_id} 아래에 우선 저장
-        - 대상 파티션(year/month or date)을 기준으로 기존 데이터 삭제 후 atomic move
-        - ingest_log.parquet 업데이트
+        if normalized_df is None or normalized_df.empty:
+            print("[MacroWriter] empty input, skip")
+            return
 
-        실제 구현은 I/O 유틸을 utils 모듈로 분리해도 됨.
-        """
-        # TODO:
-        # 1. 파티션 경로 계산
-        # 2. tmp 디렉토리 쓰기
-        # 3. 기존 파티션 삭제 + rename
-        # 4. ingest_log 업데이트
-        pass
+        df = normalized_df.copy()
+        df["year"] = df["date"].apply(lambda d: d.year)
+        df["month"] = df["date"].apply(lambda d: d.month)
+
+        base_path = context.output_root / context.domain / context.dataset
+
+        for (year, month), part in df.groupby(["year", "month"]):
+            out_dir = base_path / f"year={year}" / f"month={month:02d}"
+            out_dir.mkdir(parents=True, exist_ok=True)
+
+            for indicator_id, part_ind in part.groupby("indicator_id"):
+                file_name = f"{indicator_id}_{year}{month:02d}.parquet"
+                out_path = out_dir / file_name
+
+                part_ind.drop(columns=["year", "month"]).to_parquet(
+                    out_path,
+                    index=False,
+                )
+
+                print(f"[MacroWriter] Saved: {out_path}")
 
 
 def run_macro_ingest(
