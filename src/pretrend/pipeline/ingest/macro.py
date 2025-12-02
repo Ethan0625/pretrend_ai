@@ -7,7 +7,7 @@ from typing import Any, List, Optional
 import pandas as pd
 import requests
 
-from .base import IngestContext, BaseFetcher, BaseNormalizer, BaseWriter
+from pretrend.pipeline.ingest.base import IngestContext, BaseFetcher, BaseNormalizer, BaseWriter
 
 
 @dataclass
@@ -274,29 +274,3 @@ class MacroWriter(BaseWriter):
                 )
 
                 print(f"[MacroWriter] Saved: {out_path}")
-
-
-def run_macro_ingest(
-    config: MacroConfig,
-    start_date: Optional[date] = None,
-    end_date: Optional[date] = None,
-) -> None:
-    context = IngestContext(
-        domain="macro",
-        dataset="econ_indicators",  # 대표 dataset 명 (실제론 여러 dataset 처리)
-        run_id=_generate_run_id("macro"),
-        start_date=start_date,
-        end_date=end_date,
-    )
-    fetcher = MacroFetcher(config=config)
-    normalizer = MacroNormalizer()
-    writer = MacroWriter()
-
-    raw_data = fetcher.fetch(context)
-    normalized = normalizer.normalize(context, raw_data)
-    writer.write(context, normalized)
-
-
-def _generate_run_id(domain: str) -> str:
-    ts = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
-    return f"{ts}_{domain}"
