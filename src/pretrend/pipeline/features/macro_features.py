@@ -6,8 +6,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, List, Optional
 
+from dateutil.relativedelta import relativedelta
 import numpy as np
 import pandas as pd
+import shutil
 
 
 # =========================
@@ -51,13 +53,22 @@ class MacroFeatureConfig:
 class MacroFeatureRunContext:
     """
     Silver 변환 실행 컨텍스트.
-    Bronze IngestContext와는 별도로 Silver 전용 context.
+
+    feature_start_date / feature_end_date:
+        최종 Silver 출력 구간
+    load_start_date:
+        lookback(12개월)을 포함한 로드 구간 시작
     """
-    start_date: dt.date
-    end_date: dt.date
+    feature_start_date: dt.date
+    feature_end_date: dt.date
     run_id: str
     ingestion_ts: pd.Timestamp
     cfg: MacroFeatureConfig
+    lookback_months: int = 12  # yoy/rolling_12m 기준
+
+    @property
+    def load_start_date(self) -> dt.date:
+        return self.feature_start_date - relativedelta(months=self.lookback_months)
 
 
 # =========================
@@ -67,19 +78,16 @@ class MacroFeatureRunContext:
 def load_bronze_macro(ctx: MacroFeatureRunContext) -> pd.DataFrame:
     """
     Bronze macro econ_indicators에서 필요한 구간만 로드.
-
-    입력 스키마 (Bronze):
-        indicator_id, date, value, unit, source, run_id, ingestion_ts
+    - 로드 구간: [load_start_date, feature_end_date]
     """
     files = list(ctx.cfg.bronze_root.rglob("*.parquet"))
     if not files:
         raise FileNotFoundError(f"No parquet under {ctx.cfg.bronze_root}")
 
     df = pd.concat((pd.read_parquet(f) for f in files), ignore_index=True)
-
     df["date"] = pd.to_datetime(df["date"]).dt.date
 
-    mask = (df["date"] >= ctx.start_date) & (df["date"] <= ctx.end_date)
+    mask = (df["date"] >= ctx.load_start_date) & (df["date"] <= ctx.feature_end_date)
     if ctx.cfg.target_indicators:
         mask &= df["indicator_id"].isin(ctx.cfg.target_indicators)
 
@@ -99,10 +107,11 @@ def load_bronze_macro(ctx: MacroFeatureRunContext) -> pd.DataFrame:
 def add_common_features(df: pd.DataFrame) -> pd.DataFrame:
     """
     공통 Feature:
-        - mom: value / value_1m_ago - 1
-        - yoy: value / value_12m_ago - 1
-        - rolling_3m: value 3개월 이동평균
-        - rolling_12m: value 12개월 이동평균
+      - mom: value / value_1_step_ago - 1
+      - yoy: value / value_12_step_ago - 1
+      - rolling_3m: value 3-step 이동평균
+      - rolling_12m: value 12-step 이동평균
+    (FRED macro는 대부분 월 단위, 일부 일 단위(DGS10))
     """
     if df.empty:
         return df
@@ -114,14 +123,14 @@ def add_common_features(df: pd.DataFrame) -> pd.DataFrame:
         g["value_lag_1"] = g["value"].shift(1)
         g["value_lag_12"] = g["value"].shift(12)
 
-        # MoM
+        # MoM (또는 직전 step 대비)
         g["mom"] = np.where(
             g["value_lag_1"].notna() & (g["value_lag_1"] != 0),
             g["value"] / g["value_lag_1"] - 1.0,
             np.nan,
         )
 
-        # YoY
+        # YoY (또는 12-step 대비)
         g["yoy"] = np.where(
             g["value_lag_12"].notna() & (g["value_lag_12"] != 0),
             g["value"] / g["value_lag_12"] - 1.0,
@@ -144,8 +153,11 @@ def add_common_features(df: pd.DataFrame) -> pd.DataFrame:
 
 def apply_inflation_regime(df: pd.DataFrame) -> pd.DataFrame:
     """
-    CPI / Core CPI 인플레이션 레짐 태깅.
+    CPI / Core CPI 인플레이션 레짐 태깅 + level 설정.
 
+    설계:
+      - value: CPI index (1982-84=100)
+      - level: yoy (인플레이션율, 전략용)
     규칙 (yoy 기준):
       yoy >= 4%         -> high_inflation
       2% <= yoy < 4%    -> elevated
@@ -157,6 +169,9 @@ def apply_inflation_regime(df: pd.DataFrame) -> pd.DataFrame:
         return df
 
     sub = df.loc[mask].copy()
+
+    # level = yoy (인플레이션 수준)
+    sub["level"] = sub["yoy"]
 
     conditions = [
         sub["yoy"] >= 0.04,
@@ -172,14 +187,17 @@ def apply_inflation_regime(df: pd.DataFrame) -> pd.DataFrame:
     ]
     sub["regime"] = np.select(conditions, choices, default=None)
 
-    df.loc[mask, "regime"] = sub["regime"]
+    df.loc[mask, ["level", "regime"]] = sub[["level", "regime"]].to_numpy()
     return df
 
 
 def apply_unrate_features(df: pd.DataFrame) -> pd.DataFrame:
     """
     실업률 특화 Feature + 레짐.
-      - level = value
+
+    설계:
+      - value: 실업률(%)
+      - level: 실업률 수준 = value
       - delta_3m = level - level_3m_ago
       - regime:
           level <= 4% & delta_3m <= 0      -> tight
@@ -191,8 +209,7 @@ def apply_unrate_features(df: pd.DataFrame) -> pd.DataFrame:
     if not mask.any():
         return df
 
-    sub = df.loc[mask].copy()
-    sub = sub.sort_values("date")
+    sub = df.loc[mask].copy().sort_values("date")
 
     sub["level"] = sub["value"]
     sub["level_lag_3"] = sub["level"].shift(3)
@@ -214,14 +231,17 @@ def apply_unrate_features(df: pd.DataFrame) -> pd.DataFrame:
 
     df.loc[mask, ["level", "delta_3m", "regime"]] = sub[
         ["level", "delta_3m", "regime"]
-    ]
+    ].to_numpy()
     return df
 
 
 def apply_fedfunds_features(df: pd.DataFrame) -> pd.DataFrame:
     """
     Fed Funds Rate 특화 Feature + 레짐.
-      - level = value
+
+    설계:
+      - value: FRED 기준금리(%)
+      - level: 기준금리 수준 = value
       - delta_3m = level - level_3m_ago
       - delta_12m = level - level_12m_ago
       - regime:
@@ -233,8 +253,7 @@ def apply_fedfunds_features(df: pd.DataFrame) -> pd.DataFrame:
     if not mask.any():
         return df
 
-    sub = df.loc[mask].copy()
-    sub = sub.sort_values("date")
+    sub = df.loc[mask].copy().sort_values("date")
 
     sub["level"] = sub["value"]
     sub["level_lag_3"] = sub["level"].shift(3)
@@ -254,58 +273,72 @@ def apply_fedfunds_features(df: pd.DataFrame) -> pd.DataFrame:
 
     df.loc[mask, ["level", "delta_3m", "delta_12m", "regime"]] = sub[
         ["level", "delta_3m", "delta_12m", "regime"]
-    ]
+    ].to_numpy()
     return df
 
 
 def apply_dgs10_features(df: pd.DataFrame) -> pd.DataFrame:
     """
     10Y 국채금리 특화 Feature.
-      - level = value
-      - spread_to_fedfunds = level - fedfunds_level
+
+    설계:
+      - value: 10Y 금리(%)
+      - level: 10Y 금리 수준 = value
+      - spread_to_fedfunds = level - fedfunds (as-of join: 해당 날짜 또는 직전 날짜 기준)
       - is_yield_curve_inverted = spread_to_fedfunds < 0
       - regime:
-          spread <= -0.5%  -> inverted
-          -0.5% < spread < 0.5% -> flat
-          spread >= 0.5%   -> normal
+          spread <= -0.5%          -> inverted
+          -0.5% < spread < 0.5%    -> flat
+          spread >= 0.5%           -> normal
     """
-    mask = df["indicator_id"] == INDICATOR_DGS10
-    if not mask.any():
+    dgs_mask = df["indicator_id"] == INDICATOR_DGS10
+    if not dgs_mask.any():
         return df
 
-    sub = df.loc[mask].copy()
-    sub = sub.sort_values("date")
-    sub["level"] = sub["value"]
-
-    # FEDFUNDS join
-    fed = df.loc[df["indicator_id"] == INDICATOR_FEDFUNDS, ["date", "value"]].copy()
-    if fed.empty:
-        # FEDFUNDS 없으면 스프레드/레짐 계산 불가
-        df.loc[mask, "level"] = sub["level"]
+    fed_mask = df["indicator_id"] == INDICATOR_FEDFUNDS
+    if not fed_mask.any():
+        # FedFunds 없으면 level만 세팅하고 종료
+        df.loc[dgs_mask, "level"] = df.loc[dgs_mask, "value"].to_numpy()
         return df
 
-    fed = fed.rename(columns={"value": "fedfunds"})
-    merged = sub.merge(fed, on="date", how="left")
+    # 날짜 정규화
+    df = df.copy()
+    df["date"] = pd.to_datetime(df["date"])
 
-    merged["spread_to_fedfunds"] = merged["level"] - merged["fedfunds"]
+    # 1) FedFunds 시계열: date -> fedfunds, as-of 매핑용
+    fed = df.loc[fed_mask, ["date", "value"]].sort_values("date").copy()
+    fed_series = fed.set_index("date")["value"]
+
+    # 2) DGS10 row의 날짜 추출 (df 순서 유지)
+    dgs_dates = df.loc[dgs_mask, "date"]
+    # 각 날짜에 대해, 그 날짜 또는 직전 날짜의 FedFunds 값을 as-of 매핑
+    fed_on_dgs = fed_series.reindex(dgs_dates, method="ffill").to_numpy()
+
+    # 3) DGS10 level / spread / regime 계산
+    dgs_value = df.loc[dgs_mask, "value"].to_numpy()
+
+    level = dgs_value  # 10Y 수준 = raw 값
+    spread = level - fed_on_dgs
 
     conditions = [
-        merged["spread_to_fedfunds"] <= -0.005,
-        (merged["spread_to_fedfunds"] > -0.005)
-        & (merged["spread_to_fedfunds"] < 0.005),
-        merged["spread_to_fedfunds"] >= 0.005,
+        spread <= -0.5,
+        (spread > -0.5) & (spread < 0.5),
+        spread >= 0.5,
     ]
     choices = [
         "inverted",
         "flat",
         "normal",
     ]
-    merged["regime"] = np.select(conditions, choices, default=None)
-    merged["is_yield_curve_inverted"] = merged["spread_to_fedfunds"] < 0
+    regime = np.select(conditions, choices, default=None)
+    inverted = spread < 0
 
-    df.loc[mask, ["level", "spread_to_fedfunds", "regime", "is_yield_curve_inverted"]] = merged[
-        ["level", "spread_to_fedfunds", "regime", "is_yield_curve_inverted"]
-    ]
+    # 4) df에 반영 (index alignment 방지 위해 numpy로 대입)
+    df.loc[dgs_mask, "level"] = level
+    df.loc[dgs_mask, "spread_to_fedfunds"] = spread
+    df.loc[dgs_mask, "regime"] = regime
+    df.loc[dgs_mask, "is_yield_curve_inverted"] = inverted
+
     return df
 
 
@@ -316,16 +349,22 @@ def build_macro_features(df: pd.DataFrame, ctx: MacroFeatureRunContext) -> pd.Da
     if df.empty:
         return df
 
-    # 공통 Feature
+    # 공통 시계열 Feature
     df = add_common_features(df)
 
-    # indicator-specific Feature & regime
+    # Indicator-specific Feature & Regime
     df = apply_inflation_regime(df)
     df = apply_unrate_features(df)
     df = apply_fedfunds_features(df)
     df = apply_dgs10_features(df)
 
     df["ingestion_ts"] = ctx.ingestion_ts
+
+    # 최종 출력 구간으로 필터
+    df = df[
+        (pd.to_datetime(df["date"]).dt.date >= ctx.feature_start_date)
+        & (pd.to_datetime(df["date"]).dt.date <= ctx.feature_end_date)
+    ]
 
     # Silver 최종 스키마 정리
     keep_cols = [
@@ -344,10 +383,15 @@ def build_macro_features(df: pd.DataFrame, ctx: MacroFeatureRunContext) -> pd.Da
         "is_yield_curve_inverted",
         "ingestion_ts",
     ]
-    # 없는 컬럼은 자동으로 생성 (NaN)
     for c in keep_cols:
         if c not in df.columns:
             df[c] = np.nan
+
+    # level이 NaN인 row는 기본적으로 raw value를 level로 사용
+    # (CPI/Core는 apply_inflation_regime에서 level=yoy로 이미 설정)
+    mask_level_na = df["level"].isna()
+    if mask_level_na.any():
+        df.loc[mask_level_na, "level"] = df.loc[mask_level_na, "value"]
 
     df = df[keep_cols].copy()
     return df
@@ -367,7 +411,7 @@ def write_silver_macro_features(df: pd.DataFrame, ctx: MacroFeatureRunContext) -
     Silver Layer 저장.
     - 파티션: year=YYYY/month=MM
     - 파일: macro_features_YYYYMM.parquet
-    - 전략: 파티션 단위 overwrite (멱등성)
+    - 전략: 파티션 단위 overwrite (멱등성, tmp 디렉토리 사용)
     """
     if df.empty:
         print("[SilverMacro] Nothing to write.")
@@ -376,17 +420,14 @@ def write_silver_macro_features(df: pd.DataFrame, ctx: MacroFeatureRunContext) -
     df = df.copy()
     df["date"] = pd.to_datetime(df["date"])
 
+    tmp_root = ctx.cfg.silver_root / f"_tmp_run={ctx.run_id}"
+
     for year, month in _partition_keys(df):
         part = df[(df["date"].dt.year == year) & (df["date"].dt.month == month)]
         if part.empty:
             continue
 
-        tmp_dir = (
-            ctx.cfg.silver_root
-            / f"_tmp_run={ctx.run_id}"
-            / f"year={year:04d}"
-            / f"month={month:02d}"
-        )
+        tmp_dir = tmp_root / f"year={year:04d}" / f"month={month:02d}"
         final_dir = ctx.cfg.silver_root / f"year={year:04d}" / f"month={month:02d}"
         tmp_dir.mkdir(parents=True, exist_ok=True)
         final_dir.mkdir(parents=True, exist_ok=True)
@@ -396,14 +437,17 @@ def write_silver_macro_features(df: pd.DataFrame, ctx: MacroFeatureRunContext) -
 
         part.to_parquet(tmp_file, index=False)
 
-        # 간단한 멱등성 전략: 파티션 파일 단위 overwrite
+        # 파티션 단위 overwrite
         if final_file.exists():
             final_file.unlink()
         tmp_file.replace(final_file)
 
         print(f"[SilverMacro] Saved: {final_file}")
 
-    # TODO: _tmp_run 디렉토리 정리 로직 추가 가능
+    # tmp 디렉토리 정리
+    if tmp_root.exists():
+        shutil.rmtree(tmp_root)
+        print(f"[SilverMacro] Cleaned tmp directory: {tmp_root}")
 
 
 # =========================
@@ -420,17 +464,18 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    start_date = dt.datetime.strptime(args.start, "%Y-%m-%d").date()
-    end_date = dt.datetime.strptime(args.end, "%Y-%m-%d").date()
+    feature_start = dt.datetime.strptime(args.start, "%Y-%m-%d").date()
+    feature_end = dt.datetime.strptime(args.end, "%Y-%m-%d").date()
     run_id = args.run_id or dt.datetime.utcnow().strftime("macrofeat_%Y%m%d%H%M%S")
 
     cfg = MacroFeatureConfig.from_defaults()
     ctx = MacroFeatureRunContext(
-        start_date=start_date,
-        end_date=end_date,
+        feature_start_date=feature_start,
+        feature_end_date=feature_end,
         run_id=run_id,
         ingestion_ts=pd.Timestamp.utcnow(),
         cfg=cfg,
+        lookback_months=12,
     )
 
     df_bronze = load_bronze_macro(ctx)
