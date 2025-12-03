@@ -10,3 +10,5 @@ def _safe_load_dotenv() -> None:
         return
     else:
         load_dotenv()
+        
+_safe_load_dotenv()
