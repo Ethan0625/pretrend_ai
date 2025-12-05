@@ -1,5 +1,68 @@
 # Changelog
 
+## v2025.12.05 - EOD Airflow Pipeline (Bronze → Silver) 통합 및 Silver Feature Layer 구축
+
+### 변경 요약
+- EOD Bronze/Silver를 하나의 Airflow DAG(`eod_pipeline_dag`)로 통합
+- 미국장 기준 "마지막 완전 거래일" 기반 Bronze ingest 자동화
+- EOD Silver Feature Layer(v1) 신규 구축 (수익률/MA/ATR/RSI 포함)
+- Silver Writer 멱등성 적용 및 파티션 구조 확정
+- Gold Layer 설계를 위한 준비 작업 완료
+
+---
+
+### 1) EOD Pipeline 통합 (Bronze → Silver)
+- 기존 단일 Bronze DAG를 제거하고 Macro pipeline 구조와 동일하게 **Bronze→Silver 통합 DAG** 구성
+- DAG: `eod_pipeline_dag`
+  - Task 1: `run_eod_bronze_ingest`
+    - yfinance 기반 SPY/QQQ/VOO ingest
+    - 미국장 ET 기준 "마지막 완전 거래일" 계산하여 하루 구간만 ingest
+    - Bronze 저장 구조 유지:
+      ```
+      data/bronze/eod/daily_prices/
+        source=YF/theme=GENERIC/symbol=SPY/trade_date=YYYY-MM-DD/eod.parquet
+      ```
+  - Task 2: `run_eod_silver_features`
+    - Bronze 결과(XCom) 기반 동일 날짜/심볼로 Silver 생성
+    - EOD Silver Writer는 (symbol/year/month) 파티션으로 멱등성 저장
+
+---
+
+### 2) EOD Silver Feature Layer 구축
+- 신규 파일: `src/pretrend/pipeline/features/eod_features.py`
+- Feature Set(v1):
+  - **수익률:** ret_1d / log_ret_1d / ret_5d / ret_20d
+  - **변동성:** vol_20d / vol_60d
+  - **이동평균:** ma_5 / ma_20 / ma_60 / ma_120 / ma_ratio_5_20
+  - **ATR & TR:** atr_14
+  - **RSI:** rsi_14 (gain/loss SMA 기반)
+  - **Volume 특성:** volume_zscore_20d
+  - **Micro-structure:** gap_open, intraday_range
+  - **Data Quality Flags:** is_trading_day, is_missing_imputed, is_outlier, is_partial_day
+- Feature 계산 방식은 symbol 단위 groupby에서 shift/rolling 기반으로 안정화
+
+---
+
+### 3) EOD Silver 저장 구조 표준화
+- 저장 경로: data/silver/eod/eod_features/symbol=SPY/year=2024/month=12/eod_features_202412.parquet
+- 멱등성 전략: `_tmp_run={run_id}` 임시 디렉토리 생성
+- 파티션 단위 atomic overwrite
+
+---
+
+### 4) Gold Layer 준비 단계 완료
+- Gold 설계를 위해 필요한 전제조건 모두 충족:
+- Macro Silver 완성
+- EOD Silver v1 완성
+- Airflow 기반 Bronze→Silver 자동화 환경 구축
+
+### 향후계획
+- Macro Silver + EOD Silver as-of join 구조 설계
+- Gold Feature 스키마 정의
+- Gold Pipeline DAG 구성(`gold_pipeline_dag`)
+- 이후 NLP Bronze/Silver 추가(뉴스/FOMC/경제 리포트)
+---
+
 ## v2025.12.03 - Macro Airflow Pipeline (Bronze → Silver) E2E 통합
 
 ### 변경 요약
@@ -47,6 +110,7 @@
 - `macro_pipeline_dag`의 `schedule_interval`을 매일 1회, 한국 시간 기준 오전(예: 09:00 KST)으로 설정하여 EOD Macro 자동 수집
 - pandas `groupby.apply` FutureWarning 제거를 위한 Silver Feature 코드 리팩토링
 - Macro DAG 모니터링 및 실패 알림(Slack/Email) 연동을 MLOps 단계에서 추가
+---
 
 ## v2025.12.02 - FRED macro CPI ingest + parquet writer (bronze)
 
@@ -71,6 +135,7 @@
   - FredSeriesSpec, FredMacroConfig 설계 완료
   - from_env_with_defaults()에서 CPI, Core CPI, UNRATE, FEDFUNDS, DGS10까지 한 번에 수집 가능
   - MacroFetcher는 series_list 기반 multi-series ingest 구조로 설계됨
+---
 
 ## v2025.11.28
 
