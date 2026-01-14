@@ -1,4 +1,7 @@
 # Pretrend AI 아키텍처 문서 (architecture.md)
+**Project:** Pre-Trend Value 기반 자동매매 AI 시스템\
+**Document:** architecture\
+**Version:** 2026.01.14\
 
 본 문서는 **Pre-Trend Value 기반 주식 자동매매 시스템**의 기술 아키텍처를 정의한다.  
 특히, 현재 구현된 **거시지표 Macro 파이프라인 (Bronze/Silver Layer)**을 중심으로 설명하고,  
@@ -19,7 +22,7 @@
 | 전략/신호    | `pretrend.signals.*`             | Pre-Trend Value 기반 전략, 매매 시그널 생성 |
 | API         | `backend_api/` (FastAPI)         | 전략/데이터/LLM 인터페이스 제공 |
 | LLM         | vLLM 서버 (Qwen/Llama 계열)      | 리서치 요약, 질의응답, RAG 기반 분석 |
-| 오케스트레이션 | (향후) Airflow DAG               | 정기 ETL 및 모델 파이프라인 스케줄링 |
+| 오케스트레이션 | Airflow DAG | Macro/EOD 등 ETL 파이프라인 스케줄링 및 재처리 |
 | 배포/운영    | Docker / (향후) Kubernetes / CI  | 컨테이너화, CI/CD, 모니터링/로깅 |
 
 ---
@@ -54,7 +57,7 @@ flowchart LR
     end
 
     subgraph Orchestration[오케스트레이션/배포]
-        AF[Airflow DAG\n(향후)]
+        AF[Airflow DAG]
         CI[GitHub Actions\nCI/CD]
         DC[Docker / K8s]
     end
@@ -65,8 +68,8 @@ flowchart LR
     SIG --> API
     LLM --> API
 
-    INGEST -. Airflow .-> AF
-    FEAT -. Airflow .-> AF
+    AF --> INGEST
+    AF --> FEAT
     API --> DC
     LLM --> DC
     CI --> DC
@@ -128,6 +131,24 @@ pretrend_ai/
 * ✅ Bronze: Macro (FRED 기반 econ_indicators)
 * ✅ Silver: Macro Features (macro_features)
 * ⏳ Gold: 전략별 뷰, 시그널 Mart (향후)
+
+---
+
+### 2.3 Data Storage Strategy
+
+- 현재 구현 단계에서는 파일 기반 스토리지(Parquet)를 사용한다.
+- 데이터 레이어별 저장 전략:
+  - Bronze: Raw 데이터 보존용 Parquet
+  - Silver: Feature 재생성 가능 Parquet (멱등 overwrite)
+  - Gold: 전략별 Mart (초기에는 Parquet, 향후 DB 전환)
+- 파일 스토리지는:
+  - 파이프라인 중간 산출물
+  - 재처리 및 백필(backfill) 용도
+  로 사용된다.
+
+향후 확장:
+- Gold Layer는 DB(예: PostgreSQL / ClickHouse) 기반으로 이전 가능하도록 설계한다.
+- Silver Feature는 Feature Store로 전환 가능성을 열어둔다.
 
 ---
 
@@ -306,6 +327,7 @@ flowchart LR
 * 실행 컨텍스트: `MacroFeatureRunContext`
 
   * `start_date`, `end_date`, `run_id`, `ingestion_ts`, `cfg`
+  * `lookback_months`: YoY / rolling feature 계산을 위한 과거 로드 기간 (기본 12개월)
 
 **Silver 저장 구조**
 
@@ -335,6 +357,8 @@ data/silver/macro/macro_features/
      * 기존 `macro_features_YYYYMM.parquet` 삭제
      * 임시 파일을 최종 파일로 rename
   4. 동일 파라미터로 재실행 시, 동일 파티션이 **완전히 교체**되므로 항상 동일 결과 유지
+
+  * 이 전략을 통해 일시적 수집 실패나 실행 누락이 발생하더라도, 이후 실행에서 동일 기간을 재처리함으로써 데이터 정합성을 복구할 수 있다.
 
 ---
 
@@ -389,8 +413,8 @@ CUDA_VISIBLE_DEVICES=2 python -m vllm.entrypoints.openai.api_server \
 
 * Airflow DAG:
 
-  * `macro_bronze_ingest` → `macro_silver_features` 순으로 의존 관계 설정
-  * 이후 EOD/뉴스/전략 학습 파이프라인으로 확장
+  * `macro_pipeline_dag`: Macro Bronze → Silver 통합 파이프라인
+  * 매일 트리거 + 롤링 재처리 정책 적용
 * CI/CD:
 
   * GitHub Actions (`.github/workflows/ci.yml`)

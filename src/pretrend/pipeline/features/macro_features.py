@@ -82,7 +82,8 @@ def load_bronze_macro(ctx: MacroFeatureRunContext) -> pd.DataFrame:
     """
     files = list(ctx.cfg.bronze_root.rglob("*.parquet"))
     if not files:
-        raise FileNotFoundError(f"No parquet under {ctx.cfg.bronze_root}")
+        print(f"[SilverMacro] No parquet under {ctx.cfg.bronze_root}. Return empty.")
+        return pd.DataFrame()
 
     df = pd.concat((pd.read_parquet(f) for f in files), ignore_index=True)
     df["date"] = pd.to_datetime(df["date"]).dt.date

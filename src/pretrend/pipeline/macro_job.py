@@ -231,15 +231,11 @@ class MacroJobRunner:
         )
 
         # 기존 macro_features 구조 재사용
+        default_cfg = MacroFeatureConfig.from_defaults()
         feat_cfg = MacroFeatureConfig(
             bronze_root=self.config.bronze_root,
             silver_root=self.config.silver_root,
-            target_indicators=None,  # 기본값(5개 지표) 사용 시 from_defaults()와 동일 동작
-        )
-        feat_cfg = MacroFeatureConfig.from_defaults().__class__(
-            bronze_root=self.config.bronze_root,
-            silver_root=self.config.silver_root,
-            target_indicators=MacroFeatureConfig.from_defaults().target_indicators,
+            target_indicators=default_cfg.target_indicators,  # 기본값(5개 지표) 사용 시 from_defaults()와 동일 동작
         )
 
         feat_ctx = MacroFeatureRunContext(

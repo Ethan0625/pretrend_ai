@@ -1,7 +1,8 @@
 # 📄 Universe Design Document
 
-**Version:** 2025.11\
 **Project:** Pre-Trend Value 기반 자동매매 AI 시스템\
+**Document:** Universe Design\
+**Version:** 2026.01.14\
 **Purpose:** 거시→테마→종목 추론 기반 Universe 생성 파이프라인 정의
 
 ---
@@ -36,7 +37,9 @@ flowchart TD
 
 ## 3.1 입력
 
-* 경제지표: 금리, CPI, PPI, PMI, 실업률
+* Macro Silver Feature:
+  - 금리 / CPI / 실업률 기반 Feature (yoy, level, delta, regime)
+  - Silver Macro Layer에서 생성된 일 단위 스냅샷
 * 정책/정부 발표: 부양책, 규제완화, 세제혜택
 * 글로벌 이슈: AI 투자, 지정학적 리스크
 * 뉴스 키워드: LLM/RAG 기반 문서 요약 + 키워드 추출
@@ -46,6 +49,7 @@ flowchart TD
 * 이벤트 분류: RATE_CUT, RATE_HIKE, STIMULUS, SUPPLY_SHOCK 등
 * 영향력 산출: Rule 기반 + 모델 기반 scoring
 * 불확실성 평가: confidence score 계산
+* U0 단계에서 사용되는 Macro Feature는 EOD trade_date 기준 가장 최근 시점의 Silver Macro Feature를 as-of join 방식으로 스냅샷화하여 사용한다.
 
 ## 3.3 출력 예시
 
@@ -53,6 +57,7 @@ flowchart TD
 {
   "macro_signal": "RATE_CUT",
   "impact_score": 0.82,
+  "macro_snapshot_date": "2025-01-13",
   "theme_candidates": ["AI", "Semiconductor", "REITs"],
   "confidence": 0.73
 }
@@ -185,8 +190,14 @@ final_score = 0.35 * growth_score
 
 Universe 파이프라인 결과는 Step 1 EOD Ingest와 직접 연결된다.
 
-* **Bronze 레이어 EOD 수집 대상 = U3 Universe**
-* Universe는 하루 1회~주 1회 업데이트
+* Bronze 레이어 EOD 수집 대상 = U3 Universe
+* 수집된 EOD 데이터는 Silver EOD Feature로 변환된다.
+* Gold Layer에서는:
+  - U3 Universe
+  - Silver EOD Feature (일 단위)
+  - Silver Macro Feature (as-of join)
+  를 결합하여 전략 입력용 Mart를 구성한다.
+* Universe는 기본적으로 일 1회 업데이트를 기준으로 하며, Macro/정책 이벤트 발생 시 비정기 재계산을 허용한다.
 * Universe 업데이트 시 EOD ingest 대상 종목 자동 변경
 * Silver/Gold 레이어는 U3 중심으로 확장
 

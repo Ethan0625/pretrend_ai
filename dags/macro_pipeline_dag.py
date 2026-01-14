@@ -3,7 +3,6 @@ from __future__ import annotations
 from datetime import timedelta, date, datetime
 from typing import Any, Dict
 
-import pendulum
 from airflow.decorators import dag, task
 
 # pretrend_ai는 pyproject + pip install -e . 로 설치되어 있다고 가정
@@ -21,7 +20,7 @@ DEFAULT_ARGS: Dict[str, Any] = {
 
 @dag(
     dag_id="macro_pipeline_dag",
-    description="FRED Macro Bronze→Silver E2E 파이프라인 (월별)",
+    description="FRED Macro Bronze→Silver E2E 파이프라인 (매일, 누락 대비 롤링 재수집)",
     default_args=DEFAULT_ARGS,
     # 매월 1일 06:00 Asia/Seoul
     start_date=datetime(2010, 1, 1),
@@ -32,17 +31,17 @@ DEFAULT_ARGS: Dict[str, Any] = {
 )
 def macro_pipeline():
     """
-    Macro Bronze→Silver 전체를 한 번에 수행하는 Airflow DAG.
+    운영 목표:
+      - DAG는 매일 트리거되지만, 실행이 누락될 수 있음을 전제로 한다.
+      - 따라서 매 실행마다 일정 기간(롤링 윈도우)을 재수집/재처리하여 누락을 보완한다.
+      - 출력은 파티션 overwrite 기반 멱등성을 전제로 한다.
 
-    Airflow 2.4+의 data interval 개념을 사용:
-      - data_interval_start: 해당 월의 시작일 (inclusive)
-      - data_interval_end:   다음 월의 시작일 (exclusive)
+    기준일(anchor_date):
+      - Airflow의 data_interval_start.date()를 사용(매일 스케줄에서 '실행 논리일').
 
-    실제 macro_job 실행 구간:
-      start_date = data_interval_start
-      end_date   = data_interval_end - 1일
-    예)
-      2025-11-01 실행 → [2025-10-01, 2025-10-31] 구간 처리
+    처리 구간(예시: 월 기반 + 버퍼):
+      - start_date: anchor_date가 속한 월의 1일에서 1개월을 더 뺀 날짜(= 직전월 1일)
+      - end_date:   anchor_date - 1일(= 어제)
     """
 
     @task(task_id="run_macro_job")
@@ -54,29 +53,34 @@ def macro_pipeline():
         if data_interval_start is None or data_interval_end is None:
             raise ValueError("data_interval_start / data_interval_end is required")
 
-        # pendulum.DateTime → date 로 변환
-        start_dt: date = data_interval_start.date()
-        end_dt: date = (data_interval_end - timedelta(days=1)).date()
+        anchor_date: date = data_interval_start.date()
+        end_dt: date = anchor_date - timedelta(days=1)
 
-        # MacroJobConfig.from_env() 안에서 PRETREND_DATA_ROOT 등 읽도록 구현되어 있다고 가정
+        # 직전월 1일 ~ 어제 (월 단위로 넓게 재수집)
+        first_of_this_month = end_dt.replace(day=1)
+        # 직전월 1일: 이번달 1일에서 1일 빼고(day=1)
+        prev_month_last_day = first_of_this_month - timedelta(days=1)
+        start_dt: date = prev_month_last_day.replace(day=1)
+
         config = MacroJobConfig.from_env()
         runner = MacroJobRunner(config=config)
 
         # 실제 Bronze → Silver → 메타로그까지 한 번에 실행
         result = runner.run(start_date=start_dt, end_date=end_dt)
 
-        # XCom으로 요약 정보만 반환 (UI에서 확인용)
-        summary: Dict[str, Any] = {
+        summary = {
             "run_id": result.run_id,
             "run_mode": result.run_mode.value,
             "start_date": str(result.start_date),
             "end_date": str(result.end_date),
+            "anchor_date": str(anchor_date),
             "bronze_row_count": result.bronze_result.row_count,
             "silver_row_count": result.silver_result.row_count,
         }
-
+        
         return summary
 
     run_macro_job_task()
-    
+
+
 macro_pipeline_dag = macro_pipeline()
