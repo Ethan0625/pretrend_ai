@@ -1,0 +1,153 @@
+from __future__ import annotations
+
+from datetime import date, timedelta
+from typing import Any, Dict
+
+import os
+from pathlib import Path
+
+import pendulum
+from airflow.decorators import dag, task
+
+from pretrend.pipeline.ingest.eod import (
+    EodIngestConfig,
+    run_eod_bronze_ingest,
+)
+from pretrend.pipeline.features.eod_features import (
+    EodFeatureConfig,
+    run_eod_silver_features,
+)
+
+
+# ---------------------------
+# 미국장 마지막 완전 거래일 계산
+# ---------------------------
+
+def get_last_us_trading_date(now_et: pendulum.DateTime | None = None) -> date:
+    """
+    미국장(US/Eastern) 기준 '마지막 완전한 거래일'을 계산.
+    - market_close = 16:00 ET
+    - buffer = 2시간 (데이터 확정/반영 여유)
+    - 주말(토/일)은 직전 금요일로 롤백
+    - 미국 공휴일은 아직 미반영(TODO)
+    """
+    if now_et is None:
+        now_et = pendulum.now("US/Eastern")
+
+    MARKET_CLOSE_HOUR = 16
+    BUFFER_HOURS = 2
+
+    # 장 마감 + 버퍼 이전이면 '어제'까지가 완전한 거래일
+    if now_et.hour < MARKET_CLOSE_HOUR + BUFFER_HOURS:
+        candidate = (now_et - timedelta(days=1)).date()
+    else:
+        candidate = now_et.date()
+
+    # 주말이면 직전 평일까지 롤백
+    while candidate.weekday() >= 5:  # 5=토, 6=일
+        candidate -= timedelta(days=1)
+
+    return candidate
+
+
+# ---------------------------
+# Airflow DAG 정의
+# ---------------------------
+
+DEFAULT_ARGS: Dict[str, Any] = {
+    "owner": "pretrend",
+    "retries": 2,
+    "retry_delay": timedelta(minutes=15),
+    "depends_on_past": False,
+}
+
+
+@dag(
+    dag_id="eod_pipeline_dag",
+    description="미국장 기준 마지막 완전 거래일 EOD Bronze→Silver E2E 파이프라인",
+    default_args=DEFAULT_ARGS,
+    # 매일 한 번 돌리되, 실제 대상 날짜는 get_last_us_trading_date()로 결정
+    start_date=pendulum.datetime(2010, 1, 1, tz="UTC"),
+    schedule_interval="0 8 * * *",  # 매일 08:00 (Airflow 타임존 기준)
+    catchup=False,
+    max_active_runs=1,
+    tags=["pretrend", "eod", "bronze", "silver"],
+)
+def eod_pipeline():
+    """
+    EOD Bronze→Silver 전체를 한 번에 수행하는 Airflow DAG.
+
+    - execution_date / data_interval은 참고만 하고,
+      실제 EOD 대상 날짜는 US/Eastern 현재 시각 기준 '마지막 완전 거래일'로 계산.
+    - Bronze ingest(SPY/QQQ/VOO 등) 후, 동일 날짜 구간에 대해 Silver Feature 생성.
+    """
+
+    @task(task_id="run_eod_bronze_ingest")
+    def run_eod_bronze_ingest_task(**context: Any) -> Dict[str, Any]:
+        # 1) 미국 시간(US/Eastern) 기준 현재 시각
+        now_et = pendulum.now("US/Eastern")
+
+        # 2) 마지막 완전한 거래일 계산
+        target_date: date = get_last_us_trading_date(now_et)
+
+        # 3) EOD ingest 구간은 target_date 하루
+        start_dt = target_date
+        end_dt = target_date
+
+        # 4) Config 준비 (data_root는 PRETREND_DATA_ROOT 또는 기본 'data')
+        data_root = Path(os.getenv("PRETREND_DATA_ROOT", "data"))
+        cfg = EodIngestConfig(data_root=data_root)
+
+        # 5) EOD Bronze ingest 실행 (기본 심볼: cfg.default_symbols → SPY/QQQ/VOO)
+        result = run_eod_bronze_ingest(
+            start_date=start_dt,
+            end_date=end_dt,
+            cfg=cfg,
+        )
+
+        summary: Dict[str, Any] = {
+            "bronze_run_id": result.run_id,
+            "start_date": str(result.start_date),
+            "end_date": str(result.end_date),
+            "row_count": result.row_count,
+            "symbols": ",".join(result.symbols),
+            "target_date": str(target_date),
+            "now_et": now_et.to_iso8601_string(),
+        }
+        return summary
+
+    @task(task_id="run_eod_silver_features")
+    def run_eod_silver_features_task(bronze_summary: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Bronze 요약(XCom) 정보를 받아 동일 날짜/심볼에 대해 Silver Feature 생성.
+        """
+        # Bronze 결과에서 대상 날짜/심볼 가져오기
+        start_dt = date.fromisoformat(bronze_summary["start_date"])
+        end_dt = date.fromisoformat(bronze_summary["end_date"])
+        symbols_str = bronze_summary["symbols"]
+        symbols = [s.strip() for s in symbols_str.split(",") if s.strip()]
+
+        # Silver Config (PRETREND_DATA_ROOT 기반)
+        cfg = EodFeatureConfig.from_env()
+
+        result = run_eod_silver_features(
+            start_date=start_dt,
+            end_date=end_dt,
+            symbols=symbols,
+            cfg=cfg,
+        )
+
+        summary: Dict[str, Any] = {
+            "silver_run_id": result.run_id,
+            "start_date": str(result.start_date),
+            "end_date": str(result.end_date),
+            "row_count": result.row_count,
+            "symbols": ",".join(result.symbols),
+        }
+        return summary
+
+    bronze_summary = run_eod_bronze_ingest_task()
+    run_eod_silver_features_task(bronze_summary)
+
+
+eod_pipeline_dag = eod_pipeline()

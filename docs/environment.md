@@ -1,5 +1,10 @@
 # 📄 개발 환경 구성 문서 (Environment Setup Guide)
 
+**Project:** Pre-Trend Value 기반 자동매매 AI 시스템\
+**Document:** Data Requirements\
+**Version:** 2026.01.14\
+**Purpose:** 개발·운영 환경을 표준화\
+
 본 문서는 Pre-Trend Value 기반 자동매매 시스템의  
 **개발·운영 환경을 표준화하기 위한 구성 가이드**이다.
 
@@ -7,34 +12,66 @@
 
 # 1. 시스템 사양
 
-| 항목 | 내용 |
-|------|------|
-| OS | Ubuntu Linux |
-| CPU | AMD Threadripper PRO |
-| RAM | 128GB |
-| GPU | RTX 4090 × 4 |
-| CUDA(nvcc) | 11.8 |
-| PyTorch CUDA | 12.8 |
-| Python | 3.11 |
-| Conda env | `pretrend-dev` |
+| 항목           | 내용               |
+|---------------|--------------------|
+| OS            | Ubuntu Linux       |
+| CPU           | AMD Threadripper PRO |
+| RAM           | 128GB              |
+| GPU           | RTX 4090 × 4       |
+| CUDA (nvcc)   | 11.8               |
+| PyTorch CUDA  | 12.8               |
+| Python        | 3.11               |
+| Conda env     | `pretrend-dev`     |
+
+현재 머신 PyTorch 결과:
+
+| Key                    | Value            |
+|------------------------|------------------|
+| `torch.__version__`    | 2.9.0+cu128      |
+| `torch.version.cuda`   | 12.8             |
+| `torch.cuda.is_available` | True         |
+| `device_count`         | 4 (RTX 4090 × 4) |
 
 ---
 
 # 2. 폴더 구조
 
 ```text
-pretrend-ai/
+pretrend_ai/
+├─ README.md
+├─ requirements.txt
+├─ .env.example
+│
+├─ docs/
+│  ├─ dev_plan.md
+│  ├─ environment.md
+│  ├─ architecture.md
+│  ├─ api_spec.md
+│  └─ changelog.md
+│
+├─ src/
+│  └─ pretrend/
+│      ├─ pipeline/
+│      ├─ signals/
+│      ├─ llm/
+│      ├─ config/
+│      └─ utils/
+│
 ├─ backend_api/
 │  ├─ app/
-│  ├─ tests/
+│  └─ tests/
 │
-├─ llm_server/
-├─ data_pipeline/
-├─ signal_generator/
-├─ research/
+├─ tests/
+│  └─ pipeline/
+│
 ├─ deploy/
-├─ docs/
+│  ├─ docker/
+│  ├─ compose/
+│  └─ k8s/
+│
 └─ .github/
+   └─ workflows/
+      └─ ci.yml
 ```
 
 ---
@@ -104,7 +141,7 @@ def health():
 실행:
 
 ```bash
-uvicorn app.main:app --host 0.0.0.0 --port 8100
+uvicorn app.main:app --host 0.0.0.0 --port {YOUR_PORT}
 ```
 
 ---
@@ -122,7 +159,7 @@ tailscale ip
 
 ```powershell
 "C:\Program Files\Tailscale	ailscale.exe" ping 100.x.x.x
-curl http://100.x.x.x:8100/health
+curl http://100.x.x.x:{YOUR_PORT}/health
 ```
 
 ---
@@ -132,7 +169,7 @@ curl http://100.x.x.x:8100/health
 ## 8.1 최소 테스트(gpt2)
 
 ```bash
-CUDA_VISIBLE_DEVICES=2 python -m vllm.entrypoints.openai.api_server   --model gpt2   --port 8101   --tensor-parallel-size 1
+CUDA_VISIBLE_DEVICES=2 python -m vllm.entrypoints.openai.api_server   --model gpt2   --port 9000   --tensor-parallel-size 1
 ```
 
 확인:
@@ -144,7 +181,7 @@ curl http://127.0.0.1:8101/v1/models
 ## 8.2 실제 모델(Qwen2-7B)
 
 ```bash
-CUDA_VISIBLE_DEVICES=2 python -m vllm.entrypoints.openai.api_server   --model Qwen/Qwen2-7B-Instruct   --host 0.0.0.0   --port 8101   --tensor-parallel-size 1   --max-model-len 4096   --dtype float16
+CUDA_VISIBLE_DEVICES=2 python -m vllm.entrypoints.openai.api_server   --model Qwen/Qwen2-7B-Instruct   --host 0.0.0.0   --port 9000   --tensor-parallel-size 1   --max-model-len 4096   --dtype float16
 ```
 
 ---
@@ -158,9 +195,16 @@ CUDA_VISIBLE_DEVICES=2 python -m vllm.entrypoints.openai.api_server   --model Qw
 
 ```env
 API_PORT=8100
-VLLM_PORT=8101
+VLLM_PORT=9000
 VLLM_MODEL_NAME=Qwen/Qwen2-7B-Instruct
 ```
+
+### 데이터 저장소 (현재 구현 기준)
+
+- 현재 개발 환경에서는 파일 시스템 기반 스토리지를 사용한다.
+- Parquet 파일은 프로젝트 루트 하위 `data/` 디렉토리에 저장된다.
+- 이 구조는 향후 DB 기반 스토리지로 대체될 수 있으며,
+  파일 시스템은 중간 산출물 또는 백업 용도로 유지된다.
 
 ---
 
