@@ -242,7 +242,7 @@ class MacroJobRunner:
             feature_start_date=start_date,
             feature_end_date=end_date,
             run_id=run_id,
-            ingestion_ts=pd.Timestamp.utcnow(),
+            ingestion_ts=pd.Timestamp.now("UTC"),
             cfg=feat_cfg,
             lookback_months=self.config.lookback_months,
         )
@@ -306,7 +306,7 @@ class MacroJobRunner:
                 "silver_row_count": result.silver_result.row_count,
                 "bronze_partitions": ",".join(result.bronze_result.partitions or []),
                 "silver_partitions": ",".join(result.silver_result.partitions or []),
-                "created_at": pd.Timestamp.utcnow(),
+                "created_at": pd.Timestamp.now("UTC"),
             }
 
             df_new = pd.DataFrame([record])

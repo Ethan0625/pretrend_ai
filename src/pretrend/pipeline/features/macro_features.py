@@ -106,45 +106,42 @@ def load_bronze_macro(ctx: MacroFeatureRunContext) -> pd.DataFrame:
 # =========================
 
 def add_common_features(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    공통 Feature:
-      - mom: value / value_1_step_ago - 1
-      - yoy: value / value_12_step_ago - 1
-      - rolling_3m: value 3-step 이동평균
-      - rolling_12m: value 12-step 이동평균
-    (FRED macro는 대부분 월 단위, 일부 일 단위(DGS10))
-    """
     if df.empty:
         return df
 
     df = df.sort_values(["indicator_id", "date"]).copy()
 
     def _per_indicator(g: pd.DataFrame) -> pd.DataFrame:
+        # ✅ pandas groupby.apply 환경에 따라 group key 컬럼이 빠질 수 있으므로 복구
+        if "indicator_id" not in g.columns:
+            g = g.copy()
+            g["indicator_id"] = g.name  # group key
+
         g = g.sort_values("date")
         g["value_lag_1"] = g["value"].shift(1)
         g["value_lag_12"] = g["value"].shift(12)
 
-        # MoM (또는 직전 step 대비)
         g["mom"] = np.where(
             g["value_lag_1"].notna() & (g["value_lag_1"] != 0),
             g["value"] / g["value_lag_1"] - 1.0,
             np.nan,
         )
 
-        # YoY (또는 12-step 대비)
         g["yoy"] = np.where(
             g["value_lag_12"].notna() & (g["value_lag_12"] != 0),
             g["value"] / g["value_lag_12"] - 1.0,
             np.nan,
         )
 
-        # Rolling
         g["rolling_3m"] = g["value"].rolling(window=3, min_periods=3).mean()
         g["rolling_12m"] = g["value"].rolling(window=12, min_periods=12).mean()
-
         return g
 
-    df = df.groupby("indicator_id", group_keys=False).apply(_per_indicator)
+    df = (
+        df.groupby("indicator_id", group_keys=False, sort=False)
+          .apply(_per_indicator)
+          .reset_index(drop=True)  # ✅ index 꼬임 방지
+    )
     return df
 
 
