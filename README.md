@@ -200,7 +200,7 @@ PYTHONPATH=src python -m pretrend.pipeline.features.macro_features \
 
 ---
 
-## 6. 문서
+## 5. 문서
 
 * 환경 구성: `/docs/environment.md`
 * 데이터 설계:

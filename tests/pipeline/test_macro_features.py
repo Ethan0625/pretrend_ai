@@ -62,11 +62,7 @@ def test_unrate_delta_3m_and_regime():
     """
 
     # 6개월 데이터: 3개월 간격으로 pattern을 넣어서 레짐이 바뀌도록 설계
-<<<<<<< HEAD
     dates = pd.date_range("2023-01-01", periods=6, freq=MonthEnd()).date
-=======
-    dates = pd.date_range("2023-01-01", periods=6, freq="M").date
->>>>>>> origin/main
 
     # value(실업률) 설계:
     # 2023-01: 3.5
@@ -126,11 +122,7 @@ def test_fedfunds_regime():
           기타               -> paused
     """
 
-<<<<<<< HEAD
     dates = pd.date_range("2023-01-01", periods=6, freq=MonthEnd()).date
-=======
-    dates = pd.date_range("2023-01-01", periods=6, freq="M").date
->>>>>>> origin/main
     # value 설계:
     # 2023-01: 3.0
     # 2023-02: 3.25
@@ -186,11 +178,7 @@ def test_dgs10_spread_and_inversion():
           spread >= 0.5%           -> normal
     """
 
-<<<<<<< HEAD
     dates = pd.date_range("2023-01-01", periods=4, freq=MonthEnd())
-=======
-    dates = pd.date_range("2023-01-01", periods=4, freq="M")
->>>>>>> origin/main
 
     # FedFunds: 4개월 시계열
     fed_values = [2.0, 3.0, 4.0, 5.0]
@@ -271,11 +259,7 @@ def test_cpi_inflation_regime():
     대략적인 yoy 패턴을 검증한다.
     """
 
-<<<<<<< HEAD
     dates = pd.date_range("2020-01-01", periods=24, freq=MonthEnd()).date
-=======
-    dates = pd.date_range("2020-01-01", periods=24, freq="M").date
->>>>>>> origin/main
 
     # 간단하게 구간별로 yoy를 유도하기 위해 value를 수동 설계하는 대신
     # 이미 yoy가 계산된 것처럼 간주하고 값들을 직접 넣어보는 방법으로 검증해도 되지만,
