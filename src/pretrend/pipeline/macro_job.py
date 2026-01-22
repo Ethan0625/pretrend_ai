@@ -306,7 +306,7 @@ class MacroJobRunner:
                 "silver_row_count": result.silver_result.row_count,
                 "bronze_partitions": ",".join(result.bronze_result.partitions or []),
                 "silver_partitions": ",".join(result.silver_result.partitions or []),
-                "created_at": pd.Timestamp.now("UTC"),
+                "created_at": pd.Timestamp.utcnow(),
             }
 
             df_new = pd.DataFrame([record])
