@@ -119,34 +119,32 @@ def add_common_features(df: pd.DataFrame) -> pd.DataFrame:
 
     df = df.sort_values(["indicator_id", "date"]).copy()
 
-    def _per_indicator(g: pd.DataFrame) -> pd.DataFrame:
-        g = g.sort_values("date")
-        g["value_lag_1"] = g["value"].shift(1)
-        g["value_lag_12"] = g["value"].shift(12)
+    g = df.groupby("indicator_id", sort=False)
 
-        # MoM (또는 직전 step 대비)
-        g["mom"] = np.where(
-            g["value_lag_1"].notna() & (g["value_lag_1"] != 0),
-            g["value"] / g["value_lag_1"] - 1.0,
-            np.nan,
-        )
+    df["value_lag_1"] = g["value"].shift(1)
+    df["value_lag_12"] = g["value"].shift(12)
 
-        # YoY (또는 12-step 대비)
-        g["yoy"] = np.where(
-            g["value_lag_12"].notna() & (g["value_lag_12"] != 0),
-            g["value"] / g["value_lag_12"] - 1.0,
-            np.nan,
-        )
+    df["mom"] = np.where(
+        df["value_lag_1"].notna() & (df["value_lag_1"] != 0),
+        df["value"] / df["value_lag_1"] - 1.0,
+        np.nan,
+    )
 
-        # Rolling
-        g["rolling_3m"] = g["value"].rolling(window=3, min_periods=3).mean()
-        g["rolling_12m"] = g["value"].rolling(window=12, min_periods=12).mean()
+    df["yoy"] = np.where(
+        df["value_lag_12"].notna() & (df["value_lag_12"] != 0),
+        df["value"] / df["value_lag_12"] - 1.0,
+        np.nan,
+    )
 
-        return g
+    # rolling은 groupby.rolling을 쓰면 index가 MultiIndex가 되므로 reset_index(level=0, drop=True)로 정리
+    df["rolling_3m"] = (
+        g["value"].rolling(window=3, min_periods=3).mean().reset_index(level=0, drop=True)
+    )
+    df["rolling_12m"] = (
+        g["value"].rolling(window=12, min_periods=12).mean().reset_index(level=0, drop=True)
+    )
 
-    df = df.groupby("indicator_id", group_keys=False).apply(_per_indicator)
     return df
-
 
 # =========================
 # 4. Indicator-specific Feature & Regime

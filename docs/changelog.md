@@ -1,5 +1,11 @@
 # Changelog
 
+## v2026.01.14
+- Macro Pipeline 운영 정책 정리
+  - DAG 매일 트리거 + 직전월 1일~전일 롤링 재처리
+  - Silver Macro Feature year/month overwrite 멱등성 명시
+- Gold Layer 설계 준비를 위한 Macro/EOD 정합성 문서화
+
 ## v2025.12.05 - EOD Airflow Pipeline (Bronze → Silver) 통합 및 Silver Feature Layer 구축
 
 ### 변경 요약
