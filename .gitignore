@@ -103,7 +103,4 @@ src/pretrend/**/debug_*.py
 
 # --- airflow ---
 scripts
-airflow_pretrend/logs/
-airflow_pretrend/airflow.db
-airflow_pretrend/scheduler/
-airflow_pretrend/webserver/
+airflow_pretrend*
