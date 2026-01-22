@@ -112,11 +112,6 @@ def add_common_features(df: pd.DataFrame) -> pd.DataFrame:
     df = df.sort_values(["indicator_id", "date"]).copy()
 
     def _per_indicator(g: pd.DataFrame) -> pd.DataFrame:
-        # ✅ pandas groupby.apply 환경에 따라 group key 컬럼이 빠질 수 있으므로 복구
-        if "indicator_id" not in g.columns:
-            g = g.copy()
-            g["indicator_id"] = g.name  # group key
-
         g = g.sort_values("date")
         g["value_lag_1"] = g["value"].shift(1)
         g["value_lag_12"] = g["value"].shift(12)
