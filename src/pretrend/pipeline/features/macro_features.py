@@ -106,38 +106,45 @@ def load_bronze_macro(ctx: MacroFeatureRunContext) -> pd.DataFrame:
 # =========================
 
 def add_common_features(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    공통 Feature:
+      - mom: value / value_1_step_ago - 1
+      - yoy: value / value_12_step_ago - 1
+      - rolling_3m: value 3-step 이동평균
+      - rolling_12m: value 12-step 이동평균
+    """
     if df.empty:
         return df
 
     df = df.sort_values(["indicator_id", "date"]).copy()
 
-    def _per_indicator(g: pd.DataFrame) -> pd.DataFrame:
-        g = g.sort_values("date")
-        g["value_lag_1"] = g["value"].shift(1)
-        g["value_lag_12"] = g["value"].shift(12)
+    g = df.groupby("indicator_id", sort=False)
 
-        g["mom"] = np.where(
-            g["value_lag_1"].notna() & (g["value_lag_1"] != 0),
-            g["value"] / g["value_lag_1"] - 1.0,
-            np.nan,
-        )
+    df["value_lag_1"] = g["value"].shift(1)
+    df["value_lag_12"] = g["value"].shift(12)
 
-        g["yoy"] = np.where(
-            g["value_lag_12"].notna() & (g["value_lag_12"] != 0),
-            g["value"] / g["value_lag_12"] - 1.0,
-            np.nan,
-        )
-
-        g["rolling_3m"] = g["value"].rolling(window=3, min_periods=3).mean()
-        g["rolling_12m"] = g["value"].rolling(window=12, min_periods=12).mean()
-        return g
-
-    df = (
-        df.groupby("indicator_id", group_keys=False, sort=False)
-          .apply(_per_indicator)
-          .reset_index(drop=True)  # ✅ index 꼬임 방지
+    df["mom"] = np.where(
+        df["value_lag_1"].notna() & (df["value_lag_1"] != 0),
+        df["value"] / df["value_lag_1"] - 1.0,
+        np.nan,
     )
+
+    df["yoy"] = np.where(
+        df["value_lag_12"].notna() & (df["value_lag_12"] != 0),
+        df["value"] / df["value_lag_12"] - 1.0,
+        np.nan,
+    )
+
+    # rolling은 groupby.rolling을 쓰면 index가 MultiIndex가 되므로 reset_index(level=0, drop=True)로 정리
+    df["rolling_3m"] = (
+        g["value"].rolling(window=3, min_periods=3).mean().reset_index(level=0, drop=True)
+    )
+    df["rolling_12m"] = (
+        g["value"].rolling(window=12, min_periods=12).mean().reset_index(level=0, drop=True)
+    )
+
     return df
+
 
 
 # =========================
