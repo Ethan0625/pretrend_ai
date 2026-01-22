@@ -4,6 +4,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from pandas.tseries.offsets import MonthEnd
+from pandas.tseries.offsets import MonthEnd
 
 from pretrend.pipeline.features.macro_features import (
     # constants
