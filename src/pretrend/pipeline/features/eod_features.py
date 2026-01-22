@@ -433,7 +433,7 @@ def run_eod_silver_features(
         feature_start_date=start_date,
         feature_end_date=end_date,
         run_id=run_id,
-        ingestion_ts=pd.Timestamp.now("UTC"),
+        ingestion_ts=pd.Timestamp.utcnow(),
         cfg=cfg,
     )
     cfg.target_symbols = target_symbols or None

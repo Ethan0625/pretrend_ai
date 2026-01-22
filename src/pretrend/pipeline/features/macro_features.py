@@ -112,6 +112,7 @@ def add_common_features(df: pd.DataFrame) -> pd.DataFrame:
       - yoy: value / value_12_step_ago - 1
       - rolling_3m: value 3-step 이동평균
       - rolling_12m: value 12-step 이동평균
+    (FRED macro는 대부분 월 단위, 일부 일 단위(DGS10))
     """
     if df.empty:
         return df
@@ -144,8 +145,6 @@ def add_common_features(df: pd.DataFrame) -> pd.DataFrame:
     )
 
     return df
-
-
 
 # =========================
 # 4. Indicator-specific Feature & Regime

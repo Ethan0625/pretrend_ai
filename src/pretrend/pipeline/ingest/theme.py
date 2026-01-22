@@ -48,7 +48,7 @@ class ThemeNormalizer(BaseNormalizer):
         # TODO: ticker 포맷 정규화, 통화/단위 통일, run_id/ingestion_ts 추가 등
         # for df in (etf_master, etf_holdings, etf_perf):
         #     df["run_id"] = context.run_id
-        #     df["ingestion_ts"] = pd.Timestamp.now("UTC")
+        #     df["ingestion_ts"] = pd.Timestamp.utcnow()
 
         return {
             "etf_master": etf_master,
