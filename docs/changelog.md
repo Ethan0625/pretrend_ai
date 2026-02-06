@@ -1,5 +1,90 @@
 # Changelog
 
+## v2026.02.06 — Pipeline Idempotency 강화 및 Agent 운영 기준 확정
+
+### 변경 요약
+- Macro / EOD Silver 파이프라인의 **멱등성(idempotency) 검증 수준을 파티션 invariant 기준으로 상향**
+- AI Agent(Codex) 도입 범위를 **tests/docs 전용 보조 도구**로 명확히 제한하고, 운영 규칙을 문서로 고정
+- 현재 구현 범위와 문서 간 **정합성(Doc Sync) 완료**
+
+---
+
+### 1) Silver Layer 멱등성 검증 강화
+
+#### Macro / EOD Silver 공통
+- 기존:
+  - 파일 존재 여부 또는 단일 파일 overwrite 여부 중심 검증
+- 개선:
+  - **파티션 단위 invariant 검증**
+    - 재실행 시 파티션 내 row 수 증가 없음
+    - 중복 artifact 생성 없음
+    - overwrite 보장
+
+#### 테스트 설계 원칙
+- 구현 세부(파일명, 내부 로직)에 결합된 assert 제거
+- 의미적 불변조건(invariant) 중심 테스트로 재설계
+- 향후 저장 포맷/경로 변경에도 테스트 재사용 가능하도록 구성
+
+---
+
+### 2) 테스트 품질 및 결합도 개선
+- 파티션 전체를 기준으로 검증하도록 테스트 구조 단순화
+- parquet 파일 반복 로딩/순회 로직 제거
+- 테스트가 “구현을 설명”하지 않고 “결과를 검증”하도록 역할 정리
+
+---
+
+### 3) Agent(Codex) 도입 운영 기준 확정
+
+#### 도입 결론
+- Codex는 **설계·판단·전략·실행 주체가 아님**
+- 역할:
+  - 테스트 코드 초안 생성
+  - 문서 동기화
+  - 반복 작업 보조
+
+#### 통제 장치
+- `AGENTS.md` 고정:
+  - Scope 제한 (tests/docs 중심)
+  - 작은 diff (1 task / ≤300 LOC 권장)
+  - public API 변경 금지
+  - 멱등성/파티션 overwrite 규칙 보존
+  - 검증 커맨드 명시 필수
+- 브랜치 전략:
+  - `codex/<task>` 단위 작업
+- Task Spec에 Scope / DoD 명시
+
+#### 면접·대외 설명 기준
+- “AI가 다 했다” ❌
+- “AI 초안 → 사람이 리뷰·수정·승인 → 테스트/문서로 증명” ⭕
+- Agent 사용 여부 및 역할 분리는 `agent_adoption_notes.md`에 명시
+
+---
+
+### 4) 문서 동기화 완료
+- README
+- operation_guide
+- agent_adoption_notes
+
+→ 현재 코드 구현 범위(Macro/EOD Bronze→Silver, 멱등성 정책, Agent 운영 기준)와 문서 내용이 일치하도록 정렬 완료
+
+---
+
+### 5) 현재 스코프 및 다음 단계
+
+#### 완료 범위
+- Macro Bronze → Silver 파이프라인
+- EOD Bronze → Silver 파이프라인
+- 파티션 overwrite 기반 멱등성 보장
+- 운영 환경을 가정한 테스트/문서/Agent 통제 구조
+
+#### 다음 목표 (Out of scope → Next)
+- Gold Layer:
+  - Macro Silver + EOD Silver 결합
+  - as-of join 기반 Feature Mart 설계
+- Universe(U1~U3) 계산 로직 구현 및 테스트
+
+
 ## v2026.01.14
 - Macro Pipeline 운영 정책 정리
   - DAG 매일 트리거 + 직전월 1일~전일 롤링 재처리
