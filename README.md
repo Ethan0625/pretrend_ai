@@ -160,7 +160,25 @@ Universe Selection (U0 → U1 → U2 → U3)
 
 ## 4. 실행 방법
 
-### 4.1 환경 준비
+### 4.1 빠른 시작 (개발/테스트)
+
+```bash
+# 의존성 설치 (editable)
+pip install -e .
+# Parquet 엔진이 없으면 선택적으로 설치
+pip install pyarrow  # 또는 fastparquet
+```
+
+테스트 실행:
+
+```bash
+pytest -q
+# 특정 케이스만
+pytest -q tests/pipeline/test_eod_silver_writer_idempotency.py
+pytest -q tests/pipeline/test_macro_silver_writer.py
+```
+
+### 4.2 환경 준비
 
 ```bash
 conda activate pretrend-dev
@@ -169,7 +187,7 @@ export FRED_API_KEY=YOUR_FRED_API_KEY
 
 ---
 
-### 4.2 Bronze → Silver 실행 예시
+### 4.3 Bronze → Silver 실행 예시
 
 ```bash
 PYTHONPATH=src python -m pretrend.pipeline.ingest.macro \
@@ -185,7 +203,7 @@ PYTHONPATH=src python -m pretrend.pipeline.features.macro_features \
 
 ---
 
-### 4.3 Airflow 기반 실행 (권장)
+### 4.4 Airflow 기반 실행 (권장)
 
 * DAG:
 
@@ -197,6 +215,14 @@ PYTHONPATH=src python -m pretrend.pipeline.features.macro_features \
   * 매 실행 시 **직전월 1일 ~ 전일 롤링 재처리**
   * 파티션 overwrite 기반 멱등성
   * Airflow는 대규모 운영 목적이 아니라, **배치 재현성과 파이프라인 경계 명확화**를 위해 사용
+
+---
+
+## 5. Codex 사용 정책 (Agent-assisted Dev)
+
+- 모든 작업 전 `AGENTS.md` 규칙을 준수하고, 작은/검토 가능한 diff를 유지한다.
+- 브랜치는 `codex/*` 형태로 생성하여 작업한다.
+- 한 번에 하나의 작업만 포함하고, 실행 가능한 검증 명령(예: `pytest -q`)을 제시한다.
 
 ---
 

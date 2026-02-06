@@ -198,6 +198,13 @@ airflow standalone
 ## 7.4 데이터 볼륨 및 경로 기준
 - 현재 구현 단계에서는 파일 시스템 기반 스토리지를 사용한다.
     - 데이터 루트: data/
+
+---
+
+## Agent-assisted development (Codex)
+- 모든 작업은 `AGENTS.md` 운영 규칙을 따른다: 작은 diff, 멱등성 보존, 공개 API 변경 지양, 검증 명령 제시.
+- 브랜치는 `codex/*` 형태로 분리해 수행하고, 한 PR에는 하나의 작업만 담는다.
+- 변경 전 짧은 계획을 작성하고, 변경 후에는 실행 가능한 검증 명령(예: `pytest -q`)을 함께 제공한다.
     - 주요 볼륨:
         - data/bronze/ : Raw / 정규화 데이터
         - data/silver/ : Feature 데이터
