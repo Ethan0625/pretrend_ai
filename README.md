@@ -164,7 +164,7 @@ Universe Selection (U0 → U1 → U2 → U3)
 
 ```bash
 # 의존성 설치 (editable)
-pip install -e .
+python -m pip install -e .
 # Parquet 엔진이 없으면 선택적으로 설치
 pip install pyarrow  # 또는 fastparquet
 ```
@@ -220,9 +220,10 @@ PYTHONPATH=src python -m pretrend.pipeline.features.macro_features \
 
 ## 5. Codex 사용 정책 (Agent-assisted Dev)
 
-- 모든 작업 전 `AGENTS.md` 규칙을 준수하고, 작은/검토 가능한 diff를 유지한다.
-- 브랜치는 `codex/*` 형태로 생성하여 작업한다.
-- 한 번에 하나의 작업만 포함하고, 실행 가능한 검증 명령(예: `pytest -q`)을 제시한다.
+- 모든 작업 전 `AGENTS.md` 규칙을 준수하고, 작은/검토 가능한 diff를 유지한다 (선호: ≤300 LOC).
+- `dev`에서 분기한 `codex/<task>` 브랜치로 작업한다.
+- 한 번에 하나의 작업만 포함하고, 실행 가능한 검증 명령(예: `pytest -q`, 단일 테스트 파일은 `pytest -q tests/pipeline/<file>.py`)을 제시한다.
+- 안정성을 위해 가능하면 범위가 좁은 변경(예: tests-only, docs-only)으로 작업한다.
 
 ---
 
