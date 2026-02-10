@@ -8,6 +8,7 @@ from datetime import date
 from pathlib import Path
 
 import pandas as pd
+from pandas.api.types import is_string_dtype
 import pytest
 
 from pretrend.pipeline.calendar.config import (
@@ -113,7 +114,7 @@ class TestSchemaInvariants:
         silver = normalize_econ_events(bronze, ctx)
 
         assert list(silver.columns) == ECON_EVENTS_SILVER_COLUMNS
-        assert silver["indicator_id"].dtype == object  # TEXT
+        assert is_string_dtype(silver["indicator_id"].dtype)  # TEXT
         assert silver["has_timestamp"].dtype == bool
 
         # observation_date should be date objects
@@ -126,7 +127,7 @@ class TestSchemaInvariants:
         silver = normalize_fred_vintages(bronze, ctx)
 
         assert list(silver.columns) == FRED_VINTAGES_SILVER_COLUMNS
-        assert silver["indicator_id"].dtype == object  # TEXT
+        assert is_string_dtype(silver["indicator_id"].dtype)  # TEXT
         assert silver["is_first_vintage"].dtype == bool
 
         # observation_date and vintage_date should be date objects

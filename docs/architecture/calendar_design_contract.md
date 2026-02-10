@@ -1,9 +1,11 @@
 # Calendar Pipeline v1 — Design Contract (문서 전용)
+This document is the SOT for: Calendar evidence tables (`calendar.econ_events`, `calendar.fred_vintages`) used by Gold Layer v1 release-date derivation.
 
 ## 1) 개요 및 상태 (Specification only)
 - 목적: Gold Layer v1의 PIT 안전성을 보장하기 위한 **릴리즈 타이밍 증거** 캘린더를 정의한다.
 - 상태: **설계 명세 전용**이며 아직 구현되지 않았다. 구현은 Gold v1을 언블록하기 위한 후속 과제다.
 - 범위: Bronze→Silver 파이프라인 패턴을 따르는 `calendar.econ_events`, `calendar.fred_vintages` 두 테이블의 계약을 고정한다.
+- 용어 기준(본 문서): `release_ts_utc`(UTC timestamp), `release_date_utc`(UTC date), Gold 소비 키는 `release_date`, `trade_date`를 사용하며 정의/불변식은 `docs/architecture/gold_design_contract.md` §9를 따른다.
 
 ## 2) Scope & Non-Goals
 ### Scope
@@ -140,6 +142,8 @@
 - **ST11**: econ_events timestamp 모두 NULL 처리 (release_ts_utc/release_date_utc NULL, has_timestamp=False)
 
 ## 8) Gold Interface Contract
+Gold PIT 불변식 연계: 본 절(§8a–§8d)은 `docs/architecture/gold_layer.md` §9 PIT Invariants를 만족하기 위한 Calendar→Gold 인터페이스 계약이다.
+
 ### 8a. Gold에서 release_date 산출
 | Calendar 소스 | Gold의 release_date 계산 | release_source 태그 |
 | --- | --- | --- |
@@ -165,6 +169,7 @@
 - 완전성 미보장: 모든 (indicator_id, observation_date)가 존재하지 않을 수 있음 → Gold가 `assumed_t_plus_1`로 처리.
 - release_ts_utc 정확도 제한: 역사 데이터는 근사치일 수 있으며, source/태그로 신뢰도를 전달.
 - 단일 진실원(SOT) 아님: econ_events와 fred_vintages가 불일치할 수 있으나 Calendar는 조정하지 않음; 우선순위 선택은 Gold 책임(§8b).
+- 본 절의 비보장 사항은 Gold `release_date < trade_date` 불변식 자체를 완화하지 않으며, 해당 불변식은 `docs/architecture/gold_layer.md` §9를 따른다.
 
 ## 9) Calendar의 보장사항 / 비보장사항 요약
 - 보장: 스키마·키·정규화 규칙·타임존 규칙·dedup 규칙·멱등 파티션 overwrite 준수.
