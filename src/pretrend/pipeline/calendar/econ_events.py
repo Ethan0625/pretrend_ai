@@ -82,11 +82,6 @@ def normalize_econ_events(
     else:
         df["release_date_local"] = None
 
-    if "actual_value" not in df.columns:
-        df["actual_value"] = None
-    else:
-        df["actual_value"] = pd.to_numeric(df["actual_value"], errors="coerce")
-
     # ── Step 3: derive release_date_utc and has_timestamp ──
     has_ts = df["release_ts_utc"].notna()
     df["has_timestamp"] = has_ts

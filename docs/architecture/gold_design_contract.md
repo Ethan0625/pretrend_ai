@@ -3,7 +3,7 @@ This document is the SOT for: Gold Layer v1 PIT join contract and release-date u
 
 ## 1. 개요 (Overview & Status)
 - Gold Layer v1은 Silver 출력물을 기반으로 한 **설계 계약서**이며, 아직 구현되지 않았다.
-- 구현은 Calendar pipeline(econ_events, fred_vintages)이 준비되기 전까지 차단된다.
+- Gold 구현은 Calendar pipeline(econ_events, fred_vintages) 인터페이스를 전제로 진행한다.
 - 목적: 향후 구현·인터뷰 시 참조할 고정된 계약으로, 설계 변경을 의도하지 않는다.
 - 용어 기준(본 문서): `release_date`(Gold 소비 기준 날짜), `trade_date`(소비/거래 기준 날짜). Calendar 원천 컬럼 `release_ts_utc`, `release_date_utc`는 `docs/architecture/calendar_design_contract.md` §8a–§8c 정의를 따른다.
 
@@ -34,8 +34,8 @@ This document is the SOT for: Gold Layer v1 PIT join contract and release-date u
 
 ## 3. Calendar Pipeline 의존성 (구현 차단 사유 명시)
 - Gold v1은 Calendar pipeline( econ_events, fred_vintages )에서 제공하는 이벤트/발표 일정에 **의존**한다.
-- 해당 Calendar 파이프라인은 아직 존재하지 않으며, 구현 전까지 Gold v1 실행은 허용되지 않는다.
-- Calendar가 준비되면 `release_date` 가정값을 검증·보정하고, PIT 조인을 위한 공식 타임라인을 제공한다.
+- Calendar 파이프라인은 구현 완료 상태(v2026.02.10)이며, Gold는 해당 인터페이스를 소비한다.
+- Calendar는 `release_date` 가정값 검증·보정 및 PIT 조인을 위한 공식 타임라인을 제공한다.
 
 ## 4. Core Philosophy (release_date 철학)
 - Gold의 모든 값은 `release_date` 시점에 **알 수 있었다고 가정되는 정보**만을 반영해야 한다.
@@ -67,7 +67,7 @@ This document is the SOT for: Gold Layer v1 PIT join contract and release-date u
 ## 9. PIT Invariants (테스트 계약)
 - `release_date`는 소비되는 `trade_date`보다 반드시 이른 시점이어야 한다: `release_date < trade_date`.
 - 중복 릴리즈가 있을 경우 가장 늦은(가장 최근) `release_date`를 선택하되, 여전히 소비 시점 이전이어야 한다.
-- Calendar 미구현 시 가정 기반임을 표시해야 하며, 추후 Calendar 반영 시 동일 로직으로 재현 가능해야 한다.
+- Calendar 증거가 없는 경우 가정 기반임을 표시해야 하며, Calendar 인터페이스 기준으로 동일 로직 재현이 가능해야 한다.
 - Calendar 인터페이스 컬럼(`release_ts_utc`, `release_date_utc`)에서 Gold `release_date`로의 매핑은 `docs/architecture/calendar_design_contract.md` §8a–§8c를 따른다.
 
 ## 10. Macro Feature v1 (상태 Feature 계약)

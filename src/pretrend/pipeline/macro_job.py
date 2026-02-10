@@ -16,6 +16,25 @@ from pretrend.pipeline.ingest.macro import (
     MacroFetcher,
     MacroNormalizer,
     MacroWriter,
+    VintageNormalizer,
+    VintageWriter,
+    EconEventsNormalizer,
+    EconEventsWriter,
+)
+from pretrend.pipeline.calendar.config import CalendarConfig
+from pretrend.pipeline.calendar.fred_vintages import (
+    FredVintagesRunContext,
+    normalize_fred_vintages,
+    write_silver_fred_vintages,
+)
+from pretrend.pipeline.calendar.econ_events import (
+    EconEventsRunContext,
+    normalize_econ_events,
+    write_silver_econ_events,
+)
+from pretrend.pipeline.calendar.runner import (
+    load_bronze_fred_vintages,
+    load_bronze_econ_events,
 )
 from pretrend.pipeline.features.macro_features import (
     MacroFeatureConfig,
@@ -101,6 +120,9 @@ class MacroJobResult:
     run_mode: RunMode
     bronze_result: MacroTaskResult
     silver_result: MacroTaskResult
+    bronze_vintage_result: MacroTaskResult | None = None
+    bronze_econ_events_result: MacroTaskResult | None = None
+    silver_calendar_result: MacroTaskResult | None = None
 
 
 class MacroJobRunner:
@@ -128,13 +150,20 @@ class MacroJobRunner:
         )
 
         bronze_result = self._run_bronze_ingest(start_date, end_date, run_id)
+        bronze_vintage_result = self._run_bronze_vintages(start_date, end_date, run_id)
+        bronze_econ_events_result = self._run_bronze_econ_events(start_date, end_date, run_id)
         silver_result = self._run_silver_features(start_date, end_date, run_id)
+        silver_calendar_result = self._run_silver_calendar(run_id)
 
         logger.info(
-            "MacroJob finished. run_id=%s, bronze_rows=%s, silver_rows=%s",
+            "MacroJob finished. run_id=%s, bronze_rows=%s, silver_rows=%s, "
+            "vintage_rows=%s, econ_events_rows=%s, calendar_rows=%s",
             run_id,
             bronze_result.row_count,
             silver_result.row_count,
+            bronze_vintage_result.row_count,
+            bronze_econ_events_result.row_count,
+            silver_calendar_result.row_count,
         )
 
         result = MacroJobResult(
@@ -144,6 +173,9 @@ class MacroJobRunner:
             run_mode=self.config.run_mode,
             bronze_result=bronze_result,
             silver_result=silver_result,
+            bronze_vintage_result=bronze_vintage_result,
+            bronze_econ_events_result=bronze_econ_events_result,
+            silver_calendar_result=silver_calendar_result,
         )
 
         # 🔹 여기서 메타 로그 기록
@@ -210,6 +242,150 @@ class MacroJobRunner:
             partitions=partitions,
             extra={},
         )
+
+    # ---------------------------
+    # 내부 단계: Bronze Calendar Vintages
+    # ---------------------------
+    def _run_bronze_vintages(
+        self,
+        start_date: date,
+        end_date: date,
+        run_id: str,
+    ) -> MacroTaskResult:
+        """FRED vintage 데이터를 수집하여 Bronze Calendar에 적재."""
+        logger.info(
+            "[Bronze] vintage ingest start. start=%s, end=%s",
+            start_date, end_date,
+        )
+
+        ctx = IngestContext(
+            domain="calendar",
+            dataset="fred_vintages",
+            run_id=run_id,
+            start_date=start_date,
+            end_date=end_date,
+            output_root=self.config.ingest_output_root,
+        )
+
+        fetcher = MacroFetcher()
+        normalizer = VintageNormalizer()
+        writer = VintageWriter()
+
+        raw_df = fetcher.fetch_vintages(ctx)
+        if raw_df is None or raw_df.empty:
+            logger.warning("[Bronze] No vintage data fetched from FRED.")
+            return MacroTaskResult(row_count=0, partitions=[])
+
+        norm_df = normalizer.normalize(ctx, raw_df)
+        if norm_df is None or norm_df.empty:
+            logger.warning("[Bronze] Normalized vintage dataframe is empty.")
+            return MacroTaskResult(row_count=0, partitions=[])
+
+        writer.write(ctx, norm_df)
+
+        row_count = int(len(norm_df))
+        partitions = self._extract_partitions_from_dates(
+            pd.Series(norm_df["observation_date"])
+        )
+
+        logger.info(
+            "[Bronze] vintage ingest done. rows=%s, partitions=[%s]",
+            row_count, ", ".join(partitions),
+        )
+        return MacroTaskResult(row_count=row_count, partitions=partitions)
+
+    # ---------------------------
+    # 내부 단계: Bronze Calendar Econ Events
+    # ---------------------------
+    def _run_bronze_econ_events(
+        self,
+        start_date: date,
+        end_date: date,
+        run_id: str,
+    ) -> MacroTaskResult:
+        """FRED release/dates API로 econ_events를 수집하여 Bronze Calendar에 적재."""
+        logger.info(
+            "[Bronze] econ_events ingest start. start=%s, end=%s",
+            start_date, end_date,
+        )
+
+        ctx = IngestContext(
+            domain="calendar",
+            dataset="econ_events",
+            run_id=run_id,
+            start_date=start_date,
+            end_date=end_date,
+            output_root=self.config.ingest_output_root,
+        )
+
+        fetcher = MacroFetcher()
+        normalizer = EconEventsNormalizer()
+        writer = EconEventsWriter()
+
+        raw_df = fetcher.fetch_econ_events(ctx)
+        if raw_df is None or raw_df.empty:
+            logger.warning("[Bronze] No econ_events data fetched from FRED.")
+            return MacroTaskResult(row_count=0, partitions=[])
+
+        norm_df = normalizer.normalize(ctx, raw_df)
+        if norm_df is None or norm_df.empty:
+            logger.warning("[Bronze] Normalized econ_events dataframe is empty.")
+            return MacroTaskResult(row_count=0, partitions=[])
+
+        writer.write(ctx, norm_df)
+
+        row_count = int(len(norm_df))
+        partitions = self._extract_partitions_from_dates(
+            pd.Series(norm_df["observation_date"])
+        )
+
+        logger.info(
+            "[Bronze] econ_events ingest done. rows=%s, partitions=[%s]",
+            row_count, ", ".join(partitions),
+        )
+        return MacroTaskResult(row_count=row_count, partitions=partitions)
+
+    # ---------------------------
+    # 내부 단계: Silver Calendar (fred_vintages + econ_events)
+    # ---------------------------
+    def _run_silver_calendar(self, run_id: str) -> MacroTaskResult:
+        """Bronze Calendar → Silver Calendar (fred_vintages + econ_events)."""
+        cal_cfg = CalendarConfig(data_root=self.config.data_root)
+        total_rows = 0
+
+        # ── fred_vintages Silver ──
+        logger.info("[Silver] calendar fred_vintages start.")
+        fred_ctx = FredVintagesRunContext(
+            run_id=run_id,
+            ingestion_ts=pd.Timestamp.utcnow(),
+            cfg=cal_cfg,
+        )
+        bronze_fred = load_bronze_fred_vintages(cal_cfg)
+        if bronze_fred.empty:
+            logger.warning("[Silver] No bronze vintage data. Skip fred_vintages.")
+        else:
+            silver_fred = normalize_fred_vintages(bronze_fred, fred_ctx)
+            write_silver_fred_vintages(silver_fred, fred_ctx)
+            total_rows += len(silver_fred)
+            logger.info("[Silver] calendar fred_vintages done. rows=%s", len(silver_fred))
+
+        # ── econ_events Silver ──
+        logger.info("[Silver] calendar econ_events start.")
+        econ_ctx = EconEventsRunContext(
+            run_id=run_id,
+            ingestion_ts=pd.Timestamp.utcnow(),
+            cfg=cal_cfg,
+        )
+        bronze_econ = load_bronze_econ_events(cal_cfg)
+        if bronze_econ.empty:
+            logger.warning("[Silver] No bronze econ_events data. Skip econ_events.")
+        else:
+            silver_econ = normalize_econ_events(bronze_econ, econ_ctx)
+            write_silver_econ_events(silver_econ, econ_ctx)
+            total_rows += len(silver_econ)
+            logger.info("[Silver] calendar econ_events done. rows=%s", len(silver_econ))
+
+        return MacroTaskResult(row_count=total_rows)
 
     # ---------------------------
     # 내부 단계: Silver Features
@@ -296,6 +472,9 @@ class MacroJobRunner:
         try:
             log_path.parent.mkdir(parents=True, exist_ok=True)
 
+            bv = result.bronze_vintage_result or MacroTaskResult()
+            be = result.bronze_econ_events_result or MacroTaskResult()
+            sc = result.silver_calendar_result or MacroTaskResult()
             record = {
                 "job_type": "macro_bronze_silver",
                 "run_id": result.run_id,
@@ -304,6 +483,9 @@ class MacroJobRunner:
                 "end_date": pd.to_datetime(result.end_date),
                 "bronze_row_count": result.bronze_result.row_count,
                 "silver_row_count": result.silver_result.row_count,
+                "bronze_vintage_row_count": bv.row_count,
+                "bronze_econ_events_row_count": be.row_count,
+                "silver_calendar_row_count": sc.row_count,
                 "bronze_partitions": ",".join(result.bronze_result.partitions or []),
                 "silver_partitions": ",".join(result.silver_result.partitions or []),
                 "created_at": pd.Timestamp.utcnow(),
@@ -375,13 +557,17 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     # 요약 로그 (Airflow/XCom 등과 연동할 때 사용 가능)
     logger.info(
         "MacroJob summary: run_id=%s, mode=%s, "
-        "start=%s, end=%s, bronze_rows=%s, silver_rows=%s",
+        "start=%s, end=%s, bronze_rows=%s, silver_rows=%s, "
+        "vintage_rows=%s, econ_events_rows=%s, calendar_rows=%s",
         result.run_id,
         result.run_mode.value,
         result.start_date,
         result.end_date,
         result.bronze_result.row_count,
         result.silver_result.row_count,
+        result.bronze_vintage_result.row_count if result.bronze_vintage_result else 0,
+        result.bronze_econ_events_result.row_count if result.bronze_econ_events_result else 0,
+        result.silver_calendar_result.row_count if result.silver_calendar_result else 0,
     )
 
 

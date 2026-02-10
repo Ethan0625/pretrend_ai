@@ -1,5 +1,78 @@
 # Changelog
 
+## v2026.02.10 — Calendar Pipeline v1 구현 (Bronze + Silver)
+
+### 변경 요약
+- Calendar Pipeline v1을 설계 명세 단계에서 구현 완료 단계로 전환하여, `econ_events` / `fred_vintages` Bronze→Silver 파이프라인이 실제 동작하도록 반영
+- FRED 기반 Calendar Bronze ingest를 추가하여 release 증거 수집 경로를 코드로 고정
+- `macro_job.py` E2E 플로우에 `bronze_econ_events`와 `silver_calendar(econ_events + fred_vintages)` 단계를 통합
+- Silver Calendar 스키마를 release evidence 중심으로 경량화(`actual_value`, `value` 제거)
+- Calendar 테스트 12개(ST1~ST11 + ST3 variant)를 통해 스키마/멱등성/dedup/timezone 계약 검증 완료
+
+---
+
+### 1) Calendar Silver 구현 완료 (`econ_events` + `fred_vintages`)
+- 구현 모듈:
+  - `src/pretrend/pipeline/calendar/config.py`
+  - `src/pretrend/pipeline/calendar/econ_events.py`
+  - `src/pretrend/pipeline/calendar/fred_vintages.py`
+  - `src/pretrend/pipeline/calendar/runner.py`
+- `runner.py`는 Bronze loader(`load_bronze_econ_events`, `load_bronze_fred_vintages`)와 CLI(`--target econ_events|fred_vintages|all`)를 제공
+- 저장 경로(파티션 overwrite):
+  - Bronze: `data/bronze/calendar/{econ_events|fred_vintages}/year=YYYY/month=MM/*.parquet`
+  - Silver: `data/silver/calendar/{econ_events|fred_vintages}/year=YYYY/month=MM/*.parquet`
+
+---
+
+### 2) Calendar Bronze ingest 추가 (FRED release/dates + vintage API)
+- `src/pretrend/pipeline/ingest/macro.py` 확장:
+  - `MacroFetcher.fetch_vintages()` 추가
+    - FRED observations API(`realtime_start/end`) 기반 vintage 수집
+    - observation 연도 × realtime 2년 이중 청크
+    - rate limit 0.5s + 429 exponential backoff
+  - `MacroFetcher.fetch_econ_events()` 추가
+    - FRED release/dates API 기반 release 날짜 수집
+    - `release_id=10`(CPI), `release_id=50`(Employment) 반영
+    - `release_id=18`(H.15)은 제외(주간/일간 릴리즈, `fred_vintages` fallback으로 커버)
+    - `release_date -> observation_date`는 전월 1일 매핑(월간 지표)
+  - `VintageNormalizer` / `VintageWriter`, `EconEventsNormalizer` / `EconEventsWriter` 추가
+
+---
+
+### 3) `macro_job.py` E2E 플로우 통합
+- 변경 전:
+  - `bronze_ingest -> bronze_vintages -> silver_features -> silver_calendar(fred_vintages만)`
+- 변경 후:
+  - `bronze_ingest -> bronze_vintages -> bronze_econ_events -> silver_features -> silver_calendar(fred_vintages + econ_events)`
+- 결과적으로 Macro Job 1회 실행으로 Calendar Bronze+Silver까지 동기화 가능
+
+---
+
+### 4) Silver Calendar 스키마 경량화
+- `econ_events Silver`에서 `actual_value` 컬럼 제거
+- `fred_vintages Silver`에서 `value` 컬럼 제거
+- Calendar Silver는 값(value) 저장소가 아니라 Gold PIT용 `release_date` 증거 레이어로 역할 고정
+
+---
+
+### 5) 테스트 및 검증
+- 테스트 파일: `tests/pipeline/test_calendar.py`
+- 테스트 수: 12개 (ST1~ST11 + ST3 variant)
+  - Schema invariant
+  - Idempotency
+  - Dedup
+  - Timezone normalization
+- 모든 테스트는 synthetic fixture 기반이며 외부 API 호출 없음
+- 검증 실행 요약:
+  - 단기 실행(`--start 2024-01-01 --end 2024-06-30`): Bronze 21행, Silver 18행(econ_events)
+  - 전체 실행(`--start 2015-01-01 --end 2026-02-01`): `fred_vintages` Silver 28,412행
+
+---
+
+### 향후 계획
+- Gold Layer v1에서 Calendar(`econ_events`, `fred_vintages`)를 소비하는 PIT-safe 결합 로직 구현
+- Gold release source 태깅(`econ_events` / `fred_vintages` / `assumed_t_plus_1`)과 계약 테스트 연계 강화
+
 ## v2026.02.06 — Pipeline Idempotency 강화 및 Agent 운영 기준 확정
 
 ### 변경 요약

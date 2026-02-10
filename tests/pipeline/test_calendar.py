@@ -55,7 +55,6 @@ def _make_econ_bronze(
     observation_date: str = "2024-01-01",
     release_ts_utc: str | None = "2024-02-13 13:30:00+00:00",
     release_date_local: str | None = "2024-02-13",
-    actual_value: float | None = 308.417,
     source: str = "manual_csv",
 ) -> pd.DataFrame:
     row = {
@@ -65,7 +64,6 @@ def _make_econ_bronze(
             pd.Timestamp(release_ts_utc) if release_ts_utc else pd.NaT
         ),
         "release_date_local": release_date_local,
-        "actual_value": actual_value,
         "source": source,
         "run_id": "bronze_run",
         "ingestion_ts": pd.Timestamp("2024-06-01"),
@@ -77,7 +75,6 @@ def _make_fred_bronze(
     series_id: str = "CPIAUCSL",
     observation_date: str = "2024-01-01",
     vintage_date: str = "2024-02-15",
-    value: float = 308.417,
     source: str = "fred_api",
     run_id: str = "bronze_run",
 ) -> pd.DataFrame:
@@ -85,7 +82,6 @@ def _make_fred_bronze(
         "series_id": series_id,
         "observation_date": observation_date,
         "vintage_date": vintage_date,
-        "value": value,
         "source": source,
         "run_id": run_id,
         "ingestion_ts": pd.Timestamp("2024-06-01"),
@@ -181,20 +177,20 @@ class TestIdempotency:
         ctx1 = _econ_ctx(tmp_path, run_id="run_first")
         ctx2 = _econ_ctx(tmp_path, run_id="run_second")
 
-        # First write: value=100
-        bronze_v1 = _make_econ_bronze(actual_value=100.0)
+        # First write
+        bronze_v1 = _make_econ_bronze()
         silver_v1 = normalize_econ_events(bronze_v1, ctx1)
         write_silver_econ_events(silver_v1, ctx1)
 
-        # Second write: value=999 (distinguishable)
-        bronze_v2 = _make_econ_bronze(actual_value=999.0)
+        # Second write (different run_id → distinguishable)
+        bronze_v2 = _make_econ_bronze()
         silver_v2 = normalize_econ_events(bronze_v2, ctx2)
         write_silver_econ_events(silver_v2, ctx2)
 
         loaded = _load_all_parquets_under(ctx2.cfg.silver_econ_events_root)
 
         assert len(loaded) == 1
-        assert loaded.iloc[0]["actual_value"] == 999.0
+        assert loaded.iloc[0]["run_id_silver"] == "run_second"
         assert (
             loaded.duplicated(
                 subset=["indicator_id", "observation_date"]
@@ -247,32 +243,29 @@ class TestDedup:
 
         row_early = _make_econ_bronze(
             release_ts_utc="2024-02-13 13:30:00+00:00",
-            actual_value=308.0,
         )
         row_late = _make_econ_bronze(
             release_ts_utc="2024-02-14 10:00:00+00:00",
-            actual_value=309.0,
         )
         bronze = pd.concat([row_late, row_early], ignore_index=True)
 
         silver = normalize_econ_events(bronze, ctx)
 
         assert len(silver) == 1
-        assert silver.iloc[0]["actual_value"] == 308.0  # early row kept
+        ts = silver.iloc[0]["release_ts_utc"]
+        assert ts.day == 13  # early row kept (Feb 13, not Feb 14)
 
     def test_st7_fred_vintages_dedup_on_triple(self, tmp_path: Path):
         """ST7: Duplicate (indicator_id, observation_date, vintage_date) → one row."""
         ctx = _fred_ctx(tmp_path)
 
-        row1 = _make_fred_bronze(value=308.0, run_id="run_a")
-        row2 = _make_fred_bronze(value=309.0, run_id="run_b")
+        row1 = _make_fred_bronze(run_id="run_a")
+        row2 = _make_fred_bronze(run_id="run_b")
         bronze = pd.concat([row1, row2], ignore_index=True)
 
         silver = normalize_fred_vintages(bronze, ctx)
 
         assert len(silver) == 1
-        # Keep last ingested
-        assert silver.iloc[0]["value"] == 309.0
 
     def test_st8_is_first_vintage_flag(self, tmp_path: Path):
         """ST8: is_first_vintage=True only for the earliest vintage_date."""
@@ -280,9 +273,9 @@ class TestDedup:
 
         rows = pd.concat(
             [
-                _make_fred_bronze(vintage_date="2024-02-15", value=308.0),
-                _make_fred_bronze(vintage_date="2024-03-15", value=308.2),
-                _make_fred_bronze(vintage_date="2024-04-15", value=308.4),
+                _make_fred_bronze(vintage_date="2024-02-15"),
+                _make_fred_bronze(vintage_date="2024-03-15"),
+                _make_fred_bronze(vintage_date="2024-04-15"),
             ],
             ignore_index=True,
         )

@@ -4,7 +4,7 @@
 **Version:** 2026.01.14\
 
 본 문서는 **Pre-Trend Value 기반 주식 자동매매 시스템**의 기술 아키텍처를 정의한다.  
-특히, 현재 구현된 **거시지표 Macro 파이프라인 (Bronze/Silver Layer)**을 중심으로 설명하고,  
+특히, 현재 구현된 **거시지표 Macro + Calendar 파이프라인 (Bronze/Silver Layer)**을 중심으로 설명하고,  
 향후 확장 대상(EOD/뉴스/전략/LLM 등)을 상위 레벨에서 제시한다.
 
 ---
@@ -18,7 +18,7 @@
 | 레이어       | 컴포넌트                         | 설명 |
 |-------------|-----------------------------------|------|
 | 데이터       | Bronze / Silver / Meta           | 외부 데이터 수집, 정규화, Feature 생성 |
-| 파이프라인   | `pretrend.pipeline.*`            | Ingest, Feature 변환, (향후) Label/Train |
+| 파이프라인   | `pretrend.pipeline.*`            | Ingest, Feature 변환, Calendar 증거 파이프라인, (향후) Label/Train |
 | 전략/신호    | `pretrend.signals.*`             | Pre-Trend Value 기반 전략, 매매 시그널 생성 |
 | API         | `backend_api/` (FastAPI)         | 전략/데이터/LLM 인터페이스 제공 |
 | LLM         | vLLM 서버 (Qwen/Llama 계열)      | 리서치 요약, 질의응답, RAG 기반 분석 |
@@ -42,6 +42,8 @@ flowchart LR
     subgraph DataLayer[데이터 레이어]
         BZ[Bronze\n(Raw 정규화)]
         SV[Silver\n(Feature 변환)]
+        BC[Bronze Calendar\n(release evidence)]
+        SC[Silver Calendar\n(PIT evidence)]
         GD[Gold / Mart\n(전략별 View, 향후)]
     end
 
@@ -64,6 +66,7 @@ flowchart LR
 
     External --> INGEST --> BZ
     BZ --> FEAT --> SV
+    INGEST --> BC --> SC --> GD
     SV --> SIG
     SIG --> API
     LLM --> API
@@ -74,6 +77,11 @@ flowchart LR
     LLM --> DC
     CI --> DC
 ````
+
+Calendar Pipeline(v1) 설명:
+- `pretrend.pipeline.calendar.*`는 Gold PIT-safe 조인을 위한 release evidence 레이어를 제공한다.
+- 구현 모듈: `config.py`, `econ_events.py`, `fred_vintages.py`, `runner.py`
+- 저장 흐름: `data/bronze/calendar/*` → `data/silver/calendar/*`
 
 ---
 
@@ -87,12 +95,22 @@ flowchart LR
 pretrend_ai/
 ├─ data/
 │  ├─ bronze/
-│  │  └─ macro/
+│  │  ├─ macro/
 │  │      └─ econ_indicators/
 │  │          └─ year=YYYY/month=MM/*.parquet
+│  │  └─ calendar/
+│  │      ├─ econ_events/
+│  │      │   └─ year=YYYY/month=MM/*.parquet
+│  │      └─ fred_vintages/
+│  │          └─ year=YYYY/month=MM/*.parquet
 │  ├─ silver/
-│  │  └─ macro/
+│  │  ├─ macro/
 │  │      └─ macro_features/
+│  │          └─ year=YYYY/month=MM/*.parquet
+│  │  └─ calendar/
+│  │      ├─ econ_events/
+│  │      │   └─ year=YYYY/month=MM/*.parquet
+│  │      └─ fred_vintages/
 │  │          └─ year=YYYY/month=MM/*.parquet
 │  └─ meta/
 │
@@ -101,9 +119,14 @@ pretrend_ai/
 │      ├─ pipeline/
 │      │   ├─ ingest/
 │      │   │   ├─ base.py        # IngestContext / BaseFetcher / BaseNormalizer / BaseWriter
-│      │   │   └─ macro.py       # FRED Macro Bronze Ingest
-│      │   └─ features/
+│      │   │   └─ macro.py       # FRED Macro Bronze Ingest (+ Calendar Bronze ingest)
+│      │   ├─ features/
 │      │       └─ macro_features.py  # Macro Silver Feature 변환
+│      │   └─ calendar/
+│      │       ├─ config.py          # CalendarConfig / schema constants / mappings
+│      │       ├─ econ_events.py     # Calendar econ_events Silver 변환
+│      │       ├─ fred_vintages.py   # Calendar fred_vintages Silver 변환
+│      │       └─ runner.py          # Calendar Silver runner CLI
 │      ├─ signals/               # 전략/신호 모듈 (향후)
 │      ├─ llm/                   # LLM/RAG 모듈 (향후)
 │      ├─ config/                # 설정/스키마 (향후)
@@ -130,6 +153,7 @@ pretrend_ai/
 
 * ✅ Bronze: Macro (FRED 기반 econ_indicators)
 * ✅ Silver: Macro Features (macro_features)
+* ✅ Bronze/Silver: Calendar release evidence (`econ_events`, `fred_vintages`)
 * ⏳ Gold: 전략별 뷰, 시그널 Mart (향후)
 
 ---

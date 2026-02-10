@@ -32,6 +32,26 @@ SERIES_ID_TO_INDICATOR_ID: Dict[str, str] = {
     "DGS10": INDICATOR_DGS10,
 }
 
+# FRED release_id → indicator_ids mapping (monthly releases only).
+# H.15 (release_id=18) excluded: weekly/daily release, DGS10/FEDFUNDS
+# covered by fred_vintages is_first_vintage fallback.
+RELEASE_ID_TO_INDICATORS: Dict[int, List[str]] = {
+    10: [INDICATOR_CPI_HEADLINE, INDICATOR_CPI_CORE],  # Consumer Price Index
+    50: [INDICATOR_UNRATE],                             # Employment Situation
+}
+
+# ── Bronze schema column lists ──
+
+ECON_EVENTS_BRONZE_COLUMNS: List[str] = [
+    "indicator_id",
+    "observation_date",
+    "release_ts_utc",
+    "release_date_local",
+    "source",
+    "run_id",
+    "ingestion_ts",
+]
+
 # ── Silver schema column lists (used for validation and ordering) ──
 
 ECON_EVENTS_SILVER_COLUMNS: List[str] = [
@@ -39,7 +59,6 @@ ECON_EVENTS_SILVER_COLUMNS: List[str] = [
     "observation_date",
     "release_ts_utc",
     "release_date_utc",
-    "actual_value",
     "source",
     "has_timestamp",
     "run_id_silver",
@@ -50,7 +69,6 @@ FRED_VINTAGES_SILVER_COLUMNS: List[str] = [
     "indicator_id",
     "observation_date",
     "vintage_date",
-    "value",
     "is_first_vintage",
     "source",
     "run_id_silver",

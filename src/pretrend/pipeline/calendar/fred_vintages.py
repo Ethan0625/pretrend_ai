@@ -69,11 +69,6 @@ def normalize_fred_vintages(
     df["observation_date"] = pd.to_datetime(df["observation_date"]).dt.date
     df["vintage_date"] = pd.to_datetime(df["vintage_date"]).dt.date
 
-    if "value" in df.columns:
-        df["value"] = pd.to_numeric(df["value"], errors="coerce")
-    else:
-        df["value"] = None
-
     # ── Step 3: dedup on (indicator_id, observation_date, vintage_date) ──
     # Keep last ingested (latest run_id / row order).
     df = df.drop_duplicates(
