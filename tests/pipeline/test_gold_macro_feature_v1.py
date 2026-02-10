@@ -563,15 +563,86 @@ class TestNullPropagation:
 # ════════════════════════════════════════════════════════════
 
 
-class TestZscoreV1:
-    """MF10: zscore_12m column present, always NULL in v1."""
+class TestZscoreV1_1:
+    """MF10: zscore_12m — v1.1 실제 계산 검증."""
 
-    def test_mf10_zscore_always_null(self):
+    def test_mf10a_column_exists(self):
         gold = _run_gold()
         assert "zscore_12m" in gold.columns, (
             "MF10: zscore_12m column must exist in output schema"
         )
+
+    def test_mf10b_null_when_insufficient_history(self):
+        """Standard fixture: 7 CPI months (<12), 25 DGS10 days (<252) → NULL."""
+        gold = _run_gold()
         assert gold["zscore_12m"].isna().all(), (
-            f"MF10: zscore_12m must be NULL for all rows, "
+            f"MF10: zscore_12m should be NULL with insufficient history, "
             f"found {gold['zscore_12m'].notna().sum()} non-NULL"
+        )
+
+    def test_mf10c_computed_with_sufficient_monthly_history(self):
+        """12 monthly CPI values → zscore_12m is NOT NULL and matches expected."""
+        import math
+        macro = pd.DataFrame([
+            {"indicator_id": "CPI_US_ALL_ITEMS_SA",
+             "date": date(2023, m, 1), "value": float(m)}
+            for m in range(1, 13)
+        ])
+        cal = pd.DataFrame([
+            {"indicator_id": "CPI_US_ALL_ITEMS_SA",
+             "observation_date": date(2023, m, 1),
+             "release_date": date(2023, m, 1) + timedelta(days=40),
+             "release_source": "econ_events", "is_assumption_based": False}
+            for m in range(1, 13)
+        ])
+        gold = build_gold_macro_features(macro, cal, [date(2024, 2, 1)])
+        r = gold.iloc[0]
+        assert not pd.isna(r["zscore_12m"]), "MF10: zscore should be computed"
+        # Expected: (12 - 6.5) / std([1..12]) = 5.5 / sqrt(13)
+        expected = 5.5 / math.sqrt(13)
+        assert r["zscore_12m"] == pytest.approx(expected, rel=1e-6), (
+            f"MF10: expected zscore={expected:.6f}, got {r['zscore_12m']}"
+        )
+
+    def test_mf10d_null_when_value_null(self):
+        """selected_value=NULL → zscore_12m=NULL."""
+        macro = pd.DataFrame([
+            {"indicator_id": "CPI_US_ALL_ITEMS_SA",
+             "date": date(2023, m, 1), "value": float(m)}
+            for m in range(1, 12)
+        ] + [
+            {"indicator_id": "CPI_US_ALL_ITEMS_SA",
+             "date": date(2023, 12, 1), "value": None},
+        ])
+        cal = pd.DataFrame([
+            {"indicator_id": "CPI_US_ALL_ITEMS_SA",
+             "observation_date": date(2023, m, 1),
+             "release_date": date(2023, m, 1) + timedelta(days=40),
+             "release_source": "econ_events", "is_assumption_based": False}
+            for m in range(1, 13)
+        ])
+        gold = build_gold_macro_features(macro, cal, [date(2024, 2, 1)])
+        r = gold.iloc[0]
+        assert pd.isna(r["zscore_12m"]), (
+            f"MF10: zscore should be NULL when value is NULL, got {r['zscore_12m']}"
+        )
+
+    def test_mf10e_null_when_std_zero(self):
+        """All 12 values identical → std=0 → zscore=NULL."""
+        macro = pd.DataFrame([
+            {"indicator_id": "CPI_US_ALL_ITEMS_SA",
+             "date": date(2023, m, 1), "value": 100.0}
+            for m in range(1, 13)
+        ])
+        cal = pd.DataFrame([
+            {"indicator_id": "CPI_US_ALL_ITEMS_SA",
+             "observation_date": date(2023, m, 1),
+             "release_date": date(2023, m, 1) + timedelta(days=40),
+             "release_source": "econ_events", "is_assumption_based": False}
+            for m in range(1, 13)
+        ])
+        gold = build_gold_macro_features(macro, cal, [date(2024, 2, 1)])
+        r = gold.iloc[0]
+        assert pd.isna(r["zscore_12m"]), (
+            f"MF10: zscore should be NULL when std=0, got {r['zscore_12m']}"
         )

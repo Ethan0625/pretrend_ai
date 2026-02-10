@@ -2,7 +2,7 @@
 This document is the SOT for: Gold Layer v1 PIT join contract and release-date usage in Gold outputs.
 
 ## 1. 개요 (Overview & Status)
-- Gold Layer v1은 Silver 출력물을 기반으로 한 **설계 계약서**이며, 아직 구현되지 않았다.
+- Gold Layer v1은 Silver 출력물을 기반으로 한 **계약 문서**이며, Macro Feature v1 구현은 완료(v2026.02.11)되었고 확장 범위는 후속 구현 대상이다.
 - Gold 구현은 Calendar pipeline(econ_events, fred_vintages) 인터페이스를 전제로 진행한다.
 - 목적: 향후 구현·인터뷰 시 참조할 고정된 계약으로, 설계 변경을 의도하지 않는다.
 - 용어 기준(본 문서): `release_date`(Gold 소비 기준 날짜), `trade_date`(소비/거래 기준 날짜). Calendar 원천 컬럼 `release_ts_utc`, `release_date_utc`는 `docs/architecture/calendar_design_contract.md` §8a–§8c 정의를 따른다.
@@ -159,14 +159,14 @@ This document is the SOT for: Gold Layer v1 PIT join contract and release-date u
 - **MF7**: `regime` 값은 `tightening/easing/neutral` 외 값 금지.
 - **MF8**: 단일 지표 내 계산 불변식: 다른 indicator 데이터와 결합 계산 금지.
 - **MF9**: 과거값 부족/NULL 입력 시 파생 컬럼 NULL 처리 일관성 유지.
-- **MF10**: `zscore_12m`은 Gold v1에서 계산하지 않으며, 컬럼 존재 시 NULL 허용.
+- **MF10**: `zscore_12m`은 v1.1에서 구현 완료. Monthly window=12, Daily window=252. NULL 조건: value NULL, 히스토리 부족, std=0.
 
 ## 11. Gold v1의 Non-Goals
-- Calendar 파이프라인 구현 또는 Gold 계산 로직 구현을 포함하지 않는다.
+- EOD 결합 Gold 및 전략/유니버스 연계 계산 로직 구현은 본 범위에 포함하지 않는다.
 - 실제 발표 시각의 완전한 정확성을 보장하지 않는다(`release_date`는 가정).
 - 전략/유니버스/LLM 기능 확장이나 새로운 설계 제안은 범위 밖이다.
 
 ## 12. 구현 선행 조건 (Implementation Prerequisites)
-- Calendar pipeline(econ_events, fred_vintages)이 구현되어 `release_date` 가정을 검증할 수 있어야 한다.
-- PIT 조인을 위한 공식 캘린더 기준이 마련된 뒤에야 Gold v1 구현을 착수한다.
-- 상기 조건 충족 전까지 본 문서는 설계 계약으로만 사용하며, 구현은 차단한다.
+- Calendar pipeline(econ_events, fred_vintages) 인터페이스가 유지되어 `release_date` 가정을 검증할 수 있어야 한다.
+- Macro Feature v1 이후 확장 구현(EOD 결합/Universe 연계)은 동일 PIT 계약을 준수해야 한다.
+- 본 문서는 구현/검증 시 기준 계약(SOT)으로 사용한다.

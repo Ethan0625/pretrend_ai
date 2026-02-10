@@ -35,6 +35,8 @@ from pretrend.pipeline.calendar.econ_events import (
 from pretrend.pipeline.calendar.runner import (
     load_bronze_fred_vintages,
     load_bronze_econ_events,
+    load_silver_econ_events,
+    load_silver_fred_vintages,
 )
 from pretrend.pipeline.features.macro_features import (
     MacroFeatureConfig,
@@ -42,6 +44,12 @@ from pretrend.pipeline.features.macro_features import (
     load_bronze_macro,
     build_macro_features,
     write_silver_macro_features,
+)
+from pretrend.pipeline.features.gold_macro_features import (
+    build_release_calendar,
+    load_silver_macro,
+    build_gold_macro_features,
+    write_gold_macro_features,
 )
 
 
@@ -89,6 +97,11 @@ class MacroJobConfig:
         return self.data_root / "bronze"
 
     @property
+    def gold_root(self) -> Path:
+        """Gold macro_features 루트 경로."""
+        return self.data_root / "gold" / "macro" / "macro_features"
+
+    @property
     def macro_job_log_path(self) -> Path:
         """MacroJob 메타 로그 파일 경로."""
         return self.meta_root / "macro_job_log.parquet"
@@ -123,6 +136,7 @@ class MacroJobResult:
     bronze_vintage_result: MacroTaskResult | None = None
     bronze_econ_events_result: MacroTaskResult | None = None
     silver_calendar_result: MacroTaskResult | None = None
+    gold_macro_result: MacroTaskResult | None = None
 
 
 class MacroJobRunner:
@@ -154,16 +168,18 @@ class MacroJobRunner:
         bronze_econ_events_result = self._run_bronze_econ_events(start_date, end_date, run_id)
         silver_result = self._run_silver_features(start_date, end_date, run_id)
         silver_calendar_result = self._run_silver_calendar(run_id)
+        gold_macro_result = self._run_gold_macro_features(start_date, end_date, run_id)
 
         logger.info(
             "MacroJob finished. run_id=%s, bronze_rows=%s, silver_rows=%s, "
-            "vintage_rows=%s, econ_events_rows=%s, calendar_rows=%s",
+            "vintage_rows=%s, econ_events_rows=%s, calendar_rows=%s, gold_rows=%s",
             run_id,
             bronze_result.row_count,
             silver_result.row_count,
             bronze_vintage_result.row_count,
             bronze_econ_events_result.row_count,
             silver_calendar_result.row_count,
+            gold_macro_result.row_count,
         )
 
         result = MacroJobResult(
@@ -176,6 +192,7 @@ class MacroJobRunner:
             bronze_vintage_result=bronze_vintage_result,
             bronze_econ_events_result=bronze_econ_events_result,
             silver_calendar_result=silver_calendar_result,
+            gold_macro_result=gold_macro_result,
         )
 
         # 🔹 여기서 메타 로그 기록
@@ -388,6 +405,61 @@ class MacroJobRunner:
         return MacroTaskResult(row_count=total_rows)
 
     # ---------------------------
+    # 내부 단계: Gold Macro Features
+    # ---------------------------
+    def _run_gold_macro_features(
+        self,
+        start_date: date,
+        end_date: date,
+        run_id: str,
+    ) -> MacroTaskResult:
+        """Silver macro + Silver Calendar → Gold macro features."""
+        logger.info(
+            "[Gold] macro features start. start=%s, end=%s",
+            start_date, end_date,
+        )
+
+        # 1) Silver macro 로드
+        df_macro = load_silver_macro(self.config.silver_root)
+        if df_macro.empty:
+            logger.warning("[Gold] No Silver macro data. Skip Gold.")
+            return MacroTaskResult(row_count=0, partitions=[])
+
+        # 2) Silver Calendar 로드
+        cal_cfg = CalendarConfig(data_root=self.config.data_root)
+        df_econ = load_silver_econ_events(cal_cfg)
+        df_vintages = load_silver_fred_vintages(cal_cfg)
+
+        # 3) Calendar fallback cascade → df_calendar
+        df_calendar = build_release_calendar(df_macro, df_econ, df_vintages)
+
+        # 4) trade_dates 생성 (business days in range)
+        trade_dates = pd.bdate_range(start_date, end_date).date.tolist()
+        if not trade_dates:
+            logger.warning("[Gold] No business days in range. Skip Gold.")
+            return MacroTaskResult(row_count=0, partitions=[])
+
+        # 5) Gold features 빌드
+        gold_df = build_gold_macro_features(df_macro, df_calendar, trade_dates)
+        if gold_df.empty:
+            logger.warning("[Gold] No Gold features generated.")
+            return MacroTaskResult(row_count=0, partitions=[])
+
+        # 6) Gold parquet 저장
+        write_gold_macro_features(gold_df, self.config.gold_root, run_id)
+
+        row_count = int(len(gold_df))
+        partitions = self._extract_partitions_from_dates(
+            pd.to_datetime(gold_df["trade_date"])
+        )
+
+        logger.info(
+            "[Gold] macro features done. rows=%s, partitions=[%s]",
+            row_count, ", ".join(partitions),
+        )
+        return MacroTaskResult(row_count=row_count, partitions=partitions)
+
+    # ---------------------------
     # 내부 단계: Silver Features
     # ---------------------------
     def _run_silver_features(
@@ -475,8 +547,9 @@ class MacroJobRunner:
             bv = result.bronze_vintage_result or MacroTaskResult()
             be = result.bronze_econ_events_result or MacroTaskResult()
             sc = result.silver_calendar_result or MacroTaskResult()
+            gm = result.gold_macro_result or MacroTaskResult()
             record = {
-                "job_type": "macro_bronze_silver",
+                "job_type": "macro_bronze_silver_gold",
                 "run_id": result.run_id,
                 "run_mode": result.run_mode.value,
                 "start_date": pd.to_datetime(result.start_date),
@@ -486,6 +559,7 @@ class MacroJobRunner:
                 "bronze_vintage_row_count": bv.row_count,
                 "bronze_econ_events_row_count": be.row_count,
                 "silver_calendar_row_count": sc.row_count,
+                "gold_macro_row_count": gm.row_count,
                 "bronze_partitions": ",".join(result.bronze_result.partitions or []),
                 "silver_partitions": ",".join(result.silver_result.partitions or []),
                 "created_at": pd.Timestamp.utcnow(),
@@ -558,7 +632,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     logger.info(
         "MacroJob summary: run_id=%s, mode=%s, "
         "start=%s, end=%s, bronze_rows=%s, silver_rows=%s, "
-        "vintage_rows=%s, econ_events_rows=%s, calendar_rows=%s",
+        "vintage_rows=%s, econ_events_rows=%s, calendar_rows=%s, gold_rows=%s",
         result.run_id,
         result.run_mode.value,
         result.start_date,
@@ -568,6 +642,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         result.bronze_vintage_result.row_count if result.bronze_vintage_result else 0,
         result.bronze_econ_events_result.row_count if result.bronze_econ_events_result else 0,
         result.silver_calendar_result.row_count if result.silver_calendar_result else 0,
+        result.gold_macro_result.row_count if result.gold_macro_result else 0,
     )
 
 

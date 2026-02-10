@@ -12,3 +12,11 @@
   - `PYTHONPATH=src python -m pretrend.pipeline.calendar.runner --target all`
 - Calendar 테스트 실행:
   - `conda run -n pytest-pretrend pytest tests/pipeline/test_calendar.py -v`
+
+## Gold Macro Feature v1 실행
+- `macro_job.py` 실행 시 Bronze → Silver → Gold(Macro v1)까지 1회 실행으로 동기화된다.
+- 실행 명령:
+  - `PYTHONPATH=src python -m pretrend.pipeline.macro_job --start 2024-01-01 --end 2024-06-30`
+- Gold/Calendar 통합 테스트 실행:
+  - `conda run -n pytest-pretrend pytest tests/pipeline/test_gold_macro_feature_v1.py -v`
+  - `conda run -n pytest-pretrend pytest tests/pipeline/test_calendar.py -v`

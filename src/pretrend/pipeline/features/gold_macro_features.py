@@ -6,11 +6,16 @@ Contract: docs/architecture/gold_design_contract.md §10
 
 from __future__ import annotations
 
-from datetime import date
+import logging
+import shutil
+from datetime import date, timedelta
+from pathlib import Path
 from typing import List, Optional, Tuple
 
 from dateutil.relativedelta import relativedelta
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 
 # Daily indicator IDs use row-offset deltas; all others use month-offset.
@@ -118,7 +123,7 @@ def _select_and_compute(
         "delta_6m": d6,
         "direction": _direction(d1),
         "regime": _regime(d3, d6),
-        "zscore_12m": None,
+        "zscore_12m": _zscore_12m(pit_safe, selected_idx, selected_value, is_daily),
         "release_source": sel["release_source"],
         "is_assumption_based": sel["is_assumption_based"],
     }
@@ -189,3 +194,228 @@ def _regime(
     if delta_3m < 0 and delta_6m < 0:
         return "easing"
     return "neutral"
+
+
+def _zscore_12m(
+    pit_safe: pd.DataFrame,
+    selected_idx: int,
+    selected_value: float,
+    is_daily: bool,
+) -> Optional[float]:
+    """12-month rolling z-score.
+
+    Window: 252 rows for daily indicators, 12 rows for monthly.
+    Returns None when selected_value is NULL, history is insufficient,
+    or std is zero/NaN.
+    """
+    if selected_value is None or pd.isna(selected_value):
+        return None
+    window = 252 if is_daily else 12
+    values = pit_safe["value"].iloc[: selected_idx + 1]
+    if len(values) < window:
+        return None
+    trailing = values.iloc[-window:]
+    m = trailing.mean()
+    s = trailing.std()
+    if pd.isna(s) or s == 0:
+        return None
+    return float((selected_value - m) / s)
+
+
+# ── Integration helpers (loaders, calendar builder, writer) ───
+
+
+def load_silver_macro(silver_macro_root: Path) -> pd.DataFrame:
+    """Silver macro features에서 Gold 입력 컬럼만 로드.
+
+    Returns DataFrame with columns: indicator_id, date, value.
+    """
+    files = list(silver_macro_root.rglob("*.parquet"))
+    if not files:
+        logger.warning(
+            "[GoldMacro] No Silver macro parquet under %s", silver_macro_root
+        )
+        return pd.DataFrame(columns=["indicator_id", "date", "value"])
+    df = pd.concat((pd.read_parquet(f) for f in files), ignore_index=True)
+    df["date"] = pd.to_datetime(df["date"]).dt.date
+    return df[["indicator_id", "date", "value"]].copy()
+
+
+def build_release_calendar(
+    df_silver_macro: pd.DataFrame,
+    df_silver_econ_events: pd.DataFrame,
+    df_silver_fred_vintages: pd.DataFrame,
+) -> pd.DataFrame:
+    """Silver Calendar → Gold df_calendar via 3-tier fallback cascade.
+
+    Contract: gold_design_contract.md §8b / calendar_design_contract.md §8a-§8c
+
+    Cascade priority:
+      1) econ_events: release_date = release_date_utc
+      2) fred_vintages (is_first_vintage=True): release_date = vintage_date
+      3) assumed_t+1: release_date = observation_date + 1 day
+
+    Returns DataFrame with columns:
+      indicator_id, observation_date, release_date, release_source, is_assumption_based
+    """
+    out_cols = [
+        "indicator_id", "observation_date", "release_date",
+        "release_source", "is_assumption_based",
+    ]
+
+    # All (indicator_id, observation_date) candidates from Silver macro
+    candidates = (
+        df_silver_macro[["indicator_id", "date"]]
+        .drop_duplicates()
+        .rename(columns={"date": "observation_date"})
+        .copy()
+    )
+    if candidates.empty:
+        return pd.DataFrame(columns=out_cols)
+
+    # Ensure date types
+    candidates["observation_date"] = pd.to_datetime(
+        candidates["observation_date"]
+    ).dt.date
+
+    # ── Tier 1: econ_events ──
+    tier1 = pd.DataFrame(columns=out_cols)
+    if not df_silver_econ_events.empty:
+        econ = df_silver_econ_events[
+            ["indicator_id", "observation_date", "release_date_utc"]
+        ].drop_duplicates(subset=["indicator_id", "observation_date"], keep="first")
+        econ["observation_date"] = pd.to_datetime(econ["observation_date"]).dt.date
+        econ["release_date_utc"] = pd.to_datetime(econ["release_date_utc"]).dt.date
+
+        merged_t1 = candidates.merge(
+            econ, on=["indicator_id", "observation_date"], how="inner",
+        )
+        if not merged_t1.empty:
+            tier1 = pd.DataFrame({
+                "indicator_id": merged_t1["indicator_id"],
+                "observation_date": merged_t1["observation_date"],
+                "release_date": merged_t1["release_date_utc"],
+                "release_source": "econ_events",
+                "is_assumption_based": False,
+            })
+
+    # Remaining candidates after Tier 1
+    if not tier1.empty:
+        matched_t1 = set(
+            zip(tier1["indicator_id"], tier1["observation_date"])
+        )
+        remaining = candidates[
+            ~candidates.apply(
+                lambda r: (r["indicator_id"], r["observation_date"]) in matched_t1,
+                axis=1,
+            )
+        ]
+    else:
+        remaining = candidates
+
+    # ── Tier 2: fred_vintages (is_first_vintage=True) ──
+    tier2 = pd.DataFrame(columns=out_cols)
+    if not remaining.empty and not df_silver_fred_vintages.empty:
+        vintages = df_silver_fred_vintages[
+            df_silver_fred_vintages["is_first_vintage"] == True  # noqa: E712
+        ][["indicator_id", "observation_date", "vintage_date"]].drop_duplicates(
+            subset=["indicator_id", "observation_date"], keep="first",
+        )
+        vintages["observation_date"] = pd.to_datetime(
+            vintages["observation_date"]
+        ).dt.date
+        vintages["vintage_date"] = pd.to_datetime(
+            vintages["vintage_date"]
+        ).dt.date
+
+        merged_t2 = remaining.merge(
+            vintages, on=["indicator_id", "observation_date"], how="inner",
+        )
+        if not merged_t2.empty:
+            tier2 = pd.DataFrame({
+                "indicator_id": merged_t2["indicator_id"],
+                "observation_date": merged_t2["observation_date"],
+                "release_date": merged_t2["vintage_date"],
+                "release_source": "fred_vintages",
+                "is_assumption_based": False,
+            })
+
+    # Remaining candidates after Tier 2
+    if not tier2.empty:
+        matched_t2 = set(
+            zip(tier2["indicator_id"], tier2["observation_date"])
+        )
+        remaining2 = remaining[
+            ~remaining.apply(
+                lambda r: (r["indicator_id"], r["observation_date"]) in matched_t2,
+                axis=1,
+            )
+        ]
+    else:
+        remaining2 = remaining
+
+    # ── Tier 3: assumed_t+1 ──
+    tier3 = pd.DataFrame(columns=out_cols)
+    if not remaining2.empty:
+        tier3 = pd.DataFrame({
+            "indicator_id": remaining2["indicator_id"].values,
+            "observation_date": remaining2["observation_date"].values,
+            "release_date": [
+                d + timedelta(days=1) for d in remaining2["observation_date"]
+            ],
+            "release_source": "assumed_t_plus_1",
+            "is_assumption_based": True,
+        })
+
+    result = pd.concat([tier1, tier2, tier3], ignore_index=True)
+    return result[out_cols].reset_index(drop=True)
+
+
+def write_gold_macro_features(
+    df: pd.DataFrame,
+    gold_root: Path,
+    run_id: str,
+) -> None:
+    """Gold macro features를 parquet로 저장 (멱등, partition overwrite).
+
+    경로: gold_root/year=YYYY/month=MM/gold_macro_features_YYYYMM.parquet
+    """
+    if df.empty:
+        logger.warning("[GoldMacro] Nothing to write.")
+        return
+
+    df = df.copy()
+    df["trade_date"] = pd.to_datetime(df["trade_date"])
+
+    tmp_root = gold_root / f"_tmp_run={run_id}"
+
+    years_months = sorted(
+        set(zip(df["trade_date"].dt.year, df["trade_date"].dt.month))
+    )
+    for year, month in years_months:
+        part = df[
+            (df["trade_date"].dt.year == year)
+            & (df["trade_date"].dt.month == month)
+        ]
+        if part.empty:
+            continue
+
+        tmp_dir = tmp_root / f"year={year:04d}" / f"month={month:02d}"
+        final_dir = gold_root / f"year={year:04d}" / f"month={month:02d}"
+        tmp_dir.mkdir(parents=True, exist_ok=True)
+        final_dir.mkdir(parents=True, exist_ok=True)
+
+        tmp_file = tmp_dir / f"gold_macro_features_{year:04d}{month:02d}.parquet"
+        final_file = final_dir / f"gold_macro_features_{year:04d}{month:02d}.parquet"
+
+        part.to_parquet(tmp_file, index=False)
+
+        if final_file.exists():
+            final_file.unlink()
+        tmp_file.replace(final_file)
+
+        logger.info("[GoldMacro] Saved: %s", final_file)
+
+    if tmp_root.exists():
+        shutil.rmtree(tmp_root)
+        logger.info("[GoldMacro] Cleaned tmp: %s", tmp_root)

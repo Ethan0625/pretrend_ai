@@ -1,5 +1,89 @@
 # Changelog
 
+## v2026.02.11 — Gold Macro Feature v1 E2E 통합 구현
+
+### 변경 요약
+- Gold Layer v1을 설계 계약(`gold_design_contract.md`)에서 구현 완료 단계로 전환
+- `macro_job.py` E2E 플로우에 Gold 단계 통합: Bronze → Silver → Gold 1회 실행 동기화
+- Calendar Silver(`econ_events`, `fred_vintages`)를 소비하는 3-tier fallback cascade로 `release_date` 증거 구축
+- PIT 불변식(`selected_release_date < trade_date`) 100% 충족 검증 완료
+
+---
+
+### 1) Gold Macro Feature v1 핵심 로직 (`gold_macro_features.py`)
+- 기존 순수 함수(`build_gold_macro_features`, MF1-MF10 테스트 완료)에 통합 인프라 추가:
+  - `load_silver_macro()`: Silver macro → `[indicator_id, date, value]` 로드
+  - `build_release_calendar()`: 3-tier fallback cascade
+    - Tier 1: `econ_events` (`release_date = release_date_utc`)
+    - Tier 2: `fred_vintages` (`is_first_vintage=True`, `release_date = vintage_date`)
+    - Tier 3: `assumed_t+1` (`release_date = observation_date + 1 day`)
+  - `write_gold_macro_features()`: `trade_date` 기준 파티션, `tmp -> atomic rename` 멱등 저장
+
+---
+
+### 2) `macro_job.py` E2E 플로우 통합
+- 변경 전:
+  - `bronze_ingest -> bronze_vintages -> bronze_econ_events -> silver_features -> silver_calendar`
+- 변경 후:
+  - 위 플로우 + `gold_macro_features` 추가
+- `MacroJobConfig.gold_root` 프로퍼티, `MacroJobResult.gold_macro_result` 필드, Meta log `gold_macro_row_count` 반영
+
+---
+
+### 3) Calendar Runner Silver 로더 추가 (`calendar/runner.py`)
+- `load_silver_econ_events()`, `load_silver_fred_vintages()` 추가
+- Gold가 Silver Calendar의 첫 번째 downstream 소비자
+
+---
+
+### 4) E2E 검증 결과 (`--start 2024-01-01 --end 2024-06-30`)
+- Gold 출력: 650행 (5 지표 × 130 영업일), 6개 월별 파티션
+- PIT 불변식 위반: 0건
+- `release_source` 태깅:
+  - `CPI_US_ALL_ITEMS_SA`, `CPI_US_CORE_SA`, `US_UNEMPLOYMENT_RATE` → `econ_events`
+  - `US_FED_FUNDS_RATE`, `US_TREASURY_10Y_YIELD` → `fred_vintages`
+- `is_assumption_based`: 전부 `False` (Calendar 증거 100% 커버)
+- Gold 저장 경로:
+  - `data/gold/macro/macro_features/year=YYYY/month=MM/gold_macro_features_YYYYMM.parquet`
+
+---
+
+### 5) 테스트 현황
+- Gold MF1-MF10: 22개 패스 (`tests/pipeline/test_gold_macro_feature_v1.py`)
+- Calendar ST1-ST11: 12개 패스 (`tests/pipeline/test_calendar.py`)
+- 전체 34개 테스트 통과
+
+---
+
+### 6) zscore_12m v1.1 구현 (`gold_macro_features.py`)
+- `_zscore_12m()` 헬퍼 함수 추가 (lines 194-217)
+- 공식: `(selected_value - mean) / std` — 12-month rolling z-score
+- Monthly 지표 (CPI, UNRATE, FEDFUNDS): window = 12 관측치
+- Daily 지표 (DGS10): window = 252 관측치 (약 1년 영업일)
+- Edge cases:
+  - `selected_value` NULL/NaN → None
+  - window 내 관측치 부족 → None
+  - std == 0 또는 NaN → None
+- `_select_and_compute()`에서 기존 `"zscore_12m": None` → `_zscore_12m()` 호출로 변경
+
+---
+
+### 7) zscore_12m 테스트 (MF10a-MF10e)
+- 기존 `TestZscoreV1` (항상 NULL 검증) → `TestZscoreV1_1` (실제 계산 검증)으로 교체
+- MF10a: zscore_12m 컬럼 존재 확인
+- MF10b: 히스토리 부족 시 NULL (standard fixture: 7 CPI months < 12)
+- MF10c: 충분한 히스토리 시 계산값 검증 (12 monthly values, expected = 5.5/sqrt(13))
+- MF10d: selected_value=NULL → zscore=NULL
+- MF10e: std=0 (모든 값 동일) → zscore=NULL
+- 전체 테스트: 54 passed, 1 skipped (EOD integration)
+
+---
+
+### 향후 계획
+- (완료) `zscore_12m` 구현 (v1.1)
+- EOD Gold Layer 설계 및 구현
+- Universe(U0~U3) 계산 로직 구현
+
 ## v2026.02.10 — Calendar Pipeline v1 구현 (Bronze + Silver)
 
 ### 변경 요약
@@ -70,7 +154,7 @@
 ---
 
 ### 향후 계획
-- Gold Layer v1에서 Calendar(`econ_events`, `fred_vintages`)를 소비하는 PIT-safe 결합 로직 구현
+- (완료) Gold Layer v1에서 Calendar(`econ_events`, `fred_vintages`)를 소비하는 PIT-safe 결합 로직 구현
 - Gold release source 태깅(`econ_events` / `fred_vintages` / `assumed_t_plus_1`)과 계약 테스트 연계 강화
 
 ## v2026.02.06 — Pipeline Idempotency 강화 및 Agent 운영 기준 확정

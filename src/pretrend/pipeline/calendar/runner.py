@@ -53,6 +53,38 @@ def load_bronze_fred_vintages(cfg: CalendarConfig) -> pd.DataFrame:
 
 
 # =========================
+# Silver Loaders
+# =========================
+
+def load_silver_econ_events(cfg: CalendarConfig) -> pd.DataFrame:
+    """Load all Silver econ_events parquet files."""
+    files = list(cfg.silver_econ_events_root.rglob("*.parquet"))
+    if not files:
+        print(
+            f"[CalendarRunner] No Silver econ_events parquet under "
+            f"{cfg.silver_econ_events_root}"
+        )
+        return pd.DataFrame()
+    return pd.concat(
+        (pd.read_parquet(f) for f in files), ignore_index=True
+    )
+
+
+def load_silver_fred_vintages(cfg: CalendarConfig) -> pd.DataFrame:
+    """Load all Silver fred_vintages parquet files."""
+    files = list(cfg.silver_fred_vintages_root.rglob("*.parquet"))
+    if not files:
+        print(
+            f"[CalendarRunner] No Silver fred_vintages parquet under "
+            f"{cfg.silver_fred_vintages_root}"
+        )
+        return pd.DataFrame()
+    return pd.concat(
+        (pd.read_parquet(f) for f in files), ignore_index=True
+    )
+
+
+# =========================
 # Runners
 # =========================
 

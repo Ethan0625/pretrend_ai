@@ -122,6 +122,7 @@ pretrend_ai/
 │      │   │   └─ macro.py       # FRED Macro Bronze Ingest (+ Calendar Bronze ingest)
 │      │   ├─ features/
 │      │       └─ macro_features.py  # Macro Silver Feature 변환
+│      │       └─ gold_macro_features.py  # Gold Macro Feature v1 변환
 │      │   └─ calendar/
 │      │       ├─ config.py          # CalendarConfig / schema constants / mappings
 │      │       ├─ econ_events.py     # Calendar econ_events Silver 변환
@@ -146,7 +147,7 @@ pretrend_ai/
 | ------ | ------------------------------ | -------------------------------- | -------------------- |
 | Bronze | 외부 데이터 수집 후 *표준 스키마*로 정규화된 Raw | FRED Macro, EOD, 뉴스 Raw          | `data/bronze/...`    |
 | Silver | 전략/모델 입력용 Feature 세트           | Macro Feature (YoY/MoM/Regime 등) | `data/silver/...`    |
-| Gold   | 특정 전략/리포트에 최적화된 Mart           | 전략별 시그널, 백테스트 결과                 | `data/gold/...` (향후) |
+| Gold   | 특정 전략/리포트에 최적화된 Mart           | Macro Gold Feature v1 (구현), 전략별 시그널/백테스트(확장) | `data/gold/...` |
 | Meta   | Job 실행 메타데이터, Lineage          | run_id, ingestion_ts, 로그 등       | `data/meta/...`      |
 
 현재 구현 상태:
@@ -154,7 +155,8 @@ pretrend_ai/
 * ✅ Bronze: Macro (FRED 기반 econ_indicators)
 * ✅ Silver: Macro Features (macro_features)
 * ✅ Bronze/Silver: Calendar release evidence (`econ_events`, `fred_vintages`)
-* ⏳ Gold: 전략별 뷰, 시그널 Mart (향후)
+* ✅ Gold: Macro Feature v1 (Silver Macro + Calendar 기반)
+* ⏳ Gold 확장: EOD 결합 및 전략별 Mart
 
 ---
 
