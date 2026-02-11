@@ -1,5 +1,36 @@
 # Changelog
 
+## v2026.02.12 — EOD Observability Contract 문서화 및 문서 동기화
+
+### 변경 요약
+- EOD 관측용 ETF 세트(Always-on Observability Set)와 분류/라벨 계약을 신규 문서로 고정
+- `architecture.md`에 Observability Set 개념(Always-on vs Universe-driven)과 계약 링크를 추가
+- `data_requirements.md` EOD 요구사항에 Observability 분류 컬럼 계약(`asset_group`, `asset_name`, `asset_subtype`)을 반영
+
+---
+
+### 1) 신규 계약 문서 추가
+- `docs/architecture/eod_observability_contract.md` 생성
+- 포함 범위:
+  - 용어 정의(Observability Set, 분류 컬럼, Always-on vs Universe-driven)
+  - Scope / Non-Goals
+  - 분류 체계(`INDEX`, `COUNTRY`, `COMMODITY`, `BOND`, `SECTOR`)
+  - Base EOD Observability Set v1 전체 심볼 표
+  - Bronze/Silver/Gold 라벨 전파 규칙 및 ENUM 계약
+  - Universe read-only 소비 원칙 및 변경 관리(Versioning)
+
+---
+
+### 2) Architecture 문서 동기화
+- `docs/architecture.md`에 EOD Observability Set 설명 단락 추가
+- Always-on 센서 입력 목적, 라벨 고정 원칙, 계약 문서 링크 반영
+
+---
+
+### 3) Data Requirements 문서 동기화
+- `docs/data_requirements.md`의 EOD 섹션에 `Always-on Observability ETFs v1` 항목 추가
+- 필수 분류 컬럼 계약 및 Universe 그룹핑 사용 규칙을 명시
+
 ## v2026.02.11 — Gold Macro Feature v1 E2E 통합 구현
 
 ### 변경 요약

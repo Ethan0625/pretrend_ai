@@ -161,6 +161,23 @@ Silver Macro Feature 예:
 **※ 실제 Universe 및 Gold Layer에서는 EOD Bronze 데이터가 아닌, Silver EOD Feature를 사용한다.
 (EOD Silver Feature는 별도 문서 및 파이프라인에서 정의)**
 
+## 5.3 Always-on Observability ETFs v1 (계약)
+- EOD에는 Universe 결과와 무관하게 항상 수집되는 Observability ETF 세트를 포함한다.
+- 이 세트는 시장 상태 관측(섹터/국가/원자재/채권 축) 목적의 고정 입력이며, 투자 추천 목록이 아니다.
+- 상세 계약은 `docs/architecture/eod_observability_contract.md`를 기준으로 한다.
+
+### 필수 분류 컬럼 계약
+| 컬럼 | 타입 | 필수 여부 | 설명 |
+| --- | --- | --- | --- |
+| asset_group | text (ENUM) | 필수 | `INDEX`, `COUNTRY`, `COMMODITY`, `BOND`, `SECTOR` |
+| asset_name | text | 필수 | 사람이 읽을 수 있는 canonical 분류명 |
+| asset_subtype | text | 선택 | 세부 해석용 2차 분류 |
+
+### 라벨 전파 원칙
+- 분류 라벨(`asset_group`, `asset_name`, `asset_subtype`)은 Bronze에서 1회 확정한다.
+- Silver/Gold에서는 라벨을 수정하지 않고 그대로 전파한다.
+- Universe는 해당 컬럼을 읽어서 섹터/국가/원자재/채권 관측치를 그룹핑한다(입력 변경 금지).
+
 ---
 
 # 6. Minimal Data Set for MVP

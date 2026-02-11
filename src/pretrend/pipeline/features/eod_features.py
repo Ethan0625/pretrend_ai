@@ -314,6 +314,10 @@ def build_eod_features(df: pd.DataFrame, ctx: EodFeatureRunContext) -> pd.DataFr
         "is_missing_imputed",
         "is_outlier",
         "is_partial_day",
+        # Observability labels (Bronze pass-through)
+        "asset_group",
+        "asset_name",
+        "asset_subtype",
         # Silver meta
         "run_id_silver",
         "ingestion_ts_silver",

@@ -83,6 +83,12 @@ Calendar Pipeline(v1) 설명:
 - 구현 모듈: `config.py`, `econ_events.py`, `fred_vintages.py`, `runner.py`
 - 저장 흐름: `data/bronze/calendar/*` → `data/silver/calendar/*`
 
+EOD Observability Set(v1) 설명:
+- EOD 관측용 ETF 세트는 시장 상태를 읽기 위한 Always-on 센서 입력으로 유지한다.
+- Universe-driven 대상과 분리하여 고정 수집/고정 라벨 정책을 적용한다.
+- 분류 라벨(`asset_group`, `asset_name`, `asset_subtype`)은 Bronze에서 확정하고 Silver/Gold로 전파한다.
+- 상세 계약 문서: `docs/architecture/eod_observability_contract.md`
+
 ---
 
 ## 2. 디렉토리 구조 및 레이어 정의

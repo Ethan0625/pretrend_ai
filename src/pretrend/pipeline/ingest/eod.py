@@ -18,6 +18,10 @@ from pretrend.pipeline.ingest.base import (
     BaseNormalizer,
     BaseWriter,
 )
+from pretrend.pipeline.config.eod_observability import (
+    LABEL_BY_SYMBOL_V1,
+    OBSERVABILITY_SYMBOLS_V1,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -41,8 +45,7 @@ class EodIngestConfig:
 
     def __post_init__(self) -> None:
         if self.default_symbols is None:
-            # 초기 PoC용: 3개 ETF 고정
-            self.default_symbols = ["SPY", "QQQ", "VOO"]
+            self.default_symbols = list(OBSERVABILITY_SYMBOLS_V1)
 
     @property
     def bronze_root(self) -> Path:
@@ -228,6 +231,9 @@ class EodNormalizer(BaseNormalizer):
                     "adj_close",
                     "volume",
                     "currency",
+                    "asset_group",
+                    "asset_name",
+                    "asset_subtype",
                     "run_id",
                     "ingestion_ts",
                 ]
@@ -253,6 +259,24 @@ class EodNormalizer(BaseNormalizer):
                     .astype("int64")
                 )
 
+        # Observability 라벨 부여 (Bronze에서 1회 확정)
+        unregistered = set(df["symbol"].unique()) - set(LABEL_BY_SYMBOL_V1.keys())
+        if unregistered:
+            raise ValueError(
+                f"[EodNormalizer] unregistered symbol(s): {sorted(unregistered)}. "
+                f"All symbols must be in OBSERVABILITY_SET_V1."
+            )
+
+        df["asset_group"] = df["symbol"].map(
+            lambda s: LABEL_BY_SYMBOL_V1[s]["asset_group"]
+        )
+        df["asset_name"] = df["symbol"].map(
+            lambda s: LABEL_BY_SYMBOL_V1[s]["asset_name"]
+        )
+        df["asset_subtype"] = df["symbol"].map(
+            lambda s: LABEL_BY_SYMBOL_V1[s]["asset_subtype"]
+        )
+
         # 공통 메타 정보 (MacroNormalizer와 동일 패턴)
         df["run_id"] = context.run_id
         df["ingestion_ts"] = context.ingestion_ts
@@ -270,6 +294,9 @@ class EodNormalizer(BaseNormalizer):
                 "adj_close",
                 "volume",
                 "currency",
+                "asset_group",
+                "asset_name",
+                "asset_subtype",
                 "run_id",
                 "ingestion_ts",
             ]
