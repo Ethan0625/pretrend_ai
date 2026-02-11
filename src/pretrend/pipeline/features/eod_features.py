@@ -478,7 +478,7 @@ def parse_args() -> argparse.Namespace:
         "--symbols",
         type=str,
         default=None,
-        help="Comma separated symbols (e.g. SPY,QQQ,VOO). If omitted, use cfg.target_symbols or all.",
+        help="Comma separated symbols (e.g. SPY,QQQ). If omitted, use cfg.target_symbols or all.",
     )
     return parser.parse_args()
 

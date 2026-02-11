@@ -79,7 +79,7 @@ def eod_pipeline():
 
     - execution_date / data_interval은 참고만 하고,
       실제 EOD 대상 날짜는 US/Eastern 현재 시각 기준 '마지막 완전 거래일'로 계산.
-    - Bronze ingest(SPY/QQQ/VOO 등) 후, 동일 날짜 구간에 대해 Silver Feature 생성.
+    - Bronze ingest(Observability SOT 32개 ETF) 후, 동일 날짜 구간에 대해 Silver Feature 생성.
     """
 
     @task(task_id="run_eod_bronze_ingest")
@@ -98,7 +98,7 @@ def eod_pipeline():
         data_root = Path(os.getenv("PRETREND_DATA_ROOT", "data"))
         cfg = EodIngestConfig(data_root=data_root)
 
-        # 5) EOD Bronze ingest 실행 (기본 심볼: cfg.default_symbols → SPY/QQQ/VOO)
+        # 5) EOD Bronze ingest 실행 (기본 심볼: cfg.default_symbols → Observability SOT)
         result = run_eod_bronze_ingest(
             start_date=start_dt,
             end_date=end_dt,
