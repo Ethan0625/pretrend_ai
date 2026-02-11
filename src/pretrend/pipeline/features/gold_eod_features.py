@@ -8,11 +8,13 @@ Silver EOD features를 Gold 레이어로 전파한다.
 """
 from __future__ import annotations
 
+import argparse
 import logging
+import os
 import shutil
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Sequence
 
 import pandas as pd
 
@@ -219,3 +221,67 @@ def write_gold_eod_features(
     if tmp_root.exists():
         shutil.rmtree(tmp_root)
         logger.info("[GoldEOD] Cleaned tmp: %s", tmp_root)
+
+
+# ── CLI ────────────────────────────────────────────────
+
+
+def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Build Gold EOD Features from Silver EOD parquet",
+    )
+    parser.add_argument("--start", type=str, required=True, help="YYYY-MM-DD")
+    parser.add_argument("--end", type=str, required=True, help="YYYY-MM-DD")
+    parser.add_argument(
+        "--symbols",
+        type=str,
+        default=None,
+        help="Comma separated symbols (e.g. SPY,QQQ). If omitted, all symbols.",
+    )
+    parser.add_argument("--run-id", type=str, default=None)
+    return parser.parse_args(argv)
+
+
+def main(argv: Optional[Sequence[str]] = None) -> None:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s - %(message)s",
+    )
+
+    args = parse_args(argv)
+    start_date = datetime.strptime(args.start, "%Y-%m-%d").date()
+    end_date = datetime.strptime(args.end, "%Y-%m-%d").date()
+
+    data_root = Path(os.getenv("PRETREND_DATA_ROOT", "data"))
+    silver_root = data_root / "silver" / "eod" / "eod_features"
+    gold_root = data_root / "gold" / "eod" / "eod_features"
+    run_id = args.run_id or pd.Timestamp.now("UTC").strftime("gold_eod_%Y%m%d%H%M%S")
+
+    symbols = None
+    if args.symbols:
+        symbols = [s.strip().upper() for s in args.symbols.split(",") if s.strip()]
+
+    # 1) Load Silver
+    df_silver = load_silver_eod_features(
+        silver_root, start_date=start_date, end_date=end_date, symbols=symbols,
+    )
+    if df_silver.empty:
+        logger.warning("[GoldEOD] No Silver data. Nothing to build.")
+        return
+
+    # 2) Build Gold
+    gold = build_gold_eod_features(df_silver, run_id=run_id)
+
+    # 3) Write
+    write_gold_eod_features(gold, gold_root, run_id)
+
+    n_symbols = gold["symbol"].nunique() if not gold.empty else 0
+    print(
+        f"[GoldEOD] done. run_id={run_id}, "
+        f"symbols={n_symbols}, rows={len(gold)}, "
+        f"range=[{start_date}, {end_date}]"
+    )
+
+
+if __name__ == "__main__":
+    main()

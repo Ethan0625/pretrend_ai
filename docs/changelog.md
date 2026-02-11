@@ -3,13 +3,60 @@
 ## v2026.02.12 — EOD Observability Contract 문서화 및 문서 동기화
 
 ### 변경 요약
+- PR#1~PR#3 코드 구현을 기준으로 EOD Observability SOT, Bronze/Silver 라벨 계약, Gold EOD Fact Mart를 파이프라인에 반영
+- EOD E2E Runner(`eod_job.py`)와 Airflow Gold task(`run_eod_gold_features_task`)를 통합
 - EOD 관측용 ETF 세트(Always-on Observability Set)와 분류/라벨 계약을 신규 문서로 고정
 - `architecture.md`에 Observability Set 개념(Always-on vs Universe-driven)과 계약 링크를 추가
 - `data_requirements.md` EOD 요구사항에 Observability 분류 컬럼 계약(`asset_group`, `asset_name`, `asset_subtype`)을 반영
 
 ---
 
-### 1) 신규 계약 문서 추가
+### 1) EOD Observability Contract v1 구현 (PR#1)
+- `src/pretrend/pipeline/config/eod_observability.py` 신규 추가
+  - SOT 상수: `OBSERVABILITY_SET_V1`, `OBSERVABILITY_SYMBOLS_V1`, `LABEL_BY_SYMBOL_V1`
+  - `asset_group` ENUM 5종: `INDEX`, `COUNTRY`, `COMMODITY`, `BOND`, `SECTOR`
+  - import 시 `validate_observability_set()` 자동 검증(중복/대문자/ENUM)
+- `src/pretrend/pipeline/ingest/eod.py`
+  - `EodIngestConfig.default_symbols`를 SOT 참조로 전환
+  - `EodNormalizer`에서 미등록 심볼 `ValueError` 처리 및 `asset_group`/`asset_name`/`asset_subtype` 컬럼 확정
+- `src/pretrend/pipeline/features/eod_features.py`
+  - `build_eod_features()`에서 `asset_*` 라벨을 Silver로 pass-through
+- `tests/pipeline/test_eod_observability_contract.py` 신규(9 tests)
+  - OL1~OL5 계약 검증(커버리지/라벨/reject/pass-through/멱등 안정성)
+
+---
+
+### 2) 하드코딩 제거 및 SOT 참조 전환 (PR#2)
+- `src/pretrend/pipeline/ingest/eod.py` docstring/CLI help를 `Observability SOT` 기준으로 정리
+- `dags/eod_pipeline_dag.py` 주석을 `Observability SOT 32개 ETF` 기준으로 정리
+- `src/pretrend/pipeline/features/eod_features.py` 내 하드코딩 심볼 예시 정리
+
+---
+
+### 3) Gold EOD Feature v1 Fact Mart 구현 (PR#3)
+- `src/pretrend/pipeline/features/gold_eod_features.py` 신규
+  - `GOLD_EOD_FEATURE_COLUMNS` 계약
+  - `load_silver_eod_features()` 로더
+  - `build_gold_eod_features()` Silver→Gold 변환(lineage/dedup)
+  - `write_gold_eod_features()` 멱등 저장(symbol/year/month, atomic overwrite)
+  - CLI 엔트리포인트: `python -m pretrend.pipeline.features.gold_eod_features`
+- `src/pretrend/pipeline/eod_job.py` 신규
+  - `EodJobConfig` / `EodJobRunner` / `EodJobResult`
+  - Bronze→Silver→Gold 순차 실행 + 메타 로그(`data/meta/eod_job_log.parquet`)
+- `dags/eod_pipeline_dag.py`
+  - `run_eod_gold_features_task` 추가
+  - 의존 체인 Bronze → Silver → Gold로 확장, DAG tag에 `gold` 추가
+- `tests/pipeline/test_gold_eod_features.py` 신규(7 tests)
+  - GE1~GE5 계약 검증(grain/columns/labels/lineage/idempotency)
+
+---
+
+### 4) 테스트 현황
+- 전체 테스트: **71 passed, 1 skipped**
+
+---
+
+### 5) 신규 계약 문서 추가
 - `docs/architecture/eod_observability_contract.md` 생성
 - 포함 범위:
   - 용어 정의(Observability Set, 분류 컬럼, Always-on vs Universe-driven)
@@ -19,15 +66,13 @@
   - Bronze/Silver/Gold 라벨 전파 규칙 및 ENUM 계약
   - Universe read-only 소비 원칙 및 변경 관리(Versioning)
 
----
-
-### 2) Architecture 문서 동기화
+### 6) Architecture 문서 동기화
 - `docs/architecture.md`에 EOD Observability Set 설명 단락 추가
 - Always-on 센서 입력 목적, 라벨 고정 원칙, 계약 문서 링크 반영
 
 ---
 
-### 3) Data Requirements 문서 동기화
+### 7) Data Requirements 문서 동기화
 - `docs/data_requirements.md`의 EOD 섹션에 `Always-on Observability ETFs v1` 항목 추가
 - 필수 분류 컬럼 계약 및 Universe 그룹핑 사용 규칙을 명시
 
@@ -110,9 +155,23 @@
 
 ---
 
+### 8) Gold EOD Feature v1 E2E 통합 구현
+- `gold_eod_features.py`에 CLI 엔트리포인트(`parse_args`, `main`)를 추가하여 모듈 단독 실행을 지원
+  - `python -m pretrend.pipeline.features.gold_eod_features --start ... --end ...`
+- `eod_job.py`를 추가하여 EOD Bronze → Silver → Gold를 1회 실행으로 동기화
+  - 핵심 구성: `EodJobConfig`, `EodJobRunner`, `EodJobResult`
+  - 메타 로그: `data/meta/eod_job_log.parquet`
+- `eod_pipeline_dag.py`에 `run_eod_gold_features_task`를 추가하고 의존 체인을 Bronze → Silver → Gold로 확장
+- Gold EOD 출력 계약:
+  - Grain: `(symbol, trade_date)`
+  - 저장 경로: `data/gold/eod/eod_features/symbol=XXX/year=YYYY/month=MM/gold_eod_features_YYYYMM.parquet`
+  - 라벨(`asset_group`, `asset_name`, `asset_subtype`)은 Silver에서 carry-forward
+
+---
+
 ### 향후 계획
 - (완료) `zscore_12m` 구현 (v1.1)
-- EOD Gold Layer 설계 및 구현
+- (완료) EOD Gold Layer 설계 및 구현
 - Universe(U0~U3) 계산 로직 구현
 
 ## v2026.02.10 — Calendar Pipeline v1 구현 (Bronze + Silver)

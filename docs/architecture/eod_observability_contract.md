@@ -58,7 +58,7 @@
 | EWY | COUNTRY | SOUTH_KOREA | EM_ASIA | 한국 시장 축 관측 |
 | ASHR | COUNTRY | CHINA | CHINA_A_SHARES | 중국 A주 축 관측 |
 | CQQQ | COUNTRY | CHINA | CHINA_TECH | 중국 기술 축 관측 |
-| FWJ | COUNTRY | JAPAN | DEVELOPED_ASIA | 일본 시장 축 관측 |
+| EWJ | COUNTRY | JAPAN | DEVELOPED_ASIA | 일본 시장 축 관측 |
 | INDA | COUNTRY | INDIA | EM_ASIA | 인도 시장 축 관측 |
 | IAU | COMMODITY | GOLD | PHYSICAL_GOLD | 금 현물 축 관측 |
 | GDX | COMMODITY | GOLD_MINERS | GOLD_EQUITY | 금광 주식 축 관측 |

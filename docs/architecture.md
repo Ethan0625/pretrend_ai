@@ -4,8 +4,8 @@
 **Version:** 2026.01.14\
 
 본 문서는 **Pre-Trend Value 기반 주식 자동매매 시스템**의 기술 아키텍처를 정의한다.  
-특히, 현재 구현된 **거시지표 Macro + Calendar 파이프라인 (Bronze/Silver Layer)**을 중심으로 설명하고,  
-향후 확장 대상(EOD/뉴스/전략/LLM 등)을 상위 레벨에서 제시한다.
+특히, 현재 구현된 **Macro/EOD/Calendar 파이프라인 및 Gold Feature Mart(Macro/EOD)**를 중심으로 설명하고,  
+향후 확장 대상(뉴스/전략/LLM 등)을 상위 레벨에서 제시한다.
 
 ---
 
@@ -44,7 +44,7 @@ flowchart LR
         SV[Silver\n(Feature 변환)]
         BC[Bronze Calendar\n(release evidence)]
         SC[Silver Calendar\n(PIT evidence)]
-        GD[Gold / Mart\n(전략별 View, 향후)]
+        GD[Gold / Mart\n(Macro/EOD v1 구현)]
     end
 
     subgraph Pipeline[파이프라인 코드]
@@ -89,6 +89,11 @@ EOD Observability Set(v1) 설명:
 - 분류 라벨(`asset_group`, `asset_name`, `asset_subtype`)은 Bronze에서 확정하고 Silver/Gold로 전파한다.
 - 상세 계약 문서: `docs/architecture/eod_observability_contract.md`
 
+EOD Gold Feature v1 설명:
+- `pretrend.pipeline.features.gold_eod_features`가 Silver EOD를 Gold Fact Mart로 변환한다.
+- `pretrend.pipeline.eod_job`은 Bronze → Silver → Gold를 1회 실행으로 동기화한다.
+- `eod_pipeline_dag`는 `run_eod_bronze_ingest` → `run_eod_silver_features` → `run_eod_gold_features` 체인으로 동작한다.
+
 ---
 
 ## 2. 디렉토리 구조 및 레이어 정의
@@ -127,13 +132,16 @@ pretrend_ai/
 │      │   │   ├─ base.py        # IngestContext / BaseFetcher / BaseNormalizer / BaseWriter
 │      │   │   └─ macro.py       # FRED Macro Bronze Ingest (+ Calendar Bronze ingest)
 │      │   ├─ features/
-│      │       └─ macro_features.py  # Macro Silver Feature 변환
-│      │       └─ gold_macro_features.py  # Gold Macro Feature v1 변환
+│      │       ├─ macro_features.py  # Macro Silver Feature 변환
+│      │       ├─ eod_features.py  # EOD Silver Feature 변환
+│      │       ├─ gold_macro_features.py  # Gold Macro Feature v1 변환
+│      │       └─ gold_eod_features.py  # Gold EOD Feature v1 변환
 │      │   └─ calendar/
 │      │       ├─ config.py          # CalendarConfig / schema constants / mappings
 │      │       ├─ econ_events.py     # Calendar econ_events Silver 변환
 │      │       ├─ fred_vintages.py   # Calendar fred_vintages Silver 변환
 │      │       └─ runner.py          # Calendar Silver runner CLI
+│      │   └─ eod_job.py             # EOD Bronze→Silver→Gold E2E runner
 │      ├─ signals/               # 전략/신호 모듈 (향후)
 │      ├─ llm/                   # LLM/RAG 모듈 (향후)
 │      ├─ config/                # 설정/스키마 (향후)
@@ -162,7 +170,8 @@ pretrend_ai/
 * ✅ Silver: Macro Features (macro_features)
 * ✅ Bronze/Silver: Calendar release evidence (`econ_events`, `fred_vintages`)
 * ✅ Gold: Macro Feature v1 (Silver Macro + Calendar 기반)
-* ⏳ Gold 확장: EOD 결합 및 전략별 Mart
+* ✅ Gold: EOD Feature v1 Fact Mart (Silver EOD 기반)
+* ⏳ Gold 확장: 전략별 Mart
 
 ---
 

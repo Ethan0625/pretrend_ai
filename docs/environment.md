@@ -150,7 +150,7 @@ uvicorn app.main:app --host 0.0.0.0 --port {YOUR_PORT}
 ## 7.1 역할 및 범위
 - 담당 역할:
   - Macro 파이프라인 실행 (`macro_pipeline_dag`)
-  - EOD 파이프라인 실행 (향후 추가)
+  - EOD 파이프라인 실행 (`eod_pipeline_dag`)
   - 실행 누락 대비 롤링 재처리 트리거
 - 담당하지 않는 영역:
   - 전략 로직 실행
@@ -166,7 +166,7 @@ uvicorn app.main:app --host 0.0.0.0 --port {YOUR_PORT}
 | DAG ID | 설명 |
 |------|----|
 | `macro_pipeline_dag` | Macro Bronze → Silver 파이프라인 (매일 트리거 + 롤링 재처리) |
-| `(향후)` `eod_pipeline_dag` | EOD Bronze → Silver 파이프라인 |
+| `eod_pipeline_dag` | EOD Bronze → Silver → Gold 파이프라인 |
 
 ### Macro DAG 운영 정책 요약
 - 스케줄: 매일 09:00 KST

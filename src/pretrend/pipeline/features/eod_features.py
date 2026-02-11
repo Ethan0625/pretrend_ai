@@ -260,7 +260,12 @@ def build_eod_features(df: pd.DataFrame, ctx: EodFeatureRunContext) -> pd.DataFr
         g = _add_quality_flags(g)
         return g
 
-    df = df.groupby("symbol", group_keys=False).apply(_per_symbol)
+    # Pandas 3.0+: groupby.apply() drops group key column.
+    # Use explicit loop to preserve 'symbol'.
+    parts = []
+    for _sym, grp in df.groupby("symbol", sort=False):
+        parts.append(_per_symbol(grp))
+    df = pd.concat(parts, ignore_index=True)
 
     # Silver meta
     df["run_id_silver"] = ctx.run_id

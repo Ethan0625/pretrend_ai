@@ -41,7 +41,7 @@ OBSERVABILITY_SET_V1: List[ObservabilityEntry] = [
     {"symbol": "EWY",  "asset_group": "COUNTRY", "asset_name": "SOUTH_KOREA",  "asset_subtype": "EM_ASIA"},
     {"symbol": "ASHR", "asset_group": "COUNTRY", "asset_name": "CHINA",        "asset_subtype": "CHINA_A_SHARES"},
     {"symbol": "CQQQ", "asset_group": "COUNTRY", "asset_name": "CHINA",        "asset_subtype": "CHINA_TECH"},
-    {"symbol": "FWJ",  "asset_group": "COUNTRY", "asset_name": "JAPAN",        "asset_subtype": "DEVELOPED_ASIA"},
+    {"symbol": "EWJ",  "asset_group": "COUNTRY", "asset_name": "JAPAN",        "asset_subtype": "DEVELOPED_ASIA"},
     {"symbol": "INDA", "asset_group": "COUNTRY", "asset_name": "INDIA",        "asset_subtype": "EM_ASIA"},
     # COMMODITY (7)
     {"symbol": "IAU",  "asset_group": "COMMODITY", "asset_name": "GOLD",           "asset_subtype": "PHYSICAL_GOLD"},

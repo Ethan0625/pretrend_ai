@@ -20,3 +20,12 @@
 - Gold/Calendar 통합 테스트 실행:
   - `conda run -n pytest-pretrend pytest tests/pipeline/test_gold_macro_feature_v1.py -v`
   - `conda run -n pytest-pretrend pytest tests/pipeline/test_calendar.py -v`
+
+## Gold EOD Feature v1 실행
+- Gold EOD 단독 실행:
+  - `PYTHONPATH=src python -m pretrend.pipeline.features.gold_eod_features --start 2024-01-01 --end 2024-06-30`
+- EOD Bronze → Silver → Gold E2E 실행:
+  - `PYTHONPATH=src python -m pretrend.pipeline.eod_job --start 2024-01-01 --end 2024-06-30`
+- Airflow `eod_pipeline_dag`는 Bronze → Silver → Gold 순서로 실행된다.
+- EOD Gold 테스트 실행:
+  - `conda run -n pytest-pretrend pytest tests/pipeline/test_gold_eod_features.py -v`
