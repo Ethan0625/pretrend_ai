@@ -1,5 +1,13 @@
 # Changelog
 
+## v2026.02.13 — Strategy Engine 설계 문서 보강
+
+### 변경 요약
+- Strategy Engine v1: Universe 명칭을 Strategy Engine으로 통일하고, WHAT/EXPOSURE/SELL 3-경계 출력 + `decision_date` snapshot 저장 원칙을 SOT로 문서화
+- (Reserved) Stock Extension Port 및 Text/LLM Integration Port를 v1+ 확장 포트로 설계 문서에 추가
+
+---
+
 ## v2026.02.12 — EOD Observability Contract 문서화 및 문서 동기화
 
 ### 변경 요약
@@ -75,6 +83,33 @@
 ### 7) Data Requirements 문서 동기화
 - `docs/data_requirements.md`의 EOD 섹션에 `Always-on Observability ETFs v1` 항목 추가
 - 필수 분류 컬럼 계약 및 Universe 그룹핑 사용 규칙을 명시
+
+---
+
+### 8) Risk-Control 전략 문서 구조 재정의 (4축 + Composer + Allocation v0)
+- Design vs Contract 분리 원칙으로 전략 문서를 재구성
+  - Design: `docs/strategy_architecture.md`
+  - Contracts: `market_structure_long/mid/short/composer`, `universe_v1`, `allocation_engine_v0`
+  - Inventory: `docs/market_structure_data_inventory.md`
+- 전략 흐름을 `Layer -> Market Structure(4축) -> Composer -> Universe -> Allocation Engine -> Weekly Report`로 고정
+- v0 원칙 반영:
+  - 총 투자 비율(`invested_ratio`) 조절만 허용
+  - `risk_gate` 기반 증가 차단
+  - Universe 내부 가중치 조절 금지
+- 심리 축 입력 정책 갱신:
+  - v0: VIX 필수 아님, Risk Spread + Volatility proxy 기반 상태 전이
+  - v1+: VIX 편입(직접 VIX vs term structure 범위 결정 필요)
+- 구버전 문서 정리:
+  - `docs/architecture/market_structure_v1_contract.md` 삭제
+  - 레거시 전략 계약 문서 제거(현행 구조에서 비사용)
+
+---
+
+### 9) 전략 로드맵 문서 동기화
+- `docs/milestones.md`에 Risk-Control 전략 로드맵(v0~v3) 추가
+- 운영 주기 분리 명시:
+  - Adjustment Cycle: 주 1회(화요일)
+  - Portfolio Rebalance: 월 1회(마지막 주 금요일, 휴장 시 직전 영업일)
 
 ## v2026.02.11 — Gold Macro Feature v1 E2E 통합 구현
 

@@ -236,3 +236,28 @@ M6 (8~12주): MLOps + 서빙 + 자동화
 * 실시간 데이터 스트림 기반 온라인 시그널
 * Alpaca/IBKR API 기반 자동 매매 지원
 
+---
+
+# 6. 전략 아키텍처 로드맵 (Risk-Control)
+
+## 6.1 목적
+- 전략 모듈을 점수 튜닝이 아닌 상태 기반 구조로 고정한다.
+- `Layer -> Market Structure -> Composer -> Universe -> Allocation Engine` 흐름을 기준으로 버전을 확장한다.
+
+## 6.2 버전별 계획
+
+| 버전 | 범위 | 상태 | 비고 |
+| --- | --- | --- | --- |
+| v0 | 총 투자 비율 조절 + `risk_gate` | 진행/초기 | Universe 내부 가중치 조절 금지, 심리는 proxy 기반 운용 |
+| v1 | volatility-aware adjustment + VIX 편입 | 예정 | 직접 VIX vs term structure 범위 결정 필요 |
+| v2 | regime-weighted allocation | 예정 | 레짐 반영 allocation 확장 |
+| v3 | Universe 그룹별 동적 가중치 | 예정 | 그룹별 가중치 조절 허용 |
+
+## 6.3 운영 주기 원칙
+- Adjustment Cycle: 주 1회 (화요일)
+- Portfolio Rebalance: 월 1회 (매달 마지막 주 금요일, 휴장 시 직전 영업일)
+- 원칙: `Adjustment != Rebalance`
+
+## 6.4 Non-Goals
+- 수치 기반 가중치/컷오프 튜닝 정의
+- v0 단계에서 그룹별 가중치 조절 허용

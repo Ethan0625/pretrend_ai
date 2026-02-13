@@ -19,7 +19,8 @@
 |-------------|-----------------------------------|------|
 | 데이터       | Bronze / Silver / Meta           | 외부 데이터 수집, 정규화, Feature 생성 |
 | 파이프라인   | `pretrend.pipeline.*`            | Ingest, Feature 변환, Calendar 증거 파이프라인, (향후) Label/Train |
-| 전략/신호    | `pretrend.signals.*`             | Pre-Trend Value 기반 전략, 매매 시그널 생성 |
+| 전략 상태판단 | Market Structure (Long/Mid/Short + Composer) | 4축 상태 해석 및 실행 게이트 생성 |
+| 실행 제어    | Universe + Allocation Engine v0  | 후보 선별 및 총 투자 비율 조절(`invested_ratio`) |
 | API         | `backend_api/` (FastAPI)         | 전략/데이터/LLM 인터페이스 제공 |
 | LLM         | vLLM 서버 (Qwen/Llama 계열)      | 리서치 요약, 질의응답, RAG 기반 분석 |
 | 오케스트레이션 | Airflow DAG | Macro/EOD 등 ETL 파이프라인 스케줄링 및 재처리 |
@@ -50,7 +51,9 @@ flowchart LR
     subgraph Pipeline[파이프라인 코드]
         INGEST[pretrend.pipeline.ingest.*]
         FEAT[pretrend.pipeline.features.*]
-        SIG[pretrend.signals.*\n(전략/시그널, 향후)]
+        MS[Market Structure\nlong/mid/short + composer]
+        UNI[Universe]
+        ALLOC[Allocation Engine v0]
     end
 
     subgraph App[애플리케이션 레이어]
@@ -67,8 +70,7 @@ flowchart LR
     External --> INGEST --> BZ
     BZ --> FEAT --> SV
     INGEST --> BC --> SC --> GD
-    SV --> SIG
-    SIG --> API
+    GD --> MS --> UNI --> ALLOC --> API
     LLM --> API
 
     AF --> INGEST
@@ -93,6 +95,19 @@ EOD Gold Feature v1 설명:
 - `pretrend.pipeline.features.gold_eod_features`가 Silver EOD를 Gold Fact Mart로 변환한다.
 - `pretrend.pipeline.eod_job`은 Bronze → Silver → Gold를 1회 실행으로 동기화한다.
 - `eod_pipeline_dag`는 `run_eod_bronze_ingest` → `run_eod_silver_features` → `run_eod_gold_features` 체인으로 동작한다.
+
+Risk-Control 전략 구조(v0) 설명:
+- 전략 흐름은 `Layer -> Market Structure(4축) -> Composer -> Universe -> Allocation Engine -> Weekly Report`를 따른다.
+- Allocation Engine v0는 총 투자 비율(`invested_ratio`)만 조절하며, Universe 내부 가중치 조절은 수행하지 않는다.
+- 관련 문서:
+  - `docs/strategy_architecture.md`
+  - `docs/architecture/market_structure_long_contract.md`
+  - `docs/architecture/market_structure_mid_contract.md`
+  - `docs/architecture/market_structure_short_contract.md`
+  - `docs/architecture/market_structure_composer_contract.md`
+  - `docs/architecture/universe_contract.md`
+  - `docs/architecture/allocation_engine_contract.md`
+  - `docs/market_structure_data_inventory.md`
 
 ---
 

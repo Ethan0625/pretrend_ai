@@ -1,223 +1,195 @@
 # 📄 Data Requirements Document
 
-**Project:** Pre-Trend Value 기반 자동매매 AI 시스템\
-**Document:** Data Requirements\
-**Version:** 2026.01.14\
-**Purpose:** Universe 생성(U0~U3), EOD Ingest 및 현재 구현된 Macro Silver Feature Layer의 데이터 요구사항과 운영 전제를 정의
+**Project:** Pre-Trend Value 기반 자동매매 AI 시스템  
+**Document:** Data Requirements  
+**Version:** 2026.02.12  
+**Purpose:** Risk-Control 전략 아키텍처(v0) 기준의 데이터 요구사항 정의
 
 ---
 
-# 1. Overview
+## 1. Overview
 
-본 문서는 Universe 파이프라인(U0 → U1 → U2 → U3)과
-EOD 데이터 수집을 수행하기 위해 필요한 "데이터 항목 (Data Requirements
-)"을 정의한다.
+본 문서는 현재 전략 구조
+`Layer -> Market Structure(4축) -> Composer -> Universe -> Allocation Engine v0`
+에서 필요한 데이터 입력을 정의한다.
 
-데이터는 다음 4개의 카테고리로 구분한다.
+본 문서의 범위는 **데이터 항목/스키마/운영 전제**이며,
+점수화(가중치/컷오프/임계값) 설계는 포함하지 않는다.
 
-* **Macro Data (U0)**: 거시·정책 신호 감지
-* **Theme Data (U1)**: 테마 영향력 스코어 산출
-* **Stock Level Data (U2/U3)**: 종목 후보 필터링
-* **Market Price Data (EOD)**: 최종 Universe 종목 EOD 시계열 저장
-
----
-
-# 2. Macro Data Requirements (U0)
-
-## 2.1 경제지표(Economic Indicators – Bronze → Silver)
-
-| 항목              | 설명          | 목적             | 출처         |
-| --------------- | ----------- | -------------- | ---------- |
-| Fed Funds Rate  | 기준금리        | 금리 인상/인하 신호 감지 | FRED       |
-| CPI / Core CPI  | 소비자물가지수     | 인플레이션 흐름 파악    | FRED       |
-| PPI             | 생산자물가지수     | 비용 상승/하락 신호    | FRED       |
-| ISM PMI         | 제조업/서비스 지수  | 경기 속도 판단       | ISM / FRED |
-| 고용지표 (NFP, 실업률) | 고용 시장 상황    | 경기 모멘텀 판단      | FRED       |
-| GDP 성장률         | 경제 확장/둔화 흐름 | 테마 방향성 판단      | BEA / FRED |
-
-**※ 실제 Universe(U0) 및 이후 파이프라인에서는 Bronze 원천 지표가 아닌, Silver Macro Feature를 사용한다.**
-
-Silver Macro Feature 예:
-- yoy, mom, rolling_3m, rolling_12m
-- regime (inflation / labor / rate cycle)
-- level (전략 입력용 정규화된 수준 값)
-
-## 2.2 정책/이벤트(Policy & Events)
-
-| 항목              | 설명             | 목적          |
-| --------------- | -------------- | ----------- |
-| FOMC 의사록/발표 요약  | 금리 전망 파악       | 금리 테마 영향    |
-| 정부/백악관 산업 정책 발표 | 산업 수혜 예측       | 특정 섹터 테마 강화 |
-| 주요 인프라/투자 법안    | CAPEX·산업 테마 감지 | 에너지·인프라 테마  |
-
-## 2.3 뉴스/키워드(News & Keyword Signals)
-
-| 항목            | 설명           | 이유          |
-| ------------- | ------------ | ----------- |
-| 경제 뉴스 헤드라인    | 주요 이벤트 추출    | 테마 후보 시드 생성 |
-| 테마 키워드 빈도     | AI/배터리/반도체 등 | 테마 강도 측정    |
-| LLM 기반 요약 키워드 | 의미 기반 신호 분류  | 노이즈 제거      |
-
-## 2.4 Macro Silver Feature 운영 정책
-- Macro Silver Feature는 Airflow DAG에 의해 매일 트리거된다.
-- 운영 환경에서 실행 누락이 발생할 수 있음을 전제로 설계되었다.
-- 각 실행 시:
-  - 처리 구간을 직전월 1일 ~ 전일로 설정하여
-  - 해당 기간을 롤링 재처리한다.
-- Silver Macro Feature는 year/month 파티션 단위 overwrite 전략을 사용하여
-  동일 기간 재실행 시 결과 일관성을 보장한다.
-- Universe(U0) 및 Gold Layer에서는
-  이 Silver Macro Feature를 EOD trade_date 기준 as-of join하여 사용한다.
----
-
-# 3. Theme Data Requirements (U1)
-
-## 3.1 테마 ETF 데이터
-
-| 항목                 | 설명                  | 목적          |
-| ------------------ | ------------------- | ----------- |
-| 테마 ETF 목록          | AI/반도체/REITs/로보틱스 등 | 테마 정의       |
-| ETF 구성 종목(Weights) | Top10~20 종목         | 테마 핵심 종목 추출 |
-| ETF 성과(1M/3M/6M)   | 상대강도(RS) 계산         | 테마 우선순위 결정  |
-| ETF 자금 유입(Flow)    | 모멘텀 확인              | 테마 스코어 강화   |
-
-## 3.2 뉴스 기반 테마 신호
-
-| 항목           | 설명             |
-| ------------ | -------------- |
-| 테마 키워드 등장 빈도 | AI, Robotics 등 |
-| 테마 관련 이벤트    | 정책/기업 투자 발표    |
+참조 문서:
+- `docs/strategy_architecture.md`
+- `docs/architecture/market_structure_long_contract.md`
+- `docs/architecture/market_structure_mid_contract.md`
+- `docs/architecture/market_structure_short_contract.md`
+- `docs/architecture/market_structure_composer_contract.md`
+- `docs/architecture/universe_contract.md`
+- `docs/architecture/allocation_engine_contract.md`
+- `docs/architecture/eod_observability_contract.md`
+- `docs/architecture/gold_design_contract.md`
+- `docs/architecture/calendar_design_contract.md`
 
 ---
 
-# 4. Stock-Level Data Requirements (U2/U3)
+## 2. Data Requirement Scope
 
-## 4.1 기본 종목 정보
+데이터 요구사항은 아래 5개 카테고리로 구성한다.
 
-| 항목             | 설명    | 목적           |
-| -------------- | ----- | ------------ |
-| Ticker         | 종목 코드 | Universe 식별자 |
-| Sector (GICS)  | 산업 분류 | 테마 매핑        |
-| Industry       | 세부 산업 | 테마 정밀도 향상    |
-| Market Cap     | 시가총액  | 대표성 판단       |
-| Average Volume | 평균거래량 | 유동성 필터       |
+1. Macro 데이터 (정책/유동성 축)
+2. EOD Observability 데이터 (가격/변동성, 수급/구조, 심리 proxy 공통 입력)
+3. Market Structure 모듈 입력 (Long/Mid/Short)
+4. Composer/Universe 입력
+5. Allocation Engine v0 입력
 
-## 4.2 펀더멘털(Fundamentals)
-
-| 항목                | 설명     | 목적     |
-| ----------------- | ------ | ------ |
-| Revenue / YoY 성장률 | 매출 증가  | 성장성 판단 |
-| Operating Income  | 영업이익   | 수익성 분석 |
-| Net Income        | 순이익    | 안정성 판단 |
-| EPS / EPS 성장률     | 수익성 개선 | 성장성 점수 |
-| Free Cash Flow    | 현금흐름   | 건전성 판단 |
-| ROE/ROIC          | 자본효율성  | 경쟁력 측정 |
-| Debt Ratio        | 레버리지   | 위험도 평가 |
-
-## 4.3 수급(Flow) Proxy
-
-(*미국 시장은 한국 대비 수급 접근 용이*)
-
-| 항목           | 설명            | 목적       |
-| ------------ | ------------- | -------- |
-| 거래량 Spike    | 평균 대비 2~5배 증가 | 매수세 포착   |
-| OBV          | 거래량 기반 추세     | 매집 가능성   |
-| MFI          | 자금 유입지표       | 수급 확인    |
-| ETF 구성 비중 변화 | 기관계 자금 흐름     | 테마·종목 수요 |
-
-## 4.4 기술적 흐름(Price Momentum)
-
-| 항목               | 설명      |
-| ---------------- | ------- |
-| 3M/6M/12M Return | 중기 추세   |
-| 52주 고점/저점        | 모멘텀 전환점 |
-| 이동평균선(20/60/120) | 추세 변화   |
+Non-Goals:
+- 종목 추천/전략 수익률 최적화용 feature 설계
+- Market Structure 점수식 정의
+- Universe 내부 종목 가중치 조정 규칙
 
 ---
 
-# 5. Market Price Data Requirements (EOD – Bronze)
+## 3. Macro Data Requirements (정책/유동성)
 
-## 5.1 필수 시세 데이터
+### 3.1 사용 계층
+- 원천: FRED Bronze/Silver + Calendar Silver
+- 소비: Gold Macro Feature v1 (`docs/architecture/gold_design_contract.md`)
+- 연계 조건: PIT-safe (`release_date < trade_date`)
 
-| 항목         | 타입    | 설명   |
-| ---------- | ----- | ---- |
-| trade_date | date  | 거래일  |
-| open       | float | 시가   |
-| high       | float | 고가   |
-| low        | float | 저가   |
-| close      | float | 종가   |
-| adj_close  | float | 수정종가 |
-| volume     | int   | 거래량  |
+### 3.2 필수 입력 항목
 
-## 5.2 저장 관련 메타데이터
-
-| 항목           | 설명      |
-| ------------ | ------- |
-| run_id       | 실행 식별자  |
-| ingestion_ts | 적재 시각   |
-| source       | API 공급자 |
-| symbol       | 종목 코드   |
-
-**※ 실제 Universe 및 Gold Layer에서는 EOD Bronze 데이터가 아닌, Silver EOD Feature를 사용한다.
-(EOD Silver Feature는 별도 문서 및 파이프라인에서 정의)**
-
-## 5.3 Always-on Observability ETFs v1 (계약)
-- EOD에는 Universe 결과와 무관하게 항상 수집되는 Observability ETF 세트를 포함한다.
-- 이 세트는 시장 상태 관측(섹터/국가/원자재/채권 축) 목적의 고정 입력이며, 투자 추천 목록이 아니다.
-- 상세 계약은 `docs/architecture/eod_observability_contract.md`를 기준으로 한다.
-
-### 필수 분류 컬럼 계약
-| 컬럼 | 타입 | 필수 여부 | 설명 |
+| 항목 | 설명 | 목적 | 출처 |
 | --- | --- | --- | --- |
-| asset_group | text (ENUM) | 필수 | `INDEX`, `COUNTRY`, `COMMODITY`, `BOND`, `SECTOR` |
-| asset_name | text | 필수 | 사람이 읽을 수 있는 canonical 분류명 |
-| asset_subtype | text | 선택 | 세부 해석용 2차 분류 |
+| CPI / Core CPI | 인플레이션 흐름 | 장기 phase/중기 regime 판단 재료 | FRED |
+| Fed Funds Rate | 기준금리 | 정책 방향 판단 | FRED |
+| 실업률 | 경기 모멘텀 | 경기 둔화/회복 상태 판단 | FRED |
+| 10Y 금리(DGS10) | 금리 레벨/변화 | 정책-시장 연결 재료 | FRED |
 
-### 라벨 전파 원칙
-- 분류 라벨(`asset_group`, `asset_name`, `asset_subtype`)은 Bronze에서 1회 확정한다.
-- Silver/Gold에서는 라벨을 수정하지 않고 그대로 전파한다.
-- Universe는 해당 컬럼을 읽어서 섹터/국가/원자재/채권 관측치를 그룹핑한다(입력 변경 금지).
+### 3.3 필수 컬럼(소비 기준)
 
----
-
-# 6. Minimal Data Set for MVP
-
-초기 MVP에서는 아래 데이터만 수집하면 Universe 생성이 가능하다.
-
-### Macro (Silver Feature 기준)
-
-* Fed Funds Rate 기반 Feature (level, delta_3m, regime)
-* CPI / Core CPI 기반 Feature (yoy, regime)
-* 실업률 기반 Feature (level, delta_3m, regime)
-* (향후) PMI Feature
-* (향후) 뉴스 헤드라인
-
-### Theme
-
-* 테마 ETF 목록
-* ETF 성과(1M/3M)
-* ETF 구성 종목
-
-### Stock
-
-* 매출/영업이익/EPS
-* 시총/섹터
-* 거래량 기반 수급 proxy(OBV, 거래량 Spike)
-
-### EOD
-
-* OHLCV + adj_close
+| 컬럼 | 타입 | 필수 | 비고 |
+| --- | --- | --- | --- |
+| indicator_id | TEXT | Y | 지표 식별자 |
+| trade_date | DATE | Y | 소비 기준일 |
+| selected_value | FLOAT | Y | 선택된 지표값 |
+| selected_release_date | DATE | Y | PIT 검증 기준 |
+| delta_1m / delta_3m / delta_6m | FLOAT | N | 지표별 증감 |
+| regime | TEXT | N | `tightening/easing/neutral` |
+| release_source | TEXT | Y | evidence 출처 |
 
 ---
 
-# 7. Data Source Summary
+## 4. EOD Data Requirements (Observability Set v1)
 
-| 데이터      | API/소스                | 난이도   |
-| -------- | --------------------- | ----- |
-| 경제지표 (Raw) | FRED | 매우 쉬움 |
-| Macro Feature (Silver) | 내부 파이프라인 | - |
-| 뉴스       | RSS/NewsAPI           | 쉬움    |
-| ETF      | Yahoo Finance / ETFdb | 쉬움    |
-| ETF Flow | FMP                   | 중간    |
-| 펀더멘털     | Finnhub / FMP         | 쉬움    |
-| EOD      | Yahoo Finance         | 매우 쉬움 |
+### 4.1 역할
+- Observability Set v1은 Universe 결과와 무관하게 항상 수집되는 고정 관측 입력이다.
+- 분류 라벨(`asset_group`, `asset_name`, `asset_subtype`)은 Bronze에서 1회 확정하고 Silver/Gold로 그대로 전파한다.
+
+### 4.2 필수 시세 컬럼
+
+| 컬럼 | 타입 | 필수 |
+| --- | --- | --- |
+| trade_date | DATE | Y |
+| open | FLOAT | Y |
+| high | FLOAT | Y |
+| low | FLOAT | Y |
+| close | FLOAT | Y |
+| adj_close | FLOAT | Y |
+| volume | BIGINT | Y |
+| symbol | TEXT | Y |
+| run_id | TEXT | Y |
+| ingestion_ts | TIMESTAMP | Y |
+| source | TEXT | Y |
+
+### 4.3 필수 분류 컬럼 계약
+
+| 컬럼 | 타입 | 필수 | 허용/설명 |
+| --- | --- | --- | --- |
+| asset_group | TEXT(ENUM) | Y | `INDEX`, `COUNTRY`, `COMMODITY`, `BOND`, `SECTOR` |
+| asset_name | TEXT | Y | canonical 분류명 |
+| asset_subtype | TEXT | N | 세부 분류 |
+
+---
+
+## 5. Market Structure 4축 입력 요구사항
+
+### 5.1 정책/유동성 축
+- 입력: Gold Macro Feature
+- 핵심 필드: `indicator_id`, `selected_value`, `delta_*`, `regime`
+
+### 5.2 가격/변동성 축
+- 입력: Gold EOD Feature
+- 핵심 필드: 수익률/변동성/drawdown 계열
+
+### 5.3 수급/구조 축
+- 입력: Gold EOD Feature 기반 flow/breadth proxy
+- v0 최소 재료: `SPY`, `IWM`, `TLT`, `IAU` 기반 상대 강도/스프레드
+- 확장 재료(추가 수집 시): OBV 계열, turnover spike
+
+### 5.4 심리 축 (v0)
+- 입력: 직접 VIX가 아닌 proxy 기반 상태 재료
+- 예: risk spread 프레임, realized volatility, intraday range
+- VIX 직접 수집/term structure는 v1+ 확장 항목
+
+---
+
+## 6. Composer / Universe / Allocation 입력 계약 관점
+
+### 6.1 Composer 입력 요건
+- Long/Mid/Short 모듈 출력이 동일 `trade_date` 기준으로 정렬 가능해야 한다.
+- 입력 누락 시 `UNKNOWN` 상태를 허용해야 한다.
+
+### 6.2 Universe 입력 요건
+- Composer 출력(`run_universe`, `risk_gate` 포함)
+- Gold EOD Feature + Observability 라벨
+- 라벨은 read-only
+
+### 6.3 Allocation 입력 요건(v0)
+
+| 컬럼 | 타입 | 필수 | 설명 |
+| --- | --- | --- | --- |
+| trade_date | DATE | Y | 기준일 |
+| target_invested_lower | FLOAT | Y | 목표 하한 |
+| target_invested_upper | FLOAT | Y | 목표 상한 |
+| current_invested_ratio | FLOAT | Y | 현재 투자 비율 |
+| adjustment_limit | FLOAT | Y | 주기당 최대 조정폭 |
+| risk_gate | BOOLEAN | Y | 증가 허용 여부 |
+| run_universe | BOOLEAN | Y | Universe 실행 허용 여부 |
+
+---
+
+## 7. 운영 주기 요구사항
+
+- Adjustment Cycle: 주 1회 (화요일)
+- Portfolio Rebalance: 월 1회 (마지막 주 금요일, 휴장 시 직전 영업일)
+- 원칙: Adjustment와 Rebalance는 분리 운영
+
+---
+
+## 8. 데이터 품질/불변식 요구사항
+
+- PIT 불변식 준수: `selected_release_date < trade_date`
+- Observability 라벨 read-only 전파
+- Composer ENUM 외 값 금지
+- `run_universe=false`이면 Universe 결과는 비어야 함
+- `risk_gate=false`이면 Allocation 증가(INCREASE) 금지
+
+---
+
+## 9. Minimal Data Set for v0
+
+v0 운영의 최소 필수 데이터:
+1. Gold Macro Feature v1 (CPI/Core CPI/UNRATE/FEDFUNDS/DGS10)
+2. Gold EOD Feature v1 (Observability 라벨 포함)
+3. Risk Spread/Volatility proxy 계산용 관측 심볼(`SPY`, `IWM`, `TLT`, `IAU`)
+4. Composer 출력(`run_universe`, `risk_gate`)
+5. Allocation 입력 7개 컬럼
+
+---
+
+## 10. Data Source Summary
+
+| 데이터 | 소스 | 비고 |
+| --- | --- | --- |
+| Macro 원천 | FRED | Calendar 연계 PIT 적용 |
+| EOD 시세 | Yahoo Finance 등 | Observability Set 상시 수집 |
+| Calendar release 증거 | FRED vintage/release API | Gold release_date 근거 |
+| Sentiment(v0) | EOD proxy 기반 | VIX 직접 수집은 v1+ |

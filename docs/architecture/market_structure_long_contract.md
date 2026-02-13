@@ -1,0 +1,128 @@
+# Market Structure Long-Term Phase — Contract (SOT)
+
+## Document Status
+| Item | Value |
+| --- | --- |
+| Status | Active |
+| Structure Policy | 구조는 고정, 기능은 확장 |
+| Effective Date | 2026-02-13 |
+| Change Tracking | docs/changelog.md |
+
+## Capability Matrix
+| Capability | Status | Notes |
+| --- | --- | --- |
+| Core scope | Active | 본 문서의 계약/설계 범위 |
+| Extension ports | Reserved | v1+ 확장 포트는 인터페이스만 정의 |
+| Numeric scoring/tuning | Not supported | 본 문서 범위에서 금지 |
+
+## TOC
+- [1. 문서 목적](#1-문서-목적)
+- [2. Scope & Non-Goals](#2-scope--non-goals)
+- [3. Inputs (Gold Macro 중심)](#3-inputs-gold-macro-중심)
+- [4. Outputs](#4-outputs)
+- [5. Grain/Key (trade_date 기준)](#5-grainkey-trade_date-기준)
+- [6. Invariants](#6-invariants)
+- [7. DoD (테스트 계약)](#7-dod-테스트-계약)
+
+참조:
+- `docs/architecture/gold_design_contract.md`
+- `docs/architecture/calendar_design_contract.md`
+- `docs/architecture/eod_observability_contract.md`
+- `docs/architecture/market_structure_composer_contract.md`
+
+## 1. 문서 목적
+### 책임
+- 장기 국면 모듈(`ms_long_term_phase`)의 입력/출력 계약을 고정한다.
+- Composer가 소비하는 표준 long-term 상태 인터페이스를 정의한다.
+
+### Non-goals
+- long_phase 판정식의 수치화(가중치/컷오프) 정의
+
+## 2. Scope & Non-Goals
+### Scope
+- Gold Macro 중심 입력을 사용해 장기 phase를 산출한다.
+- 결측 입력 처리 규칙(`UNKNOWN`)을 명시한다.
+
+### Non-goals
+- Universe/Allocation 직접 제어
+- 단기 신호 생성
+
+## 3. Inputs (Gold Macro 중심)
+### 책임
+- Gold Macro 기반 장기 판단 입력 컬럼을 고정한다.
+
+### Non-goals
+- Macro 원천 보정/리샘플링
+
+Source:
+- `data/gold/macro/macro_features/*`
+
+필수 입력 컬럼:
+
+| 컬럼 | 타입 | 필수 | 설명 |
+| --- | --- | --- | --- |
+| trade_date | DATE | Y | 기준일 |
+| indicator_id | TEXT | Y | 지표 식별자 |
+| selected_value | FLOAT | N | 선택 값 |
+| delta_3m | FLOAT | N | 중기 변화 |
+| delta_6m | FLOAT | N | 장기 변화 |
+| regime | TEXT | N | tightening/easing/neutral |
+| selected_release_date | DATE | N | PIT 검증용 release date |
+
+결측 처리:
+- 장기 판단에 필요한 핵심 입력이 누락되면 `long_phase=UNKNOWN`으로 출력한다.
+
+## 4. Outputs
+### 책임
+- Composer가 소비하는 long-term 상태 필드를 고정한다.
+
+### Non-goals
+- confidence 수치 기준 정의
+
+출력 컬럼:
+
+| 컬럼 | 타입 | 필수 | 설명 |
+| --- | --- | --- | --- |
+| trade_date | DATE | Y | 기준일 |
+| long_phase | TEXT | Y | `EXPANSION`, `LATE_CYCLE`, `SLOWDOWN`, `RECESSION`, `RECOVERY`, `UNKNOWN` |
+| long_phase_confidence | FLOAT | N | 신뢰도 형식 필드(선택) |
+| source_run_id | TEXT | N | lineage |
+
+## 5. Grain/Key (trade_date 기준)
+### 책임
+- 장기 모듈 출력 grain을 고정한다.
+
+### Non-goals
+- 다중 버전 출력 관리 규칙
+
+- Grain: `trade_date`
+- Key: `(trade_date)`
+
+## 6. Invariants
+### 책임
+- 출력 무결성 규칙을 명시한다.
+
+### Non-goals
+- 성능 KPI 보장
+
+- `long_phase`는 ENUM 외 값 금지
+- 입력을 수정하지 않고 read-only 소비
+- 결측 입력 시 `long_phase=UNKNOWN` 허용, NULL 금지
+
+## 7. DoD (테스트 계약)
+### 책임
+- 구현 검증 기준을 고정한다.
+
+### Non-goals
+- 테스트 프레임워크 강제
+
+- **ML1**: 필수 입력/출력 컬럼 검증
+- **ML2**: `long_phase` ENUM 외 값 금지
+- **ML3**: 입력 결측 시 `UNKNOWN` 출력 검증
+
+---
+
+## Change History
+| Date | Summary | References |
+| --- | --- | --- |
+| 2026-02-13 | 파일명 버전 제거 및 문서 표준 블록(Document Status/Capability Matrix) 적용 | docs/changelog.md |
