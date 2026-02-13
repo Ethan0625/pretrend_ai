@@ -29,3 +29,31 @@
 - Airflow `eod_pipeline_dag`는 Bronze → Silver → Gold 순서로 실행된다.
 - EOD Gold 테스트 실행:
   - `conda run -n pytest-pretrend pytest tests/pipeline/test_gold_eod_features.py -v`
+
+## Strategy Engine 실행
+- Strategy Engine v0 단일 실행:
+  - `PYTHONPATH=src python -m pretrend.pipeline.strategy_engine.strategy_job --date 2024-06-03 --invested-ratio 0.10`
+- 입력 전제:
+  - Gold Macro snapshot
+  - Gold EOD snapshot
+- 출력 경계:
+  - `WHAT_TO_HOLD`
+  - `HOW_MUCH_EXPOSURE`
+  - `HOW_MUCH_TO_SELL`
+- 스냅샷 저장 기준:
+  - `decision_date` 파티션
+  - overwrite + atomic write
+
+## 통합 테스트 실행
+- 전체 테스트:
+  - `conda run -n pytest-pretrend pytest tests/ -v`
+- 2026-02-13 기준 보고:
+  - `194 passed, 1 skipped`
+
+## 권장 E2E 실행 시퀀스
+- Macro 파이프라인(Bronze→Silver→Calendar→Gold):
+  - `PYTHONPATH=src python -m pretrend.pipeline.macro_job --start 2006-01-01 --end 2026-02-12`
+- EOD 파이프라인(Bronze→Silver→Gold):
+  - `PYTHONPATH=src python -m pretrend.pipeline.eod_job --start 2006-01-01 --end 2026-02-12`
+- Strategy Engine 실행:
+  - `PYTHONPATH=src python -m pretrend.pipeline.strategy_engine.strategy_job --date 2024-06-03 --invested-ratio 0.10`

@@ -1,7 +1,7 @@
 # Pretrend AI 아키텍처 문서 (architecture.md)
 **Project:** Pre-Trend Value 기반 자동매매 AI 시스템\
 **Document:** architecture\
-**Version:** 2026.01.14\
+**Version:** 2026.02.13\
 
 본 문서는 **Pre-Trend Value 기반 주식 자동매매 시스템**의 기술 아키텍처를 정의한다.  
 특히, 현재 구현된 **Macro/EOD/Calendar 파이프라인 및 Gold Feature Mart(Macro/EOD)**를 중심으로 설명하고,  
@@ -20,7 +20,8 @@
 | 데이터       | Bronze / Silver / Meta           | 외부 데이터 수집, 정규화, Feature 생성 |
 | 파이프라인   | `pretrend.pipeline.*`            | Ingest, Feature 변환, Calendar 증거 파이프라인, (향후) Label/Train |
 | 전략 상태판단 | Market Structure (Long/Mid/Short + Composer) | 4축 상태 해석 및 실행 게이트 생성 |
-| 실행 제어    | Universe + Allocation Engine v0  | 후보 선별 및 총 투자 비율 조절(`invested_ratio`) |
+| 전략 실행엔진 | Strategy Engine v0 | WHAT/EXPOSURE/SELL 경계 출력 생성 |
+| 실행 제어    | Universe + Allocation Engine  | 후보 선별 및 총 투자 비율 조절(`invested_ratio`) |
 | API         | `backend_api/` (FastAPI)         | 전략/데이터/LLM 인터페이스 제공 |
 | LLM         | vLLM 서버 (Qwen/Llama 계열)      | 리서치 요약, 질의응답, RAG 기반 분석 |
 | 오케스트레이션 | Airflow DAG | Macro/EOD 등 ETL 파이프라인 스케줄링 및 재처리 |
@@ -99,8 +100,10 @@ EOD Gold Feature v1 설명:
 Risk-Control 전략 구조(v0) 설명:
 - 전략 흐름은 `Layer -> Market Structure(4축) -> Composer -> Universe -> Allocation Engine -> Weekly Report`를 따른다.
 - Allocation Engine v0는 총 투자 비율(`invested_ratio`)만 조절하며, Universe 내부 가중치 조절은 수행하지 않는다.
+- Strategy Engine v0는 Gold snapshot 입력을 기준으로 WHAT/EXPOSURE/SELL 경계 출력을 생성한다.
 - 관련 문서:
   - `docs/strategy_architecture.md`
+  - `docs/strategy_engine_design.md`
   - `docs/architecture/market_structure_long_contract.md`
   - `docs/architecture/market_structure_mid_contract.md`
   - `docs/architecture/market_structure_short_contract.md`
@@ -157,6 +160,11 @@ pretrend_ai/
 │      │       ├─ fred_vintages.py   # Calendar fred_vintages Silver 변환
 │      │       └─ runner.py          # Calendar Silver runner CLI
 │      │   └─ eod_job.py             # EOD Bronze→Silver→Gold E2E runner
+│      │   └─ strategy_engine/       # Strategy Engine v0 (Axis/Horizon→Policy→Universe→Allocation→Sell)
+│      │       ├─ strategy_job.py    # Strategy Engine runner CLI
+│      │       ├─ config.py          # Strategy policy/profile config
+│      │       ├─ io.py              # snapshot load/write
+│      │       └─ ...                # axis_features / horizon_state / composer / universe / allocation / sell
 │      ├─ signals/               # 전략/신호 모듈 (향후)
 │      ├─ llm/                   # LLM/RAG 모듈 (향후)
 │      ├─ config/                # 설정/스키마 (향후)

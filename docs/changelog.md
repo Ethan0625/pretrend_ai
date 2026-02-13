@@ -1,10 +1,12 @@
 # Changelog
 
-## v2026.02.13 — Strategy Engine 설계 문서 보강
+## v2026.02.13 — Strategy Engine v0 구현 반영 및 문서 동기화
 
 ### 변경 요약
-- Strategy Engine v1: Universe 명칭을 Strategy Engine으로 통일하고, WHAT/EXPOSURE/SELL 3-경계 출력 + `decision_date` snapshot 저장 원칙을 SOT로 문서화
-- (Reserved) Stock Extension Port 및 Text/LLM Integration Port를 v1+ 확장 포트로 설계 문서에 추가
+- Strategy Engine 명칭 기준을 확정하고, WHAT/EXPOSURE/SELL 3-경계 출력 + `decision_date` snapshot 저장 원칙을 SOT로 고정
+- Gold Macro/EOD snapshot 기반 Strategy Engine v0(7단계 파이프라인) 구현 현황을 문서에 반영
+- 테스트 결과(194 passed, 1 skipped) 및 실데이터 검증 요약(GFC 구간 포함)을 운영 문서에 반영
+- (Reserved) Stock Extension Port 및 Text/LLM Integration Port를 v1+ 확장 포트로 유지
 
 ---
 
@@ -89,7 +91,7 @@
 ### 8) Risk-Control 전략 문서 구조 재정의 (4축 + Composer + Allocation v0)
 - Design vs Contract 분리 원칙으로 전략 문서를 재구성
   - Design: `docs/strategy_architecture.md`
-  - Contracts: `market_structure_long/mid/short/composer`, `universe_v1`, `allocation_engine_v0`
+  - Contracts: `market_structure_long/mid/short/composer`, `universe`, `allocation_engine`
   - Inventory: `docs/market_structure_data_inventory.md`
 - 전략 흐름을 `Layer -> Market Structure(4축) -> Composer -> Universe -> Allocation Engine -> Weekly Report`로 고정
 - v0 원칙 반영:

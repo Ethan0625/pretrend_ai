@@ -26,6 +26,7 @@
 - [SECTION H — Doc Consolidation Plan](#section-h--doc-consolidation-plan)
 - [SECTION I — Stock Extension Port (v1+ Reserved)](#section-i--stock-extension-port-v1-reserved)
 - [SECTION J — Text Signals & LLM(AI Agent) Integration Port (v1+ Reserved)](#section-j--text-signals--llmai-agent-integration-port-v1-reserved)
+- [SECTION K — Implementation Status (2026-02-13)](#section-k--implementation-status-2026-02-13)
 
 ---
 
@@ -280,7 +281,66 @@ flowchart TD
 
 ---
 
+## SECTION K — Implementation Status (2026-02-13)
+
+### K1) 구현 범위
+- Strategy Engine v0 파이프라인이 end-to-end로 구현되었다.
+- 실행 단계:
+  1. Axis Features (4축)
+  2. Axis×Horizon State (12-slot)
+  3. Market Position
+  4. Policy Selector (`RC_V0_DEFAULT`)
+  5. Universe (Observability ETF)
+  6. Allocation (`invested_ratio` 조절)
+  7. Sell Planner (예산/우선순위)
+
+### K2) 모듈 구성
+| 경로 | 역할 |
+| --- | --- |
+| `pipeline/strategy_engine/config.py` | StrategyEngineConfig, PolicyProfile, DEFAULT_POLICY_V0 |
+| `pipeline/strategy_engine/registries.py` | 정책/코어홀드/전술그룹 레지스트리 |
+| `pipeline/strategy_engine/io.py` | Gold 로더, atomic snapshot writer |
+| `pipeline/strategy_engine/axis_features/` | 4축 feature 빌더 |
+| `pipeline/strategy_engine/axis_horizon_state/` | Long/Mid/Short engine, 12-slot builder |
+| `pipeline/strategy_engine/market_position/` | 상태 벡터 결합 |
+| `pipeline/strategy_engine/policy_selector/` | 정책 적용, `risk_gate`/`run_universe` 판정 |
+| `pipeline/strategy_engine/universe/` | ETF 후보 선별 |
+| `pipeline/strategy_engine/allocation/` | 총 투자 비율 조절 |
+| `pipeline/strategy_engine/sell_planner/` | 매도 계획 |
+| `pipeline/strategy_engine/strategy_job.py` | E2E runner + CLI |
+
+### K3) 데이터 커버리지(보고 기준)
+| 레이어 | 범위 | 비고 |
+| --- | --- | --- |
+| Bronze/Silver/Gold Macro | 2006-01 ~ 2026-02 | 5개 거시 지표 |
+| Bronze/Silver/Gold EOD | 2006-01 ~ 2026-02 | 32개 중 25개 심볼 가용(7개 미출시) |
+| Strategy snapshots | 2009-03-09, 2024-06-03 | 실데이터 검증용 |
+
+### K4) 테스트/검증(보고 기준)
+- 전체 테스트 결과: `194 passed, 1 skipped`
+- Strategy Engine 관련 테스트 소계: 121
+- 실데이터 검증(GFC 구간)에서 `RISK_OFF`/`PANIC` 감지 동작을 확인했다.
+
+### K5) 수정 이력(요약)
+- Allocation 양자화 부동소수점 오차 수정
+- 단기 변동성 임계 스케일 정합성 수정(연환산/일간 스케일 혼동 제거)
+- 정책 범위 하한(`target_invested_lower`) 조정 반영
+
+### K6) v0 제약 재확인
+- 신규 VIX/뉴스/외부 감성 수집 없음(proxy only)
+- 동적 ETF 내부 가중치 배분 없음
+- 점수/가중치 최적화 없음
+- 정책 프로파일 단일(`RC_V0_DEFAULT`)
+
+### K7) 실행 명령
+```bash
+python -m pretrend.pipeline.strategy_engine.strategy_job --date 2024-06-03 --invested-ratio 0.10
+```
+
+---
+
 ## Change History
 | Date | Summary | References |
 | --- | --- | --- |
 | 2026-02-13 | 파일명 버전 제거 및 문서 표준 블록(Document Status/Capability Matrix) 적용 | docs/changelog.md |
+| 2026-02-13 | Strategy Engine 구현 현황(모듈/커버리지/테스트/검증) 반영 | docs/changelog.md |
