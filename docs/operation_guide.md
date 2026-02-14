@@ -57,3 +57,15 @@
   - `PYTHONPATH=src python -m pretrend.pipeline.eod_job --start 2006-01-01 --end 2026-02-12`
 - Strategy Engine 실행:
   - `PYTHONPATH=src python -m pretrend.pipeline.strategy_engine.strategy_job --date 2024-06-03 --invested-ratio 0.10`
+
+## Backtest Engine 실행
+- v0(range-maintenance) 실행:
+  - `PYTHONPATH=src python -m pretrend.pipeline.backtest.runner --start 2006-01-03 --end 2024-06-03 --preset v0`
+- v1(target-seeking) 실행:
+  - `PYTHONPATH=src python -m pretrend.pipeline.backtest.runner --start 2006-01-03 --end 2024-06-03 --preset v1`
+- v1 + tactical override 실행:
+  - `PYTHONPATH=src python -m pretrend.pipeline.backtest.runner --start 2006-01-03 --end 2024-06-03 --preset v1 --tactical SECTOR COMMODITY`
+
+## Backtest 테스트 실행
+- Backtest 테스트:
+  - `conda run -n pytest-pretrend pytest tests/pipeline/backtest/ -v`

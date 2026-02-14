@@ -1,5 +1,80 @@
 # Changelog
 
+## v2026.02.14 — Backtest Engine v0+v1 구현 반영 및 문서 동기화
+
+### 변경 요약
+- Strategy Engine 출력 기반 포트폴리오 시뮬레이션 모듈(Backtest Engine)을 구현하고 문서에 반영
+- `v0(range-maintenance)` + `v1(target-seeking)` allocation preset을 `BacktestPreset`/`PRESET_REGISTRY`로 고정
+- 2006-01-03 ~ 2024-06-03 구간 백테스트 CLI 실행 경로 및 tactical rotation 규칙을 운영 문서에 반영
+- Backtest 전용 테스트 62건 포함, 전체 프로젝트 테스트 결과 `256 passed, 1 skipped`로 갱신
+
+---
+
+### 1) Backtest Engine 모듈 추가 (`src/pretrend/pipeline/backtest/`)
+- `config.py`
+  - `BacktestPreset(frozen)`, `PRESET_REGISTRY(v0/v1)`, `BacktestConfig.from_preset()` 구현
+- `portfolio.py`
+  - `Portfolio(Position, Trade)` 및 `buy/sell/rebalance_to_weights` 구현
+- `rebalancer.py`
+  - `compute_target_weights`, `is_rebalance_day`, tactical rotation(`config.tactical_groups`) 구현
+- `runner.py`
+  - `BacktestRunner` E2E 시뮬레이션
+  - `_compute_dynamic_allocation(v0/v1)`, `_target_seeking_allocation` 분기 구현
+- `metrics.py`
+  - `CAGR`, `MDD`, `Sharpe`, `Sortino`, `Calmar`, 벤치마크 비교 지표 구현
+- `report.py`
+  - 콘솔 리포트(전체 + GFC/COVID/Rate Hike/Recovery 2023 구간) 구현
+
+---
+
+### 2) Preset 시스템 고정
+- `PRESET_V0`
+  - range-maintenance (`[0.10, 0.60]`), tactical=`SECTOR`
+- `PRESET_V1`
+  - target-seeking(phase별 목표 비율), tactical=`SECTOR`
+- `PRESET_REGISTRY`
+  - `{\"v0\": PRESET_V0, \"v1\": PRESET_V1}`
+- `BacktestConfig.from_preset(\"v1\", start_date=..., end_date=..., **overrides)` 지원
+- CLI override
+  - `--preset v0|v1`
+  - `--tactical SECTOR COMMODITY`
+
+---
+
+### 3) v1 Allocation 규칙 반영
+- `long_phase -> target ratio`
+  - `EXPANSION=0.60`, `RECOVERY=0.60`, `LATE_CYCLE=0.60`, `SLOWDOWN=0.20`, `RECESSION=0.10`, `UNKNOWN=0.40`
+- `adjustment_limit=0.10` (월간 최대 10%p), `step_size=0.05` 양자화
+- `risk_gate=false`이면 `INCREASE` 차단, `DECREASE` 허용
+- v0는 `target_ratio_map=None`으로 Strategy Engine range-maintenance 규칙 위임
+
+---
+
+### 4) Tactical Rotation 규칙
+- 조건:
+  - `run_universe=true`
+  - `risk_gate=true`
+  - `long_phase not in {RECESSION, SLOWDOWN}`
+- `config.tactical_groups` 기반 필터
+  - 기본(v0): `["SECTOR"]`
+  - 확장: `["SECTOR", "COMMODITY"]`
+- `relative_strength > SPY`인 ETF 상위 2개를 각 15% 비중으로 반영하고, `SCHD`/`SPY`에서 차감
+
+---
+
+### 5) 성과/테스트 현황 (2006-01-03 ~ 2024-06-03)
+- 성과 비교:
+  - CAGR: v0 `+4.59%`, v1 `+5.37%`, SPY B&H `+10.13%`
+  - Total: v0 `+128.7%`, v1 `+162.1%`, SPY B&H `+490.7%`
+  - MDD: v0 `-15.7%`, v1 `-23.8%`, SPY B&H `-55.2%`
+  - Sharpe: v0 `0.74`, v1 `0.66`
+  - GFC MDD: v0 `-9.4%`, v1 `-17.2%`, SPY B&H `-46.0%`
+- 테스트:
+  - Backtest tests: 62
+  - 전체 프로젝트: `257 tests (256 passed, 1 skipped)`
+
+---
+
 ## v2026.02.13 — Strategy Engine v0 구현 반영 및 문서 동기화
 
 ### 변경 요약
@@ -7,6 +82,7 @@
 - Gold Macro/EOD snapshot 기반 Strategy Engine v0(7단계 파이프라인) 구현 현황을 문서에 반영
 - 테스트 결과(194 passed, 1 skipped) 및 실데이터 검증 요약(GFC 구간 포함)을 운영 문서에 반영
 - (Reserved) Stock Extension Port 및 Text/LLM Integration Port를 v1+ 확장 포트로 유지
+- Text Observability Contract 신규 추가: Bronze/Silver/Gold 텍스트 레이어, allowlist, event-sort, Strategy Engine 연동 규칙을 문서로 고정
 
 ---
 

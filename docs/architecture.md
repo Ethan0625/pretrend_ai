@@ -1,7 +1,7 @@
 # Pretrend AI 아키텍처 문서 (architecture.md)
 **Project:** Pre-Trend Value 기반 자동매매 AI 시스템\
 **Document:** architecture\
-**Version:** 2026.02.13\
+**Version:** 2026.02.14\
 
 본 문서는 **Pre-Trend Value 기반 주식 자동매매 시스템**의 기술 아키텍처를 정의한다.  
 특히, 현재 구현된 **Macro/EOD/Calendar 파이프라인 및 Gold Feature Mart(Macro/EOD)**를 중심으로 설명하고,  
@@ -21,6 +21,7 @@
 | 파이프라인   | `pretrend.pipeline.*`            | Ingest, Feature 변환, Calendar 증거 파이프라인, (향후) Label/Train |
 | 전략 상태판단 | Market Structure (Long/Mid/Short + Composer) | 4축 상태 해석 및 실행 게이트 생성 |
 | 전략 실행엔진 | Strategy Engine v0 | WHAT/EXPOSURE/SELL 경계 출력 생성 |
+| 시뮬레이션 | Backtest Engine (v0/v1 preset) | Strategy Engine 출력 기반 포트폴리오 시뮬레이션 |
 | 실행 제어    | Universe + Allocation Engine  | 후보 선별 및 총 투자 비율 조절(`invested_ratio`) |
 | API         | `backend_api/` (FastAPI)         | 전략/데이터/LLM 인터페이스 제공 |
 | LLM         | vLLM 서버 (Qwen/Llama 계열)      | 리서치 요약, 질의응답, RAG 기반 분석 |
@@ -55,6 +56,7 @@ flowchart LR
         MS[Market Structure\nlong/mid/short + composer]
         UNI[Universe]
         ALLOC[Allocation Engine v0]
+        BT[Backtest Engine]
     end
 
     subgraph App[애플리케이션 레이어]
@@ -72,6 +74,8 @@ flowchart LR
     BZ --> FEAT --> SV
     INGEST --> BC --> SC --> GD
     GD --> MS --> UNI --> ALLOC --> API
+    ALLOC --> BT
+    UNI --> BT
     LLM --> API
 
     AF --> INGEST
@@ -111,6 +115,13 @@ Risk-Control 전략 구조(v0) 설명:
   - `docs/architecture/universe_contract.md`
   - `docs/architecture/allocation_engine_contract.md`
   - `docs/market_structure_data_inventory.md`
+
+Backtest Engine(v0/v1) 설명:
+- `pretrend.pipeline.backtest.*`는 Strategy Engine 출력과 Gold snapshot을 입력으로 포트폴리오 시뮬레이션을 수행한다.
+- Preset 기반 동작:
+  - v0: range-maintenance
+  - v1: target-seeking
+- 구현 모듈: `config.py`, `portfolio.py`, `rebalancer.py`, `runner.py`, `metrics.py`, `report.py`
 
 ---
 
@@ -165,6 +176,13 @@ pretrend_ai/
 │      │       ├─ config.py          # Strategy policy/profile config
 │      │       ├─ io.py              # snapshot load/write
 │      │       └─ ...                # axis_features / horizon_state / composer / universe / allocation / sell
+│      │   └─ backtest/              # Backtest Engine (v0/v1 preset)
+│      │       ├─ config.py          # BacktestPreset / PRESET_REGISTRY / from_preset
+│      │       ├─ portfolio.py       # Position/Trade/Portfolio
+│      │       ├─ rebalancer.py      # target weights / rebalance day / tactical rotation
+│      │       ├─ runner.py          # BacktestRunner CLI
+│      │       ├─ metrics.py         # CAGR/MDD/Sharpe/Sortino/Calmar
+│      │       └─ report.py          # 구간별 리포트 출력
 │      ├─ signals/               # 전략/신호 모듈 (향후)
 │      ├─ llm/                   # LLM/RAG 모듈 (향후)
 │      ├─ config/                # 설정/스키마 (향후)
