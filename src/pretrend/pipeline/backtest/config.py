@@ -27,6 +27,8 @@ class BacktestPreset:
     allocation_adjustment_limit: float = 0.10
     allocation_step_size: float = 0.05
     tactical_groups: Tuple[str, ...] = ("SECTOR",)
+    # v2: 2D lookup (long_phase, mid_regime) → target ratio
+    target_ratio_map_v2: Optional[Dict[Tuple[str, str], float]] = None
 
 
 PRESET_V0 = BacktestPreset(
@@ -50,9 +52,31 @@ PRESET_V1 = BacktestPreset(
     tactical_groups=("SECTOR",),
 )
 
+PRESET_V2 = BacktestPreset(
+    name="v2",
+    description="2D allocation: f(long_phase, mid_regime), SECTOR only",
+    target_ratio_map=None,
+    target_ratio_map_v2={
+        ("EXPANSION", "RISK_ON"): 0.80, ("EXPANSION", "NEUTRAL"): 0.70,
+        ("EXPANSION", "RISK_OFF"): 0.55, ("EXPANSION", "UNKNOWN"): 0.65,
+        ("LATE_CYCLE", "RISK_ON"): 0.60, ("LATE_CYCLE", "NEUTRAL"): 0.45,
+        ("LATE_CYCLE", "RISK_OFF"): 0.30, ("LATE_CYCLE", "UNKNOWN"): 0.45,
+        ("SLOWDOWN", "RISK_ON"): 0.35, ("SLOWDOWN", "NEUTRAL"): 0.25,
+        ("SLOWDOWN", "RISK_OFF"): 0.15, ("SLOWDOWN", "UNKNOWN"): 0.25,
+        ("RECOVERY", "RISK_ON"): 0.70, ("RECOVERY", "NEUTRAL"): 0.60,
+        ("RECOVERY", "RISK_OFF"): 0.45, ("RECOVERY", "UNKNOWN"): 0.60,
+        ("RECESSION", "RISK_ON"): 0.20, ("RECESSION", "NEUTRAL"): 0.10,
+        ("RECESSION", "RISK_OFF"): 0.05, ("RECESSION", "UNKNOWN"): 0.10,
+        ("UNKNOWN", "RISK_ON"): 0.50, ("UNKNOWN", "NEUTRAL"): 0.40,
+        ("UNKNOWN", "RISK_OFF"): 0.30, ("UNKNOWN", "UNKNOWN"): 0.40,
+    },
+    tactical_groups=("SECTOR",),
+)
+
 PRESET_REGISTRY: Dict[str, BacktestPreset] = {
     "v0": PRESET_V0,
     "v1": PRESET_V1,
+    "v2": PRESET_V2,
 }
 
 # 호환용 alias
@@ -95,6 +119,8 @@ class BacktestConfig:
     # Allocation v1: 시장 상태 → 목표 투자비율 매핑
     # None = v0 (range-maintenance), dict = v1 (target-seeking)
     target_ratio_map: Optional[Dict[str, float]] = None
+    # Allocation v2: 2D lookup (long_phase, mid_regime) → target ratio
+    target_ratio_map_v2: Optional[Dict[Tuple[str, str], float]] = None
     allocation_adjustment_limit: float = 0.10
     allocation_step_size: float = 0.05
 
@@ -124,6 +150,16 @@ class BacktestConfig:
                     raise ValueError(
                         f"target_ratio_map[{phase!r}] must be in [0, 1], got {ratio}"
                     )
+        if self.target_ratio_map_v2 is not None:
+            for (lp, mr), ratio in self.target_ratio_map_v2.items():
+                if not isinstance(lp, str) or not isinstance(mr, str):
+                    raise ValueError(
+                        f"target_ratio_map_v2 key must be Tuple[str, str], got ({lp!r}, {mr!r})"
+                    )
+                if not (0.0 <= ratio <= 1.0):
+                    raise ValueError(
+                        f"target_ratio_map_v2[({lp!r}, {mr!r})] must be in [0, 1], got {ratio}"
+                    )
         for grp in self.tactical_groups:
             if grp not in VALID_TACTICAL_GROUPS:
                 raise ValueError(f"Unknown tactical group: {grp!r}")
@@ -140,6 +176,7 @@ class BacktestConfig:
         preset = PRESET_REGISTRY[preset_name]
         defaults = {
             "target_ratio_map": preset.target_ratio_map,
+            "target_ratio_map_v2": preset.target_ratio_map_v2,
             "allocation_adjustment_limit": preset.allocation_adjustment_limit,
             "allocation_step_size": preset.allocation_step_size,
             "tactical_groups": list(preset.tactical_groups),

@@ -7,15 +7,22 @@ OPTIONAL axis: price_volatility, flow_structure
 Contract: docs/architecture/market_structure_long_v1_contract.md
 SOT: docs/strategy_engine_design.md §A3
 
-v0 라벨 로직 (placeholder — 규칙 기반):
-  regime 다수결 + delta_6m 방향 → phase 매핑
+v1 라벨 로직:
+  regime 다수결 + delta_6m 지표별 rolling z-score 평균 → phase 매핑
+  - delta_6m을 지표별 rolling z-score로 정규화 (단위 불변, window=252, min_periods=60)
+  - 초기구간(z-score NaN) 시 raw delta_6m 부호(sign)로 fallback
+  - indicator_id 또는 delta_6m 컬럼 없으면 regime 단독 판정 (fail-open)
   결측 시 UNKNOWN (fail-open)
+
+전제:
+  - macro_policy의 (indicator_id, trade_date) 중복은 keep="last"로 제거
 """
 from __future__ import annotations
 
 import logging
 from typing import Optional
 
+import numpy as np
 import pandas as pd
 
 from .schema import LONG_PHASE_ENUM, LONG_OUTPUT_COLUMNS
@@ -79,19 +86,44 @@ def build_long_phase(
         logger.warning("[LongEngine] Empty or invalid macro_policy → all UNKNOWN")
         return pd.DataFrame(columns=LONG_OUTPUT_COLUMNS)
 
-    # trade_date별로 regime 다수결 + delta_6m 평균 집계
-    agg = macro_policy.groupby("trade_date").agg(
-        regime_mode=("regime", lambda x: x.mode().iloc[0] if not x.mode().empty else None),
-        delta_6m_mean=("delta_6m", "mean") if "delta_6m" in macro_policy.columns else ("regime", lambda x: None),
-    ).reset_index()
+    # v1: 지표별 rolling z-score로 delta_6m 정규화 (단위 불변)
+    # 전제: (indicator_id, trade_date) 중복은 keep="last"로 제거
+    mac = macro_policy.copy()
+    if "delta_6m" in mac.columns and "indicator_id" in mac.columns:
+        # 중복 제거: (indicator_id, trade_date) 기준, keep="last"
+        mac = mac.drop_duplicates(subset=["indicator_id", "trade_date"], keep="last")
+        mac = mac.sort_values(["indicator_id", "trade_date"])
 
-    # delta_6m 컬럼이 없을 수 있음
-    if "delta_6m" not in macro_policy.columns:
-        agg["delta_6m_mean"] = None
+        # 지표별 rolling z-score (window=252거래일, min_periods=60)
+        def _rolling_zscore(x: pd.Series) -> pd.Series:
+            mean = x.rolling(252, min_periods=60).mean()
+            std = x.rolling(252, min_periods=60).std()
+            std = std.where(std > 0, other=float("nan"))
+            return (x - mean) / std
+
+        mac["delta_6m_z"] = mac.groupby("indicator_id", sort=False)["delta_6m"].transform(
+            _rolling_zscore
+        )
+
+        # NaN fallback: z-score 미계산 시 raw delta_6m 부호(sign)로 대체
+        # 초기구간(min_periods 미충족) 또는 std=0 케이스
+        nan_mask = mac["delta_6m_z"].isna()
+        raw_sign = np.sign(mac.loc[nan_mask, "delta_6m"]).replace(0, float("nan"))
+        mac.loc[nan_mask, "delta_6m_z"] = raw_sign
+    else:
+        # delta_6m 또는 indicator_id 컬럼 없음 → regime 단독 판정 (fail-open)
+        logger.debug("[LongEngine] delta_6m or indicator_id missing → regime-only classification")
+        mac["delta_6m_z"] = float("nan")
+
+    # trade_date별로 regime 다수결 + z-score 평균 집계
+    agg = mac.groupby("trade_date").agg(
+        regime_mode=("regime", lambda x: x.mode().iloc[0] if not x.mode().empty else None),
+        delta_6m_z_mean=("delta_6m_z", "mean"),
+    ).reset_index()
 
     rows = []
     for _, row in agg.iterrows():
-        phase = _classify_long_phase(row.get("regime_mode"), row.get("delta_6m_mean"))
+        phase = _classify_long_phase(row.get("regime_mode"), row.get("delta_6m_z_mean"))
         assert phase in LONG_PHASE_ENUM, f"Invalid phase: {phase}"
         rows.append({
             "trade_date": row["trade_date"],

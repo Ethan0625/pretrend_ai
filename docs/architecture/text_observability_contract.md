@@ -80,6 +80,17 @@
 | `enricher_version` | str | 코드/파서 버전 |
 | `input_hash` | str | body 해시 |
 
+#### Tone 정의 (중요)
+- Tone은 텍스트의 언어적 논조(language polarity)를 의미하며, 가격 영향(impact)을 의미하지 않는다.
+- neutral은 별도 enum 라벨로 저장하지 않는다.
+- 문서 단위 tone은 span 단위 근거(`tone_spans[]`)의 존재 여부로 파생한다.
+
+파생 규칙:
+- `has_positive_language = (positive tone_spans 개수 > 0)`
+- `has_negative_language = (negative tone_spans 개수 > 0)`
+- `fact_only = (not has_positive_language and not has_negative_language)`
+- `mixed_tone = (has_positive_language and has_negative_language)`
+
 #### ToneSpan
 ```json
 {
@@ -133,10 +144,50 @@
 ## 3. Topic/Tag Allowlist
 
 ### 3.1 Topic Allowlist (`asset_name` 기반)
+- Topic은 `docs/architecture/eod_observability_contract.md`의 `asset_name` allowlist를 Source of Truth로 재사용한다.
+- 거시/추상 개념(예: inflation, growth, rates 등)은 v0에서 Topic으로 정의하지 않는다. (필요 시 Tag 또는 별도 분석 축으로 처리)
+- Topic은 multi-label(0..N)이며, v0 권장 최대 3개이다.
+- Topic taxonomy 변경은 v1 이상(계약 갱신)에서만 수행한다.
+
 `sp500`, `nasdaq100`, `dow30`, `russell2000`, `us_dividend`, `south_korea`, `china`, `japan`, `india`, `gold`, `silver`, `crude_oil`, `natural_gas`, `agriculture`, `us_treasury_long`, `energy_sector`, `financials`, `regional_banks`, `semiconductor`, `information_tech`, `health_care`, `materials`, `consumer_discretionary`, `consumer_staples`, `communication_services`, `real_estate`, `utilities`, `nuclear_energy`
 
 ### 3.2 Tag Allowlist (Event Type)
-`hike`, `cut`, `qe`, `qt`, `guidance_change`, `fiscal_stimulus`, `regulation_change`, `downgrade`, `default`, `spread_widening`, `liquidity_crunch`, `bank_run`, `bailout`, `earnings_miss`, `earnings_beat`, `guidance_raise`, `guidance_cut`, `layoff`, `bankruptcy`, `crash`, `capitulation`, `volatility_spike`, `risk_off`, `risk_on`
+- Tag는 사건 유형(event-type)을 의미하며 Topic(자산/영역)과 역할이 겹치지 않는다.
+- Tag는 multi-label(0..N)이며, v0 권장 최대 5개이다.
+- allowlist 외 Tag는 저장하지 않는다.
+- Tag taxonomy 변경은 v1 이상(계약 갱신)에서만 수행한다.
+
+#### (A) Policy / Monetary
+- hike
+- cut
+- qe
+- qt
+- guidance_change
+- fiscal_stimulus
+- regulation_change
+
+#### (B) Credit / Liquidity
+- downgrade
+- default
+- spread_widening
+- liquidity_crunch
+- bank_run
+- bailout
+
+#### (C) Earnings / Corporate
+- earnings_miss
+- earnings_beat
+- guidance_raise
+- guidance_cut
+- layoff
+- bankruptcy
+
+#### (D) Market Stress / Flow
+- crash
+- capitulation
+- volatility_spike
+- risk_off
+- risk_on
 
 ## 4. 이벤트 정렬 규칙
 | 조건 | 결과 |
@@ -152,6 +203,8 @@
 - Strategy Engine 입력은 Gold day-level numeric features(`gold.text_daily_signals`)로 고정한다.
 - 흐름:
   - `Silver (array storage) -> Gold (numeric features) -> Strategy Engine`
+- Text 데이터는 v0에서 Strategy Engine의 점수/가중치 입력으로 직접 주입하지 않는다. (Numeric score tuning 금지)
+- Strategy Engine은 Gold에서 집계된 day-level numeric features만 소비하며, Silver의 배열 구조 변경과 독립이어야 한다.
 
 ## 6. Invariants
 - Bronze 원문은 immutable이며 재처리 SOT로 유지된다.
@@ -159,6 +212,7 @@
 - Strategy Engine은 Silver 배열을 직접 참조하지 않는다.
 - Event-sort는 동일 입력에 대해 deterministic해야 한다.
 - `model_id`, `prompt_version`, `enricher_version`, `input_hash`는 Silver에서 필수 메타다.
+- Tone은 언어적 논조이며, 가격 반응(impact)은 Gold 수익률(ret_*)로만 정의된다.
 
 ## 7. Validation / DoD
 - Topic allowlist 검증: `topics[]` 허용값 준수

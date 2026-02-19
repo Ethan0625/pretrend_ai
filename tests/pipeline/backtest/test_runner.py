@@ -6,6 +6,7 @@ import pytest
 
 from pretrend.pipeline.backtest.config import BacktestConfig
 from pretrend.pipeline.backtest.runner import BacktestRunner
+from pretrend.pipeline.backtest.allocation import compute_allocation_v1
 
 
 @pytest.fixture
@@ -153,11 +154,7 @@ class TestBacktestRunner:
 
 
 class TestTargetSeekingAllocation:
-    """_target_seeking_allocation 순수 로직 테스트."""
-
-    @pytest.fixture
-    def runner(self):
-        return BacktestRunner()
+    """compute_allocation_v1 순수 로직 테스트 (allocation.py로 이전)."""
 
     @pytest.fixture
     def v1_config(self):
@@ -165,60 +162,68 @@ class TestTargetSeekingAllocation:
             "v1", start_date=date(2012, 1, 3), end_date=date(2024, 6, 3),
         )
 
-    def test_expansion_at_target(self, runner, v1_config):
+    def test_expansion_at_target(self, v1_config):
         """현재=0.60, EXPANSION target=0.60 → HOLD."""
         row = pd.Series({"long_phase": "EXPANSION", "risk_gate": True})
-        result = runner._target_seeking_allocation(0.60, row, v1_config)
+        result = compute_allocation_v1(0.60, row, v1_config)
         assert result["action"] == "HOLD"
         assert result["next_invested_ratio"] == 0.60
 
-    def test_recession_decrease(self, runner, v1_config):
+    def test_recession_decrease(self, v1_config):
         """현재=0.60, RECESSION target=0.10 → DECREASE by 0.10."""
         row = pd.Series({"long_phase": "RECESSION", "risk_gate": True})
-        result = runner._target_seeking_allocation(0.60, row, v1_config)
+        result = compute_allocation_v1(0.60, row, v1_config)
         assert result["action"] == "DECREASE"
         assert result["next_invested_ratio"] == pytest.approx(0.50)
 
-    def test_recovery_increase(self, runner, v1_config):
+    def test_recovery_increase(self, v1_config):
         """현재=0.20, RECOVERY target=0.60 → INCREASE by 0.10."""
         row = pd.Series({"long_phase": "RECOVERY", "risk_gate": True})
-        result = runner._target_seeking_allocation(0.20, row, v1_config)
+        result = compute_allocation_v1(0.20, row, v1_config)
         assert result["action"] == "INCREASE"
         assert result["next_invested_ratio"] == pytest.approx(0.30)
 
-    def test_risk_gate_blocks_increase(self, runner, v1_config):
+    def test_risk_gate_blocks_increase(self, v1_config):
         """risk_gate=false → INCREASE 차단."""
         row = pd.Series({"long_phase": "RECOVERY", "risk_gate": False})
-        result = runner._target_seeking_allocation(0.20, row, v1_config)
+        result = compute_allocation_v1(0.20, row, v1_config)
         assert result["action"] == "HOLD"
         assert result["blocked_by_risk_gate"] is True
         assert result["next_invested_ratio"] == 0.20
 
-    def test_risk_gate_allows_decrease(self, runner, v1_config):
+    def test_risk_gate_allows_decrease(self, v1_config):
         """risk_gate=false 여도 DECREASE는 허용."""
         row = pd.Series({"long_phase": "RECESSION", "risk_gate": False})
-        result = runner._target_seeking_allocation(0.60, row, v1_config)
+        result = compute_allocation_v1(0.60, row, v1_config)
         assert result["action"] == "DECREASE"
 
-    def test_small_delta_hold(self, runner, v1_config):
+    def test_run_universe_blocks_increase(self, v1_config):
+        """run_universe=false → INCREASE 차단 (v1 버그 수정 검증)."""
+        row = pd.Series({"long_phase": "RECOVERY", "risk_gate": True, "run_universe": False})
+        result = compute_allocation_v1(0.20, row, v1_config)
+        assert result["action"] == "HOLD"
+        assert result["blocked_by_risk_gate"] is False
+        assert "increase_blocked_by_run_universe" in result["notes"][0]
+
+    def test_small_delta_hold(self, v1_config):
         """delta < step_size → HOLD."""
         row = pd.Series({"long_phase": "LATE_CYCLE", "risk_gate": True})
         # target=0.60, current=0.58 → delta=0.02 < step_size=0.05
-        result = runner._target_seeking_allocation(0.58, row, v1_config)
+        result = compute_allocation_v1(0.58, row, v1_config)
         assert result["action"] == "HOLD"
 
-    def test_unknown_phase_fallback(self, runner, v1_config):
+    def test_unknown_phase_fallback(self, v1_config):
         """UNKNOWN phase → target=0.40."""
         row = pd.Series({"long_phase": "UNKNOWN", "risk_gate": True})
-        result = runner._target_seeking_allocation(0.60, row, v1_config)
+        result = compute_allocation_v1(0.60, row, v1_config)
         assert result["action"] == "DECREASE"
         assert result["next_invested_ratio"] == pytest.approx(0.50)
 
-    def test_step_size_quantization(self, runner, v1_config):
+    def test_step_size_quantization(self, v1_config):
         """step_size=0.05 양자화 확인."""
         row = pd.Series({"long_phase": "SLOWDOWN", "risk_gate": True})
         # target=0.20, current=0.33 → raw_delta=0.13, limit=0.10, quantize(0.10,0.05)=0.10
-        result = runner._target_seeking_allocation(0.33, row, v1_config)
+        result = compute_allocation_v1(0.33, row, v1_config)
         assert result["action"] == "DECREASE"
         assert result["next_invested_ratio"] == pytest.approx(0.23)
 

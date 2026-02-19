@@ -1,5 +1,98 @@
 # Changelog
 
+## v2026.02.19b — Long Engine v1 (delta_6m 지표별 rolling z-score 정규화)
+
+### 변경 요약
+- `long_engine.py`: `delta_6m_mean` (이질적 지표 혼합 평균) → 지표별 rolling z-score 평균으로 교체
+- LATE_CYCLE 지배 비율 **59.7% → 41.3%** (-18.4%p) 감소 달성
+- 신규 테스트 4건 추가, 전체 `284 passed, 1 skipped`
+
+### 핵심 변경: `pipeline/strategy_engine/axis_horizon_state/long_engine.py`
+
+**문제**: `delta_6m_mean` = CPI(수 단위) + UNRATE(0.x 단위) 혼합 평균 → CPI 스케일 압도 → tightening 기간 거의 전부 LATE_CYCLE (59.7%)
+
+**해결**: 지표별 rolling z-score 정규화 (단위 불변)
+```
+1. (indicator_id, trade_date) 중복 제거: keep="last"
+2. 지표별 rolling z-score: window=252, min_periods=60
+3. NaN fallback: z-score 미계산 시 raw delta_6m 부호(sign) 사용
+4. indicator_id 컬럼 없으면 regime 단독 판정 (fail-open)
+```
+
+**LATE_CYCLE 비율 변화** (2006-2024, decision_date=2024-06-03 기준):
+| phase | 변경 전 (v0 엔진) | 변경 후 (v1 엔진) |
+|-------|---------|---------|
+| LATE_CYCLE | 59.7% | **39.7%** |
+| SLOWDOWN | ~1% | 20.7% |
+| RECESSION | ~5% | 15.4% |
+| EXPANSION | ~15% | 15.5% |
+
+**백테스트 성과 (2006~2024)**:
+| 지표 | v0 | v1 | v2 |
+|------|-----|-----|-----|
+| CAGR | +4.51% | +3.53% | +3.99% |
+| MDD | -15.66% | -24.64% | -16.26% |
+| Sharpe | 0.72 | 0.53 | 0.66 |
+| GFC MDD | -9.31% | -17.45% | -10.74% |
+| COVID MDD | -15.66% | -11.81% | -11.73% |
+| Rate Hike MDD | -11.92% | -11.40% | -9.42% |
+
+구 long_engine v0 대비: v0 CAGR 거의 유지(4.59%→4.51%), v2 CAGR 소폭 하락(5.21%→3.99%)
+
+### 신규 테스트 4건 (`tests/pipeline/strategy_engine/test_long_engine.py`)
+- `TestLongPhaseV1Normalization::test_unit_invariance`: CPI/UNRATE 스케일 차이에서도 유효한 ENUM 결과
+- `TestLongPhaseV1Normalization::test_nan_fallback_early_period`: 초기구간 NaN → sign fallback 적용 확인
+- `TestLongPhaseV1Normalization::test_missing_indicator_id_fallback`: indicator_id 없으면 regime-only (LATE_CYCLE)
+- `TestLongPhaseV1Normalization::test_duplicate_indicator_trade_date`: 중복 keep="last" 후 1행 결과
+
+### 미수정 (다음 세션)
+- z-score 임계값 조정 (0.0 → 0.3 등): SLOWDOWN/RECESSION 과다 여부 검증 후 결정
+- market_structure_long_contract.md 개정: 임계값 확정 후 진행
+
+---
+
+## v2026.02.19 — Allocation v2 (2D lookup) + 아키텍처 리팩토링
+
+### 변경 요약
+- Allocation 전략을 `pipeline/backtest/allocation.py`로 분리, 버전별 함수 + `ALLOCATION_REGISTRY` + `dispatch_allocation()` 레지스트리 패턴 도입
+- `PRESET_V2` 추가: `target = f(long_phase, mid_regime)` 2D 룩업 — LATE_CYCLE 과도 비율을 allocation 레이어에서 mid_regime으로 분화
+- v1 `run_universe=false` 미체크 버그 수정 (INCREASE 차단 누락)
+- 신규 테스트 23건 추가, 전체 `280 passed, 1 skipped`
+
+### 핵심 변경
+
+**1) `pipeline/backtest/allocation.py` (신규)**
+- `compute_allocation_v0()`: 기존 range-maintenance 로직 위임
+- `compute_allocation_v1()`: f(long_phase) target-seeking + `run_universe` 체크 버그 수정
+- `compute_allocation_v2()`: f(long_phase, mid_regime) 2D lookup, 4단계 fallback
+- `ALLOCATION_REGISTRY`, `dispatch_allocation()`: preset_name 기반 dispatch
+
+**2) `pipeline/backtest/config.py`**
+- `BacktestPreset.target_ratio_map_v2: Optional[Dict[Tuple[str,str], float]]` 필드 추가
+- `PRESET_V2` 정의 및 `PRESET_REGISTRY["v2"]` 등록
+- `BacktestConfig.target_ratio_map_v2` 필드 + `__post_init__` 키/값 검증 + `from_preset()` defaults
+
+**3) `pipeline/backtest/runner.py`**
+- `_compute_dynamic_allocation()`: `dispatch_allocation()` 단순 위임으로 교체
+- 기존 `_target_seeking_allocation()` inline 메서드 제거
+
+### v2 Target Ratio 2D 테이블
+| long_phase \ mid_regime | RISK_ON | NEUTRAL | RISK_OFF | UNKNOWN |
+|---|---|---|---|---|
+| EXPANSION | 0.80 | 0.70 | 0.55 | 0.65 |
+| LATE_CYCLE | 0.60 | 0.45 | **0.30** | 0.45 |
+| SLOWDOWN | 0.35 | 0.25 | 0.15 | 0.25 |
+| RECOVERY | 0.70 | 0.60 | 0.45 | 0.60 |
+| RECESSION | 0.20 | 0.10 | 0.05 | 0.10 |
+| UNKNOWN | 0.50 | 0.40 | 0.30 | 0.40 |
+
+핵심: LATE_CYCLE + RISK_OFF = 0.30 (v1의 0.60에서 절반 — 하방 방어 강화)
+
+### 미수정 (다음 세션)
+- `long_engine.py` delta_6m 임계값 정밀화: delta_6m_mean이 이질적 지표 혼합 평균이므로 정규화 전략 확립 후 진행
+
+---
+
 ## v2026.02.14 — Backtest Engine v0+v1 구현 반영 및 문서 동기화
 
 ### 변경 요약
