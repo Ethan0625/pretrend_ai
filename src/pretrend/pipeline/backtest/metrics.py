@@ -4,7 +4,7 @@ Backtest 성과 지표 — CAGR, MDD, Sharpe 등.
 from __future__ import annotations
 
 import math
-from typing import Dict
+from typing import Dict, List
 
 import pandas as pd
 
@@ -131,3 +131,68 @@ def _empty_metrics() -> Dict:
         "excess_return": 0.0,
         "excess_cagr": 0.0,
     }
+
+
+# ── Phase 분포 집계 ────────────────────────────────────────────
+
+_PHASE_COLS: List[str] = [
+    "EXPANSION", "LATE_CYCLE", "SLOWDOWN", "RECESSION", "RECOVERY", "UNKNOWN",
+]
+
+
+def compute_phase_distribution(
+    policy_df: pd.DataFrame,
+    group_by: str = "year",
+) -> pd.DataFrame:
+    """policy_selection DataFrame → 기간별 long_phase 분포 집계.
+
+    Parameters
+    ----------
+    policy_df : pd.DataFrame
+        long_phase 컬럼을 포함하는 policy_selection DataFrame.
+        trade_date 컬럼은 date 또는 datetime 타입.
+    group_by : str
+        집계 기준. "year" | "half"(상/하반기) | "quarter".
+
+    Returns
+    -------
+    DataFrame with columns:
+        period, EXPANSION_pct, LATE_CYCLE_pct, SLOWDOWN_pct,
+        RECESSION_pct, RECOVERY_pct, UNKNOWN_pct, SR_combined_pct
+    """
+    if policy_df is None or policy_df.empty or "long_phase" not in policy_df.columns:
+        return pd.DataFrame()
+
+    df = policy_df.copy()
+    df["trade_date"] = pd.to_datetime(df["trade_date"])
+
+    if group_by == "year":
+        df["period"] = df["trade_date"].dt.year.astype(str)
+    elif group_by == "half":
+        df["period"] = (
+            df["trade_date"].dt.year.astype(str)
+            + "-H"
+            + df["trade_date"].dt.quarter.map({1: "1", 2: "1", 3: "2", 4: "2"})
+        )
+    elif group_by == "quarter":
+        df["period"] = (
+            df["trade_date"].dt.year.astype(str)
+            + "-Q"
+            + df["trade_date"].dt.quarter.astype(str)
+        )
+    else:
+        raise ValueError(f"group_by must be 'year', 'half', or 'quarter'. Got: {group_by!r}")
+
+    rows = []
+    for period, grp in df.groupby("period", sort=True):
+        total = len(grp)
+        row: Dict = {"period": period}
+        for phase in _PHASE_COLS:
+            pct = (grp["long_phase"] == phase).sum() / total if total > 0 else 0.0
+            row[f"{phase}_pct"] = round(pct, 4)
+        row["SR_combined_pct"] = round(
+            row["SLOWDOWN_pct"] + row["RECESSION_pct"], 4
+        )
+        rows.append(row)
+
+    return pd.DataFrame(rows)

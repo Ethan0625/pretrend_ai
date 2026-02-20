@@ -62,10 +62,10 @@ Source:
 | 컬럼 | 타입 | 필수 | 설명 |
 | --- | --- | --- | --- |
 | trade_date | DATE | Y | 기준일 |
-| indicator_id | TEXT | Y | 지표 식별자 |
+| indicator_id | TEXT | N | 지표 식별자. v1 rolling z-score의 groupby 키(권장); 누락 시 fail-open 경로 사용. |
 | selected_value | FLOAT | N | 선택 값 |
 | delta_3m | FLOAT | N | 중기 변화 |
-| delta_6m | FLOAT | N | 장기 변화 |
+| delta_6m | FLOAT | N | 장기 변화. v1에서 지표별 rolling z-score로 정규화됨. |
 | regime | TEXT | N | tightening/easing/neutral |
 | selected_release_date | DATE | N | PIT 검증용 release date |
 
@@ -109,6 +109,14 @@ Source:
 - 입력을 수정하지 않고 read-only 소비
 - 결측 입력 시 `long_phase=UNKNOWN` 허용, NULL 금지
 
+**v1 분류 로직 (long_engine.py v1)**:
+- `delta_6m_z`: 지표별 rolling z-score (window=252, min_periods=60)
+  - NaN 시 raw delta_6m 부호(sign) fallback: positive→+1.0, negative→-1.0
+  - (indicator_id, trade_date) 중복: keep="last" 적용 후 z-score 계산
+- `z_threshold = 0.3` (기본값): `delta_6m_z < -0.3` 일 때만 SLOWDOWN/RECESSION 분류
+  - 경계값(|z| < 0.3)은 LATE_CYCLE 또는 RECOVERY로 유지 (과민 반응 방지)
+- `indicator_id` 컬럼 누락 시: regime 단독 판정 (fail-open, z-score 미사용)
+
 ## 7. DoD (테스트 계약)
 ### 책임
 - 구현 검증 기준을 고정한다.
@@ -119,10 +127,13 @@ Source:
 - **ML1**: 필수 입력/출력 컬럼 검증
 - **ML2**: `long_phase` ENUM 외 값 금지
 - **ML3**: 입력 결측 시 `UNKNOWN` 출력 검증
+- **V1Normalization**: 단위 불변성, NaN fallback 경로, 중복 처리, threshold 파라미터 경계값 검증 (4건)
 
 ---
 
 ## Change History
 | Date | Summary | References |
 | --- | --- | --- |
+| 2026-02-21 | Inputs 계약 정합화: indicator_id를 fail-open 정책에 맞춰 N(권장)으로 조정 | docs/changelog.md |
+| 2026-02-20 | v1 rolling z-score 로직 반영 — z_threshold=0.3 채택, indicator_id 필수 명시, Invariants §6 상세화 | docs/changelog.md |
 | 2026-02-13 | 파일명 버전 제거 및 문서 표준 블록(Document Status/Capability Matrix) 적용 | docs/changelog.md |

@@ -72,10 +72,12 @@ class StrategyJobRunner:
         config: StrategyEngineConfig,
         policy_profile_id: str = "RC_V0_DEFAULT",
         current_invested_ratio: float = 0.0,
+        long_z_threshold: float = 0.0,
     ) -> None:
         self.config = config
         self.policy_profile_id = policy_profile_id
         self.current_invested_ratio = current_invested_ratio
+        self.long_z_threshold = long_z_threshold
 
     def run(self, decision_date: date) -> StrategyJobResult:
         """전체 Strategy Engine 파이프라인 실행."""
@@ -107,7 +109,7 @@ class StrategyJobRunner:
         )
 
         # 3) Build Axis×Horizon State (12-slot)
-        df_ahs = build_axis_horizon_state(bundle, run_id=run_id)
+        df_ahs = build_axis_horizon_state(bundle, run_id=run_id, long_z_threshold=self.long_z_threshold)
         result.axis_horizon_state = StrategyStageResult(row_count=len(df_ahs))
         if not df_ahs.empty:
             write_snapshot_atomic(
@@ -199,6 +201,9 @@ def main() -> None:
                         help="Current invested ratio (default: 0.0)")
     parser.add_argument("--policy", default="RC_V0_DEFAULT",
                         help="Policy profile ID (default: RC_V0_DEFAULT)")
+    parser.add_argument("--long-z-threshold", type=float, default=0.0,
+                        help="Long Engine z-score threshold (default: 0.0). "
+                             "Positive values reduce SLOWDOWN/RECESSION sensitivity.")
     args = parser.parse_args()
 
     decision_date = date.fromisoformat(args.date)
@@ -207,6 +212,7 @@ def main() -> None:
         config=config,
         policy_profile_id=args.policy,
         current_invested_ratio=args.invested_ratio,
+        long_z_threshold=args.long_z_threshold,
     )
     result = runner.run(decision_date)
     print(f"Strategy Engine completed: run_id={result.run_id}, "

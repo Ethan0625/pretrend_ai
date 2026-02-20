@@ -15,7 +15,9 @@ from typing import Dict, List, Optional
 
 import pandas as pd
 
+from ._utils import load_strategy_snapshot
 from .config import BacktestConfig
+from .metrics import compute_metrics
 from .portfolio import Portfolio, Trade
 from .rebalancer import compute_target_weights, is_rebalance_day
 from .allocation import dispatch_allocation
@@ -36,6 +38,7 @@ class BacktestResult:
     daily_log: pd.DataFrame = field(default_factory=pd.DataFrame)
     trade_log: List[Trade] = field(default_factory=list)
     benchmark_nav: pd.Series = field(default_factory=lambda: pd.Series(dtype=float))
+    metrics: Dict = field(default_factory=dict)
 
 
 class BacktestRunner:
@@ -136,11 +139,16 @@ class BacktestRunner:
             len(daily_rows), len(trade_log),
         )
 
+        # 성과 지표 자동 계산
+        nav_series = daily_log["nav"] if not daily_log.empty else pd.Series(dtype=float)
+        metrics = compute_metrics(nav_series, benchmark_nav)
+
         return BacktestResult(
             config=config,
             daily_log=daily_log,
             trade_log=trade_log,
             benchmark_nav=benchmark_nav,
+            metrics=metrics,
         )
 
     # ── Private helpers ─────────────────────────────────────
@@ -190,24 +198,8 @@ class BacktestRunner:
     def _load_snapshot(
         self, config: BacktestConfig, stage_name: str
     ) -> Optional[pd.DataFrame]:
-        """Strategy snapshot parquet 로드 (모든 decision_date 통합)."""
-        root = config.strategy_root / stage_name
-        if not root.exists():
-            logger.warning("[Backtest] No snapshot dir: %s", root)
-            return None
-
-        files = list(root.rglob("*.parquet"))
-        if not files:
-            return None
-
-        df = pd.concat((pd.read_parquet(f) for f in files), ignore_index=True)
-
-        # trade_date 또는 rebalance_date 정규화
-        for col in ("trade_date", "rebalance_date"):
-            if col in df.columns:
-                df[col] = pd.to_datetime(df[col]).dt.date
-
-        return df
+        """Strategy snapshot parquet 로드 — _utils.load_strategy_snapshot() 위임."""
+        return load_strategy_snapshot(config.strategy_root, stage_name)
 
     def _get_day_prices(
         self, prices_df: pd.DataFrame, td: date
@@ -222,7 +214,12 @@ class BacktestRunner:
         td: date,
         date_col: str,
     ) -> Optional[pd.Series]:
-        """해당 날짜 또는 가장 가까운 이전 날짜의 시그널 행."""
+        """해당 날짜 또는 가장 가까운 이전 날짜의 시그널 행 (결정론적 선택).
+
+        다중 decision_date 스냅샷이 같은 trade_date를 커버할 경우:
+        1. 최신 decision_date 행을 우선 선택 (date 타입 정규화 후 max())
+        2. 동률(동일 decision_date)이면 source_run_id desc 2차 정렬로 결정론적 선택
+        """
         if df is None or df.empty or date_col not in df.columns:
             return None
 
@@ -232,7 +229,18 @@ class BacktestRunner:
 
         latest = df.loc[mask, date_col].max()
         row = df[df[date_col] == latest]
-        return row.iloc[0] if not row.empty else None
+        if row.empty:
+            return None
+
+        # 최신 decision_date 우선 선택 (decision_date는 _load_snapshot에서 date 타입으로 정규화됨)
+        if "decision_date" in row.columns:
+            row = row[row["decision_date"] == row["decision_date"].max()]
+
+        # 동률 타이브레이커: source_run_id desc 정렬 (같은 decision_date 내 복수 행 방지)
+        if len(row) > 1 and "source_run_id" in row.columns:
+            row = row.sort_values("source_run_id", ascending=False)
+
+        return row.iloc[0]
 
     def _initial_buy(
         self,

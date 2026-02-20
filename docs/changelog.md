@@ -1,5 +1,187 @@
 # Changelog
 
+## v2026.02.21 — Walk-Forward 분석 + Phase 분포 모니터링 + threshold 가변화 설계
+
+### 변경 요약
+- **Walk-Forward 기간별 성과 분석** (`walk_forward.py`) 신규: threshold=0.3 운영 안정성 검증 도구
+- **Phase 분포 모니터링** (`compute_phase_distribution()`, `print_phase_distribution()`) 추가: 연/반기/분기별 LATE_CYCLE%, S+R% 추적
+- **`_utils.py`** 신규: `load_strategy_snapshot()` 공통 유틸 (runner.py + walk_forward.py 공유)
+- **가변 threshold 설계 문서** (`docs/architecture/threshold_policy_v2.md`): 이산 상태 {0.0, 0.3}, 트리거, cooldown=6개월 명시
+- **문서 정합화**: README 실행/검증 섹션, Strategy Engine SOT 구현 현황, Long contract 입력 계약(indicator_id N/권장) 동기화
+- 신규 테스트 13건 추가, 전체 `305 passed, 1 skipped`
+
+### Walk-Forward (`pipeline/backtest/walk_forward.py`)
+
+**목적**: 동일 snapshot(2024-06-03) 기반 기간별 성과 일관성 검증.
+
+> **주의**: 동일 snapshot 재사용으로 look-ahead bias가 존재할 수 있음.
+
+**주요 구성**:
+```
+WalkForwardConfig: preset, windows, window_years=4, step_years=2, full_start, full_end
+WalkForwardRunner.run() → DataFrame (고정 스키마)
+  컬럼: window_start, window_end, cagr, total_return, max_drawdown,
+        sharpe_ratio, benchmark_cagr, excess_cagr, preset, generated_at
+```
+
+**저장 산출물** (`report.py:save_walk_forward()`):
+- `data/backtest/reports/walk_forward/walk_forward_{preset}_{ts}.parquet`
+- `data/backtest/reports/walk_forward/walk_forward_{preset}_{ts}_summary.json`
+
+**CLI**:
+```bash
+python -m pretrend.pipeline.backtest.walk_forward \
+    --preset v2 --window-years 4 --step-years 2 [--save]
+```
+
+### Phase 분포 모니터링 (`metrics.py`, `report.py`)
+
+```python
+compute_phase_distribution(policy_df, group_by="year"|"half"|"quarter")
+# 반환: period, LATE_CYCLE_pct, SLOWDOWN_pct, RECESSION_pct,
+#       EXPANSION_pct, RECOVERY_pct, UNKNOWN_pct, SR_combined_pct
+
+print_phase_distribution(policy_df, group_by="year")
+# 경고 기준: LATE_CYCLE% > 60% (L), S+R% > 50% (H), S+R% < 15% (l)
+```
+
+### `_utils.py` 공통 유틸화
+
+`runner.py:_load_snapshot()` → `pipeline/backtest/_utils.py:load_strategy_snapshot()` 추출.
+승격 정책: 여러 pipeline에서 재사용 확인 시 `src/pretrend/utils/`로 이전.
+
+### 가변 threshold 설계 (`docs/architecture/threshold_policy_v2.md`)
+
+- threshold ∈ {0.0, 0.3} 이산 전환
+- 트리거: rolling 12개월 LATE_CYCLE% > 60% → 0.3→0.0 / S+R% < 15% → 0.0→0.3
+- Cooldown: 최소 6개월
+- **코드 미구현** — 운영 검증 후 필요 조건 충족 시 착수
+
+### Walk-Forward 실증 검증 결과 (v2, 4년 창, 2년 슬라이드, 2006~2024.6)
+
+> look-ahead bias 존재 (동일 snapshot 재사용). 목적: 국면별 전략 행동 일관성 파악.
+
+**9개 창 성과**:
+| Window | CAGR | Total | MDD | Sharpe | Exc.CAGR |
+|--------|------|-------|-----|--------|----------|
+| 2006-01 ~ 2010-01 | +2.05% | +8.4% | -15.79% | 0.34 | +3.17% |
+| 2008-01 ~ 2012-01 | +0.76% | +3.1% | -15.39% | 0.13 | +1.77% |
+| 2010-01 ~ 2014-01 | +5.63% | +24.5% | -9.50% | 0.76 | -9.43% |
+| 2012-01 ~ 2016-01 | +4.92% | +21.1% | -4.96% | 0.90 | -9.89% |
+| 2014-01 ~ 2018-01 | +5.14% | +22.2% | -6.01% | 1.08 | -7.38% |
+| 2016-01 ~ 2020-01 | +5.32% | +23.0% | -6.36% | 1.13 | -9.45% |
+| 2018-01 ~ 2022-01 | +6.41% | +28.2% | -12.44% | 0.88 | -10.89% |
+| 2020-01 ~ 2024-01 | +4.18% | +17.8% | -17.65% | 0.49 | -7.37% |
+| 2022-01 ~ 2024-06 | +1.49% | +3.6% | -8.66% | 0.28 | -4.22% |
+| **평균** | **+3.99%** | **+16.9%** | **-10.75%** | **0.67** | **-5.96%** |
+
+**해석**:
+- **최적 구간 (2012~2020)**: CAGR 4~5%, MDD -5~-6%, Sharpe 0.76~1.13 — 전략이 가장 안정적으로 작동
+- **취약 구간**: GFC 직격(2008~2012, CAGR +0.76%), 금리인상기(2022~2024.6, CAGR +1.49%) — 설계 한계 내 허용 범위
+- **Excess CAGR 마이너스**: SPY B&H 대비 언더퍼폼이나, MDD를 평균 -10.75%로 억제한 대가
+
+### Phase 분포 실증 결과 (policy_selection, 2006~2024 연도별)
+
+**경고 발생 연도**:
+| 연도 | LATE% | S+R% | 경고 | 해석 |
+|------|-------|------|------|------|
+| 2007 | 61.5% | 13.8% | Ll | LATE_CYCLE 과다 + S+R 과소 |
+| 2008 | 80.5% | 6.3% | Ll | 금융위기 전야 미감지 |
+| 2010 | 18.0% | 60.5% | H | GFC 이후 과도 방어 |
+| 2016 | 71.7% | 0.0% | Ll | LATE_CYCLE 고착 |
+| 2018 | 77.4% | 22.6% | L | LATE_CYCLE 과다 |
+| 2019 | 20.3% | 64.0% | H | 침체 과잉 감지 |
+| 2021 | 64.4% | 0.0% | Ll | 금리인상 전야 미감지 |
+| **2022** | **96.9%** | **2.7%** | **Ll** | **threshold 억제 극단 — 금리인상 최고조** |
+| 2023 | 22.7% | 71.5% | H | SLOWDOWN 과다 |
+| 2024 | 6.3% | 54.9% | H | SLOWDOWN 지속 |
+
+**가변화 조건 사후 검토**:
+- `threshold_policy_v2.md` 필요 조건 "Ll 연속 2년": **2021~2022에 사후 발생**
+- 현재(2023~2024)는 H 구간으로 전환 → threshold 가변화 필요성 없음, 0.3 고정 유지 적절
+
+### 신규 테스트 (13건)
+**`tests/pipeline/backtest/test_walk_forward.py` — 9건**
+- `TestGenerateWindows`: 창 생성 범위·캡핑·명시적 기간 검증 (3건)
+- `TestWalkForwardRunnerRun`: 스키마·행 수·빈 window 검증 (3건)
+- `TestSaveWalkForward`: parquet+json 생성·컬럼·키 검증 (3건)
+
+**`tests/pipeline/backtest/test_metrics.py` — 4건**
+- `TestComputePhaseDistribution`: 연도별 집계·SR_combined·빈 DF·half 집계 (4건)
+
+---
+
+## v2026.02.20 — _get_signal_row 버그 수정 + z-score threshold=0.3 채택
+
+### 변경 요약
+- **버그 수정**: `runner.py:_get_signal_row` 다중 decision_date 스냅샷 혼합 → 비결정적 선택 문제 해결
+- **버그 수정**: `runner.py:_load_snapshot` Hive 파티션에서 `decision_date` 컬럼 복원
+- **Long Engine v1 threshold=0.3 채택**: `_classify_long_phase(threshold=0.3)` → SLOWDOWN+RECESSION 37.7% → 27.0%
+- `_classify_long_phase`/`build_long_phase`/`build_axis_horizon_state`/`strategy_job` CLI에 `z_threshold` 파라미터 추가
+- 신규 테스트 7건 추가, 전체 `291 passed, 1 skipped`
+
+### 핵심 버그 수정: `pipeline/backtest/runner.py`
+
+**문제**: `_load_snapshot()`이 모든 decision_date parquet를 concat → 동일 trade_date에 여러 스냅샷이 존재할 때 `iloc[0]`이 비결정적. 과거 결과(v0 +4.51% CAGR)는 GFC 스냅샷(2009-03-09)과 2024-06-03 스냅샷이 혼합된 결과였음.
+
+**수정**:
+```
+1. _load_snapshot(): Hive 파티션 경로에서 decision_date 추출 → date 타입으로 컬럼 추가
+2. _get_signal_row(): 최신 decision_date 우선 선택 → source_run_id desc 동률 타이브레이커
+```
+
+**수정 후 실제 베이스라인** (threshold=0.0, 스냅샷 혼합 없음):
+| 지표 | v0 | v1 | v2 |
+|------|-----|-----|-----|
+| Total Return | +43.4% | +93.5% | +101.6% |
+| CAGR | +1.98% | +3.65% | +3.88% |
+| MDD | -6.70% | -21.51% | -15.13% |
+| Sharpe | 0.73 | 0.57 | 0.65 |
+
+### z-score threshold=0.3 채택
+
+**Phase 분포 변화** (2006-2026 전체 Gold Macro 기준):
+| phase | threshold=0.0 | threshold=0.3 |
+|-------|---------------|---------------|
+| LATE_CYCLE | 37.7% | **45.1%** |
+| SLOWDOWN | 22.9% | 15.5% |
+| RECESSION | 14.8% | 11.8% |
+| RECOVERY | 5.7% | 8.7% |
+| SLOWDOWN+RECESSION 합계 | 37.7% | **27.3%** |
+
+**백테스트 성과 비교** (threshold=0.0 → 0.3):
+| 지표 | v0 (0.0) | v0 (0.3) | v2 (0.0) | v2 (0.3) |
+|------|---------|---------|---------|---------|
+| Total Return | +43.4% | +46.0% | +101.6% | **+118.3%** |
+| CAGR | +1.98% | +2.08% | +3.88% | **+4.33%** |
+| MDD | -6.70% | -7.23% | -15.13% | -15.79% |
+| Sharpe | 0.73 | 0.72 | 0.65 | **0.68** |
+
+**채택 근거**: v2에서 CAGR +0.45%p, Sharpe +0.03 개선. MDD 소폭 악화(-0.66%p)는 허용 범위.
+
+**2024-06-03 스냅샷 재생성** (threshold=0.3 기준):
+- LATE_CYCLE: 45.8%, SLOWDOWN: 14.6%, RECESSION: 12.4% — S+R 합계 27.0%
+
+### 신규 테스트 7건
+**`tests/pipeline/backtest/test_runner.py` — _get_signal_row 결정론성 (3건)**
+- `TestGetSignalRowDeterminism::test_latest_decision_date_wins`: 최신 decision_date 행 선택
+- `TestGetSignalRowDeterminism::test_string_decision_date_compared_correctly`: date 변환 후 비교
+- `TestGetSignalRowDeterminism::test_source_run_id_tiebreaker`: source_run_id desc 동률 정렬
+
+**`tests/pipeline/strategy_engine/test_long_engine.py` — threshold 파라미터 (4건)**
+- `TestLongPhaseThreshold::test_threshold_zero_default`: default threshold=0.0 동작
+- `TestLongPhaseThreshold::test_threshold_03_borderline_is_late_cycle`: z=-0.1 → LATE_CYCLE
+- `TestLongPhaseThreshold::test_threshold_03_clearly_negative_is_slowdown`: z=-0.5 → SLOWDOWN
+- `TestLongPhaseThreshold::test_threshold_03_easing_borderline`: z=-0.1, easing → RECOVERY
+
+### 추가 완료 (동일 세션)
+- market_structure_long_contract.md 개정: v1 rolling z-score 로직, z_threshold=0.3, §6 Invariants 상세화
+- indicator_id 입력 계약은 2026-02-21에 fail-open 정책 정합화(N/권장)로 보정
+- `BacktestResult.metrics` 필드 추가 (total_return 포함 전 지표 programmatic 접근)
+- `save_result()` → `{stem}_metrics.json` 저장 추가
+
+---
+
 ## v2026.02.19b — Long Engine v1 (delta_6m 지표별 rolling z-score 정규화)
 
 ### 변경 요약

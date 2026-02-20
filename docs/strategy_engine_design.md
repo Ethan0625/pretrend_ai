@@ -26,7 +26,7 @@
 - [SECTION H — Doc Consolidation Plan](#section-h--doc-consolidation-plan)
 - [SECTION I — Stock Extension Port (v1+ Reserved)](#section-i--stock-extension-port-v1-reserved)
 - [SECTION J — Text Signals & LLM(AI Agent) Integration Port (v1+ Reserved)](#section-j--text-signals--llmai-agent-integration-port-v1-reserved)
-- [SECTION K — Implementation Status (2026-02-13)](#section-k--implementation-status-2026-02-13)
+- [SECTION K — Implementation Status (2026-02-21)](#section-k--implementation-status-2026-02-21)
 
 ---
 
@@ -281,10 +281,11 @@ flowchart TD
 
 ---
 
-## SECTION K — Implementation Status (2026-02-13)
+## SECTION K — Implementation Status (2026-02-21)
 
 ### K1) 구현 범위
 - Strategy Engine v0 파이프라인이 end-to-end로 구현되었다.
+- Long Engine v1 정규화가 반영되었다(`delta_6m` 지표별 rolling z-score, `z_threshold=0.3` 기본값).
 - 실행 단계:
   1. Axis Features (4축)
   2. Axis×Horizon State (12-slot)
@@ -317,7 +318,7 @@ flowchart TD
 | Strategy snapshots | 2009-03-09, 2024-06-03 | 실데이터 검증용 |
 
 ### K4) 테스트/검증(보고 기준)
-- 전체 테스트 결과: `194 passed, 1 skipped`
+- 전체 테스트 결과: `305 passed, 1 skipped`
 - Strategy Engine 관련 테스트 소계: 121
 - 실데이터 검증(GFC 구간)에서 `RISK_OFF`/`PANIC` 감지 동작을 확인했다.
 
@@ -325,6 +326,8 @@ flowchart TD
 - Allocation 양자화 부동소수점 오차 수정
 - 단기 변동성 임계 스케일 정합성 수정(연환산/일간 스케일 혼동 제거)
 - 정책 범위 하한(`target_invested_lower`) 조정 반영
+- Long Engine v1 정규화 반영(rolling z-score + NaN sign fallback)
+- Long phase 분류 임계값 `z_threshold=0.3` 채택
 
 ### K6) v0 제약 재확인
 - 신규 VIX/뉴스/외부 감성 수집 없음(proxy only)
@@ -335,6 +338,7 @@ flowchart TD
 ### K7) 실행 명령
 ```bash
 python -m pretrend.pipeline.strategy_engine.strategy_job --date 2024-06-03 --invested-ratio 0.10
+python -m pretrend.pipeline.strategy_engine.strategy_job --date 2024-06-03 --invested-ratio 0.10 --z-threshold 0.3
 ```
 
 ---
@@ -342,5 +346,6 @@ python -m pretrend.pipeline.strategy_engine.strategy_job --date 2024-06-03 --inv
 ## Change History
 | Date | Summary | References |
 | --- | --- | --- |
+| 2026-02-21 | Implementation Status 날짜/테스트 현황/Long Engine v1(z-threshold=0.3) 반영 | docs/changelog.md |
 | 2026-02-13 | 파일명 버전 제거 및 문서 표준 블록(Document Status/Capability Matrix) 적용 | docs/changelog.md |
 | 2026-02-13 | Strategy Engine 구현 현황(모듈/커버리지/테스트/검증) 반영 | docs/changelog.md |

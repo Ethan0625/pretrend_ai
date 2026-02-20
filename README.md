@@ -2,7 +2,7 @@
 
 ### Market & Macro Data Feature Platform (AI-ready)
 
-v.26.02.13
+v.26.02.21
 
 본 프로젝트는 모델 성능 향상이 아닌, **AI/ML 판단 이전 단계에서 데이터 정합성과 재현성을 확보하는 것**을 최우선 목표로 설계된 **개인 연구 프로젝트**이다.
 
@@ -73,6 +73,12 @@ Strategy Engine은 **정책·전략 상태에 따라 변경 가능한 계산 결
   * 단계: Axis Features(4축) → Axis×Horizon(12-slot) → Market Position → Policy Selector → Universe → Allocation → Sell Planner
   * 출력 경계: WHAT_TO_HOLD / HOW_MUCH_EXPOSURE / HOW_MUCH_TO_SELL
   * `decision_date` snapshot 저장 및 재현성(멱등 overwrite) 보장
+  * Long Engine v1: `delta_6m` rolling z-score 정규화 + `z_threshold=0.3` 운영
+* 🧪 **Backtest Engine v2 + Walk-Forward**
+
+  * Preset v2(`long_phase × mid_regime` 2D lookup) 지원
+  * Walk-Forward 분석 CLI(`window-years`, `step-years`) 및 parquet/json 저장 지원
+  * 결과 지표 JSON(`*_metrics.json`) 저장 지원
 * 🧮 **거시 지표 기반 Macro Feature 생성**
 
   * FRED 연동
@@ -230,13 +236,29 @@ export FRED_API_KEY=YOUR_FRED_API_KEY
 # Strategy Engine 단일 실행
 PYTHONPATH=src python -m pretrend.pipeline.strategy_engine.strategy_job --date 2024-06-03 --invested-ratio 0.10
 
+# z-threshold 지정 실행
+PYTHONPATH=src python -m pretrend.pipeline.strategy_engine.strategy_job --date 2024-06-03 --invested-ratio 0.10 --z-threshold 0.3
+
 # 전체 테스트
 conda run -n pytest-pretrend pytest tests/ -v
 ```
 
-검증 기준(2026-02-13 세션):
-- 테스트: `194 passed, 1 skipped`
+검증 기준(2026-02-21 세션):
+- 테스트: `305 passed, 1 skipped`
 - Strategy snapshots: `2009-03-09`, `2024-06-03` 기준 스모크 검증 완료
+
+### 4.4 Backtest / Walk-Forward 실행
+
+```bash
+# Backtest preset v2
+PYTHONPATH=src python -m pretrend.pipeline.backtest.runner --start 2006-01-03 --end 2024-06-03 --preset v2
+
+# Walk-Forward (4년 창, 2년 슬라이드)
+PYTHONPATH=src python -m pretrend.pipeline.backtest.walk_forward --preset v2 --window-years 4 --step-years 2
+
+# Walk-Forward 저장 (parquet + summary json)
+PYTHONPATH=src python -m pretrend.pipeline.backtest.walk_forward --preset v2 --window-years 4 --step-years 2 --save
+```
 
 ---
 

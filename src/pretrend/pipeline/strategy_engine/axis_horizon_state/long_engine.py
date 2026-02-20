@@ -30,8 +30,24 @@ from .schema import LONG_PHASE_ENUM, LONG_OUTPUT_COLUMNS
 logger = logging.getLogger(__name__)
 
 
-def _classify_long_phase(regime: Optional[str], delta_6m: Optional[float]) -> str:
-    """단일 trade_date에 대한 long phase 판정 (v0 규칙)."""
+def _classify_long_phase(
+    regime: Optional[str],
+    delta_6m: Optional[float],
+    threshold: float = 0.0,
+) -> str:
+    """단일 trade_date에 대한 long phase 판정.
+
+    Parameters
+    ----------
+    regime : str
+        tightening / easing / neutral
+    delta_6m : float
+        z-score 정규화된 delta_6m (v1) 또는 raw delta_6m (v0/fallback)
+    threshold : float
+        SLOWDOWN/RECESSION 분류 임계값 (default=0.0).
+        delta_6m_z < -threshold 일 때만 SLOWDOWN/RECESSION으로 분류.
+        0.0이면 부호만으로 판정 (v0 동작), 양수이면 "확실히 음수"일 때만 분류.
+    """
     if regime is None or pd.isna(regime):
         return "UNKNOWN"
 
@@ -47,11 +63,11 @@ def _classify_long_phase(regime: Optional[str], delta_6m: Optional[float]) -> st
             return "EXPANSION"
         return "UNKNOWN"
 
-    # regime + delta_6m 조합 판정
+    # regime + delta_6m 조합 판정 (threshold 적용)
     if regime == "tightening":
-        return "SLOWDOWN" if delta_6m < 0 else "LATE_CYCLE"
+        return "SLOWDOWN" if delta_6m < -threshold else "LATE_CYCLE"
     elif regime == "easing":
-        return "RECESSION" if delta_6m < 0 else "RECOVERY"
+        return "RECESSION" if delta_6m < -threshold else "RECOVERY"
     elif regime == "neutral":
         return "EXPANSION"
 
@@ -63,6 +79,7 @@ def build_long_phase(
     price_vol: Optional[pd.DataFrame] = None,
     flow: Optional[pd.DataFrame] = None,
     run_id: str = "",
+    z_threshold: float = 0.0,
 ) -> pd.DataFrame:
     """Long phase를 판정한다.
 
@@ -123,7 +140,7 @@ def build_long_phase(
 
     rows = []
     for _, row in agg.iterrows():
-        phase = _classify_long_phase(row.get("regime_mode"), row.get("delta_6m_z_mean"))
+        phase = _classify_long_phase(row.get("regime_mode"), row.get("delta_6m_z_mean"), threshold=z_threshold)
         assert phase in LONG_PHASE_ENUM, f"Invalid phase: {phase}"
         rows.append({
             "trade_date": row["trade_date"],

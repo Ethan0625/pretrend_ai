@@ -33,6 +33,8 @@
 ## Strategy Engine 실행
 - Strategy Engine v0 단일 실행:
   - `PYTHONPATH=src python -m pretrend.pipeline.strategy_engine.strategy_job --date 2024-06-03 --invested-ratio 0.10`
+- Strategy Engine z-threshold 지정 실행:
+  - `PYTHONPATH=src python -m pretrend.pipeline.strategy_engine.strategy_job --date 2024-06-03 --invested-ratio 0.10 --z-threshold 0.3`
 - 입력 전제:
   - Gold Macro snapshot
   - Gold EOD snapshot
@@ -47,8 +49,8 @@
 ## 통합 테스트 실행
 - 전체 테스트:
   - `conda run -n pytest-pretrend pytest tests/ -v`
-- 2026-02-13 기준 보고:
-  - `194 passed, 1 skipped`
+- 2026-02-21 기준 보고:
+  - `305 passed, 1 skipped`
 
 ## 권장 E2E 실행 시퀀스
 - Macro 파이프라인(Bronze→Silver→Calendar→Gold):
@@ -63,8 +65,16 @@
   - `PYTHONPATH=src python -m pretrend.pipeline.backtest.runner --start 2006-01-03 --end 2024-06-03 --preset v0`
 - v1(target-seeking) 실행:
   - `PYTHONPATH=src python -m pretrend.pipeline.backtest.runner --start 2006-01-03 --end 2024-06-03 --preset v1`
+- v2(2D target-seeking: long_phase × mid_regime) 실행:
+  - `PYTHONPATH=src python -m pretrend.pipeline.backtest.runner --start 2006-01-03 --end 2024-06-03 --preset v2`
 - v1 + tactical override 실행:
   - `PYTHONPATH=src python -m pretrend.pipeline.backtest.runner --start 2006-01-03 --end 2024-06-03 --preset v1 --tactical SECTOR COMMODITY`
+
+## Walk-Forward 실행
+- v2 4년 창 / 2년 슬라이드 실행:
+  - `PYTHONPATH=src python -m pretrend.pipeline.backtest.walk_forward --preset v2 --window-years 4 --step-years 2`
+- 결과 저장(`parquet` + `summary.json`):
+  - `PYTHONPATH=src python -m pretrend.pipeline.backtest.walk_forward --preset v2 --window-years 4 --step-years 2 --save`
 
 ## Backtest 테스트 실행
 - Backtest 테스트:

@@ -299,3 +299,94 @@ class TestBacktestRunnerV1:
         runner = BacktestRunner()
         result = runner.run(config)
         assert not result.daily_log.empty
+
+
+# ── _get_signal_row 결정론적 선택 테스트 ────────────────────────────
+
+
+class TestGetSignalRowDeterminism:
+    """_get_signal_row의 다중 decision_date 처리 결정론성 검증."""
+
+    def setup_method(self):
+        self.runner = BacktestRunner()
+
+    def _make_df(self, rows: list) -> pd.DataFrame:
+        df = pd.DataFrame(rows)
+        if "trade_date" in df.columns:
+            df["trade_date"] = pd.to_datetime(df["trade_date"]).dt.date
+        if "decision_date" in df.columns:
+            df["decision_date"] = pd.to_datetime(df["decision_date"]).dt.date
+        return df
+
+    def test_latest_decision_date_wins(self):
+        """다른 decision_date 두 스냅샷이 같은 trade_date를 커버할 때 최신 decision_date 행 선택."""
+        td = date(2012, 1, 10)
+        df = self._make_df([
+            {"trade_date": td, "long_phase": "RECESSION", "decision_date": "2012-01-01"},
+            {"trade_date": td, "long_phase": "EXPANSION", "decision_date": "2012-01-15"},
+        ])
+        row = self.runner._get_signal_row(df, td, "trade_date")
+        assert row is not None
+        # 최신 decision_date=2012-01-15 행 → EXPANSION
+        assert row["long_phase"] == "EXPANSION"
+
+    def test_string_decision_date_compared_correctly(self):
+        """decision_date가 문자열 형태여도 date 변환 후 최신값 선택 (사전식 오류 방지)."""
+        td = date(2012, 1, 10)
+        # '2012-01-09' vs '2012-01-15' — 사전식으로도 맞지만 의미론적으로도 검증
+        # '2009-12-01' vs '2012-01-01' 케이스: 사전식이면 '2012-...' > '2009-...' 이므로 OK
+        # 하지만 '2012-02-01' vs '2012-09-01'처럼 month이 한 자리인 경우 사전식 문제가 생길 수 있음
+        df = pd.DataFrame([
+            {"trade_date": td, "long_phase": "RECESSION", "decision_date": "2012-02-01"},
+            {"trade_date": td, "long_phase": "EXPANSION", "decision_date": "2012-09-01"},
+        ])
+        # date_col로 로드 시 _load_snapshot에서 정규화됨 — 여기선 수동으로 date 변환
+        df["trade_date"] = pd.to_datetime(df["trade_date"]).dt.date
+        df["decision_date"] = pd.to_datetime(df["decision_date"]).dt.date
+
+        row = self.runner._get_signal_row(df, td, "trade_date")
+        assert row is not None
+        # 최신 decision_date=2012-09-01 행 → EXPANSION
+        assert row["long_phase"] == "EXPANSION"
+
+    def test_source_run_id_tiebreaker(self):
+        """같은 (trade_date, decision_date) 복수 행 → source_run_id desc로 결정론적 선택."""
+        td = date(2012, 1, 10)
+        dd = date(2012, 1, 15)
+        df = self._make_df([
+            {"trade_date": td, "long_phase": "RECESSION", "decision_date": str(dd),
+             "source_run_id": "strategy_20120115T090000"},
+            {"trade_date": td, "long_phase": "EXPANSION", "decision_date": str(dd),
+             "source_run_id": "strategy_20120115T120000"},  # 더 늦은 run_id
+        ])
+        row = self.runner._get_signal_row(df, td, "trade_date")
+        assert row is not None
+        # source_run_id desc → "strategy_20120115T120000" 행 → EXPANSION
+        assert row["long_phase"] == "EXPANSION"
+
+
+# ── BacktestResult.metrics 자동 계산 검증 ──────────────────────
+
+
+class TestBacktestResultMetrics:
+    """BacktestResult.metrics 필드가 자동으로 채워지는지 검증."""
+
+    def test_metrics_populated_after_run(self, mini_data):
+        """run() 완료 후 metrics에 total_return, cagr, max_drawdown이 포함되어야 한다."""
+        config = BacktestConfig(
+            start_date=date(2012, 1, 3),
+            end_date=date(2012, 1, 16),
+            initial_capital=1000.0,
+            data_root=mini_data,
+        )
+        runner = BacktestRunner()
+        result = runner.run(config)
+
+        assert result.metrics, "metrics dict가 비어있으면 안 된다"
+        assert "total_return" in result.metrics
+        assert "cagr" in result.metrics
+        assert "max_drawdown" in result.metrics
+        assert "sharpe_ratio" in result.metrics
+        assert "benchmark_total_return" in result.metrics
+        # total_return은 float 타입이어야 한다
+        assert isinstance(result.metrics["total_return"], float)

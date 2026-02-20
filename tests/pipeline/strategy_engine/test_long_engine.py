@@ -203,3 +203,44 @@ class TestLongPhaseV1Normalization:
         result = build_long_phase(df)
         assert len(result) == 1
         assert result.iloc[0]["long_phase"] in LONG_PHASE_ENUM
+
+
+class TestLongPhaseThreshold:
+    """z_threshold 파라미터 테스트."""
+
+    def test_threshold_zero_default(self):
+        """z_threshold=0.0 (기본값): delta_6m_z < 0 → SLOWDOWN."""
+        df = pd.DataFrame({
+            "indicator_id": ["CPI_US_ALL_ITEMS_SA"],
+            "trade_date": [date(2024, 6, 3)],
+            "regime": ["tightening"],
+            "delta_6m": [-0.1],  # sign fallback → z=-1.0 < 0
+        })
+        result = build_long_phase(df, z_threshold=0.0)
+        assert result.iloc[0]["long_phase"] == "SLOWDOWN"
+
+    def test_threshold_03_borderline_is_late_cycle(self):
+        """z_threshold=0.3: -0.1 (abs < threshold) → SLOWDOWN이 아닌 LATE_CYCLE."""
+        # sign fallback으로 z=-1.0 → -1.0 < -0.3 이므로 SLOWDOWN
+        # 실제 테스트: z-score가 정확히 -0.1이 되는 케이스는 충분한 히스토리 필요
+        # → 대신 _classify_long_phase 직접 테스트로 borderline 검증
+        from pretrend.pipeline.strategy_engine.axis_horizon_state.long_engine import (
+            _classify_long_phase,
+        )
+        # delta_6m_z = -0.1, threshold=0.3: -0.1 < -0.3? No → LATE_CYCLE
+        assert _classify_long_phase("tightening", -0.1, threshold=0.3) == "LATE_CYCLE"
+
+    def test_threshold_03_clearly_negative_is_slowdown(self):
+        """z_threshold=0.3: z=-0.5 (abs > threshold) → SLOWDOWN."""
+        from pretrend.pipeline.strategy_engine.axis_horizon_state.long_engine import (
+            _classify_long_phase,
+        )
+        # -0.5 < -0.3 → SLOWDOWN
+        assert _classify_long_phase("tightening", -0.5, threshold=0.3) == "SLOWDOWN"
+
+    def test_threshold_03_easing_borderline(self):
+        """z_threshold=0.3, easing: z=-0.1 → RECOVERY (not RECESSION)."""
+        from pretrend.pipeline.strategy_engine.axis_horizon_state.long_engine import (
+            _classify_long_phase,
+        )
+        assert _classify_long_phase("easing", -0.1, threshold=0.3) == "RECOVERY"

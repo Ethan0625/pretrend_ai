@@ -25,6 +25,7 @@ logger = logging.getLogger(__name__)
 def build_axis_horizon_state(
     bundle: AxisFeatureBundle,
     run_id: str = "",
+    long_z_threshold: float = 0.0,
 ) -> pd.DataFrame:
     """12-slot Axis×Horizon State를 구축한다.
 
@@ -34,6 +35,9 @@ def build_axis_horizon_state(
         4개 axis feature DataFrame 묶음.
     run_id : str
         Lineage run ID.
+    long_z_threshold : float
+        Long Engine v1 z-score 임계값 (default=0.0).
+        |delta_6m_z| < threshold 이면 SLOWDOWN/RECESSION 대신 LATE_CYCLE/RECOVERY로 분류.
 
     Returns
     -------
@@ -46,6 +50,7 @@ def build_axis_horizon_state(
         price_vol=bundle.price_volatility,
         flow=bundle.flow_structure,
         run_id=run_id,
+        z_threshold=long_z_threshold,
     )
 
     df_mid = build_mid_regime(
