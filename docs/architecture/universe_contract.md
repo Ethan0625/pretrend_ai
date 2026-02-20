@@ -1,4 +1,4 @@
-# Universe — Contract (SOT)
+# Universe-ETF (Execution Universe) — Contract (SOT)
 
 ## Document Status
 | Item | Value |
@@ -33,7 +33,7 @@
 
 ## 1. 문서 목적
 ### 책임
-- Universe v1의 입력/출력 인터페이스를 SOT로 고정한다.
+- Universe-ETF(v1)의 입력/출력 인터페이스를 SOT로 고정한다.
 - Market Structure Composer와 Allocation Engine 사이의 계약 경계를 명확히 한다.
 
 ### Non-goals
@@ -41,16 +41,17 @@
 
 ## 2. Scope & Non-Goals
 ### 책임
-- Observability ETF 대상의 후보 선별 계약을 정의한다.
+- Observability ETF 대상의 후보 선별 계약을 정의한다(Execution Universe 범위).
 - Composer 차단 상태에서 결과 제약을 명시한다.
 
 ### Non-goals
 - 대상: 개별 종목 제외, Observability ETF만
+- Universe-Stock(U0~U3) 파이프라인은 본 계약 범위 밖(별도 로드맵)
 - 주문 실행/포지션 사이징 포함하지 않음
 
 ## 3. 입력 계약
 ### 책임
-- Universe 입력 소스와 필수 컬럼을 고정한다.
+- Universe-ETF 입력 소스와 필수 컬럼을 고정한다.
 
 ### Non-goals
 - 입력 테이블 재계산/보정
@@ -64,7 +65,7 @@
 | 입력 | 컬럼 | 타입 | 필수 | 설명 |
 | --- | --- | --- | --- | --- |
 | MS Composer | trade_date | DATE | Y | 기준일 |
-| MS Composer | run_universe | BOOLEAN | Y | Universe 실행 여부 |
+| MS Composer | run_universe | BOOLEAN | Y | Universe-ETF 실행 여부 |
 | MS Composer | risk_gate | BOOLEAN | Y | 증가 차단 브레이크 상태 |
 | Gold EOD | symbol | TEXT | Y | Observability 심볼 |
 | Gold EOD | trade_date | DATE | Y | 기준일 |
@@ -114,7 +115,7 @@ is_candidate: true
 
 ## 6. 불변식
 ### 책임
-- Universe 출력의 무결성 제약을 명시한다.
+- Universe-ETF 출력의 무결성 제약을 명시한다.
 
 ### Non-goals
 - 후보 우선순위 알고리즘 정의
@@ -140,4 +141,5 @@ is_candidate: true
 ## Change History
 | Date | Summary | References |
 | --- | --- | --- |
+| 2026-02-21 | Universe 용어 이원화 반영: Universe-ETF(Execution) 계약으로 명시, Universe-Stock(U0~U3) 범위 분리 | docs/changelog.md |
 | 2026-02-13 | 파일명 버전 제거 및 문서 표준 블록(Document Status/Capability Matrix) 적용 | docs/changelog.md |

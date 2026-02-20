@@ -1,5 +1,23 @@
 # Changelog
 
+## v2026.02.20 — Text Data Pipeline 설계 확정 + Universe 이원화 문서 정합화
+
+### 변경 요약
+- **Text 수집 전략 v1 확정**: Tiered Hybrid ($0 시작, T+1 배치). 소스: SEC EDGAR + Fed/FOMC (FMP News는 유료 전환 보류)
+- **text_observability_contract.md 보강**: Bronze 멱등키 `(source, source_doc_id)` + `source_doc_id`/`ingested_at`/`raw_payload_hash` 신규 필드, Silver LLM → Reserved(v1+) + v0 필수 필드(asset_scope/quality_flags/clean_text), Gold long 포맷 전환 + 초기 3개 feature (`macro_hawkish_score`/`filing_risk_burst`/`policy_uncertainty_idx`), Fail-open 정책 + 품질 KPI 섹션 추가
+- **strategy_engine_design.md SECTION J 업데이트**: 텍스트 보조 feature 역할 명시, Gold long format 스키마 확정, fail-open 원칙
+- **data_ingest_datasources.md 보강**: 텍스트 소스 섹션 신규 추가 (SEC EDGAR, Fed/FOMC, FMP 보류)
+- **Universe 이원화 문서 정합화 (Codex 완료)**: `universe_design.md` → `Universe-ETF Design`으로 개명 + `Universe-Stock(U0~U3)` 참조 명시, `milestones.md`/`data_ingest_datasources.md`/`README.md` 전반 용어 통일
+
+### 소스 접근 가능 여부 확인 결과
+| 소스 | 상태 | 비고 |
+| --- | --- | --- |
+| SEC EDGAR (data.sec.gov) | ✅ 사용 가능 | User-Agent 필수, 10 req/sec 상한 |
+| Fed/FOMC RSS | ✅ 사용 가능 | `federalreserve.gov/feeds/press_all.xml` 실시간 확인 |
+| FMP News | ❌ 무료 불가 | 무료 플랜 뉴스 미지원. Starter $22/월 이상 필요 |
+
+---
+
 ## v2026.02.21 — Walk-Forward 분석 + Phase 분포 모니터링 + threshold 가변화 설계
 
 ### 변경 요약
@@ -7,8 +25,15 @@
 - **Phase 분포 모니터링** (`compute_phase_distribution()`, `print_phase_distribution()`) 추가: 연/반기/분기별 LATE_CYCLE%, S+R% 추적
 - **`_utils.py`** 신규: `load_strategy_snapshot()` 공통 유틸 (runner.py + walk_forward.py 공유)
 - **가변 threshold 설계 문서** (`docs/architecture/threshold_policy_v2.md`): 이산 상태 {0.0, 0.3}, 트리거, cooldown=6개월 명시
+- **Universe 용어 이원화 기준 도입**: `Universe-ETF(Execution Universe)` / `Universe-Stock(U0~U3)`로 구분
+- **과거 changelog 원문 보존 원칙**: 과거 섹션은 용어 치환 없이 유지, 최신 섹션에서 해석 기준만 명시
 - **문서 정합화**: README 실행/검증 섹션, Strategy Engine SOT 구현 현황, Long contract 입력 계약(indicator_id N/권장) 동기화
 - 신규 테스트 13건 추가, 전체 `305 passed, 1 skipped`
+
+### Universe 용어 기준 (문서 해석 규칙)
+- `Universe-ETF (Execution Universe)`: 현재 Strategy Engine에서 실제 운용 중인 ETF 후보 선별 모듈
+- `Universe-Stock (Research Universe, U0~U3)`: Macro→Theme→Stock 로드맵 파이프라인
+- 과거 changelog 항목의 `Universe` 표현은 작성 시점의 원문으로 보존한다.
 
 ### Walk-Forward (`pipeline/backtest/walk_forward.py`)
 
