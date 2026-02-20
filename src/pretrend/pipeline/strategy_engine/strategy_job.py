@@ -135,8 +135,10 @@ class StrategyJobRunner:
                 "policy_selection", decision_date, run_id,
             )
 
-        # 6) Build Universe (WHAT_TO_HOLD)
-        df_universe = build_universe(df_ps, df_gold_eod)
+        # 6) Build Universe (WHAT_TO_HOLD) — decision_date 하루치만 저장
+        #    df_ps 전체(전 기간)를 넘기면 스냅샷에 누적 이력이 쌓이는 문제 방지.
+        df_ps_today = df_ps[df_ps["trade_date"] == decision_date]
+        df_universe = build_universe(df_ps_today, df_gold_eod)
         result.universe = StrategyStageResult(row_count=len(df_universe))
         if not df_universe.empty:
             write_snapshot_atomic(

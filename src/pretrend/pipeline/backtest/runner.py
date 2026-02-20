@@ -21,6 +21,7 @@ from .metrics import compute_metrics
 from .portfolio import Portfolio, Trade
 from .rebalancer import compute_target_weights, is_rebalance_day
 from .allocation import dispatch_allocation
+from pretrend.pipeline.strategy_engine.universe.engine import build_universe
 
 logger = logging.getLogger(__name__)
 if not logger.handlers:
@@ -60,10 +61,13 @@ class BacktestRunner:
         trade_dates = [d for d in trade_dates if config.start_date <= d <= config.end_date]
         logger.info("[Backtest] %d trade dates", len(trade_dates))
 
-        # 2) Strategy snapshot 로드 (policy_selection + universe만 사용)
-        #    allocation은 실제 포트폴리오 상태 기반 동적 계산
+        # 2) Strategy snapshot + Gold EOD features 로드
+        #    - policy_selection: snapshot (시장 국면 신호)
+        #    - universe: gold_eod features에서 rebalance 시점마다 inline 계산
+        #      (what_to_hold 스냅샷은 누적 이력 문제로 미사용)
+        #    - allocation: 실제 포트폴리오 상태 기반 동적 계산
         policy_df = self._load_snapshot(config, "policy_selection")
-        universe_df = self._load_snapshot(config, "what_to_hold")
+        gold_eod_features_df = self._load_gold_eod_features(config)
 
         # 3) 포트폴리오 초기화
         portfolio = Portfolio(cash=config.initial_capital)
@@ -93,6 +97,11 @@ class BacktestRunner:
                 # 동적 allocation: 실제 포트폴리오 invested_ratio 기반
                 alloc_row = self._compute_dynamic_allocation(
                     portfolio, day_prices, policy_row, config
+                )
+
+                # universe inline 계산: 당일 gold_eod RS 기반 (스냅샷 불사용)
+                universe_df = self._compute_universe_inline(
+                    policy_row, gold_eod_features_df, td
                 )
 
                 target_ratio, target_weights = compute_target_weights(
@@ -176,6 +185,60 @@ class BacktestRunner:
             config=config,
         )
         return pd.Series(result)
+
+    def _load_gold_eod_features(self, config: BacktestConfig) -> pd.DataFrame:
+        """Gold EOD features 로드 (universe inline 계산용).
+
+        필요 컬럼: symbol, trade_date, asset_group, ret_20d.
+        컬럼이 부족하면 빈 DataFrame 반환 → 전술 교체 없이 core 비중만 사용 (fail-open).
+        """
+        root = config.gold_eod_root
+        files = list(root.rglob("*.parquet"))
+        if not files:
+            return pd.DataFrame()
+
+        df = pd.concat((pd.read_parquet(f) for f in files), ignore_index=True)
+        if "trade_date" in df.columns:
+            df["trade_date"] = pd.to_datetime(df["trade_date"]).dt.date
+
+        needed = ["symbol", "trade_date", "asset_group", "ret_20d"]
+        if not all(c in df.columns for c in needed):
+            logger.debug(
+                "[Backtest] gold_eod_features 컬럼 부족 %s — universe inline 불가",
+                [c for c in needed if c not in df.columns],
+            )
+            return pd.DataFrame()
+
+        optional = ["asset_name", "vol_20d"]
+        keep = needed + [c for c in optional if c in df.columns]
+        return df[keep].dropna(subset=["symbol", "trade_date", "ret_20d"])
+
+    def _compute_universe_inline(
+        self,
+        policy_row: Optional[pd.Series],
+        gold_eod_features: pd.DataFrame,
+        trade_date: date,
+    ) -> pd.DataFrame:
+        """rebalance_date 기준 universe를 gold_eod features에서 inline 계산.
+
+        스냅샷 의존 없이 당일 RS 기반으로 전술 후보를 실시간 선별한다.
+        데이터 부족 시 빈 DataFrame 반환 (fail-open → tactical 없이 core 비중 유지).
+        """
+        if policy_row is None or gold_eod_features.empty:
+            return pd.DataFrame()
+
+        # trade_date 당일 EOD. 없으면 가장 가까운 이전 날짜 fallback.
+        avail = gold_eod_features[gold_eod_features["trade_date"] <= trade_date]
+        if avail.empty:
+            return pd.DataFrame()
+        effective_date = avail["trade_date"].max()
+
+        # policy_row를 effective_date로 설정 → build_universe가 해당 날짜 EOD 매핑
+        ps_dict = policy_row.to_dict()
+        ps_dict["trade_date"] = effective_date
+        ps_df = pd.DataFrame([ps_dict])
+
+        return build_universe(ps_df, gold_eod_features)
 
     def _load_prices(self, config: BacktestConfig) -> pd.DataFrame:
         """Gold EOD parquet에서 adj_close 로드."""
