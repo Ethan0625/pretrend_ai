@@ -2,7 +2,7 @@
 
 ## 1. 문서 목적
 본 문서는 Pretrend AI의 EOD 관측용 ETF 세트(Observability Set)와 분류/라벨 계약을 고정하기 위한 계약 문서다.
-이 계약은 EOD Pipeline, Universe(U0~U3), Gold Layer가 공통으로 참조하는 단일 기준(SOT)으로 사용된다.
+이 계약은 EOD Pipeline, Universe-ETF(Execution Universe), Universe-Stock(U0~U3), Gold Layer가 공통으로 참조하는 단일 기준(SOT)으로 사용된다.
 
 ## 2. 용어 정의
 ### Observability Set
@@ -14,15 +14,17 @@
 - `asset_name`: 사람이 읽을 수 있는 canonical 이름
 - `asset_subtype`: 선택적 2차 분류(세부 해석용)
 
-### Always-on vs Universe-driven
-- Always-on: Universe 결과와 무관하게 항상 수집/유지되는 고정 입력
+### Always-on vs Universe-driven 입력
+- Always-on: Universe-ETF/Universe-Stock 결과와 무관하게 항상 수집/유지되는 고정 입력
 - Universe-driven: Universe 계산 결과에 따라 대상이 변동되는 입력
+  - Universe-ETF(현재): Observability ETF 내부 후보 선택
+  - Universe-Stock(확장): U0~U3 결과 기반 종목 Universe 변경
 
 ## 3. 계약 범위 (Scope & Non-Goals)
 ### Scope
 - Base EOD Observability Set v1 심볼/분류/라벨 계약 고정
 - Bronze에서 분류를 1회 확정하고 Silver/Gold로 전파하는 규칙 고정
-- Universe/Gold의 read-only 소비 규칙 고정
+- Universe-ETF/Universe-Stock/Gold의 read-only 소비 규칙 고정
 
 ### Non-Goals
 - 신규 ETF 추천/제거 정책 제안
@@ -105,9 +107,9 @@
 - 파티션은 안정적으로 유지하고, 분류는 컬럼으로 관리한다.
 - 분류 변경을 파티션 구조 변경으로 해결하지 않는다.
 
-## 8. Universe 연계 규칙 (Read-only consumer)
-- Universe는 Observability 데이터를 읽기만 하며 입력 라벨을 변경하지 않는다.
-- U1 단계에서 섹터 상대강도/rotation proxy 계산 입력으로 사용한다.
+## 8. Universe-ETF / Universe-Stock 연계 규칙 (Read-only consumer)
+- Universe-ETF는 Observability 데이터를 읽기만 하며 입력 라벨을 변경하지 않는다.
+- Universe-Stock(U1 단계)에서 섹터 상대강도/rotation proxy 계산 입력으로 사용한다.
 - 국가/원자재/채권 관측치 그룹핑도 본 계약 컬럼(`asset_group`, `asset_name`, `asset_subtype`)을 기준으로 수행한다.
 
 ## 9. 변경 관리 (Versioning)

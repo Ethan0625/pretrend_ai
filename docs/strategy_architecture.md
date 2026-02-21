@@ -21,7 +21,7 @@
 - [3. 모듈별 책임 분리](#3-모듈별-책임-분리)
   - [3.1 Layer](#31-layer)
   - [3.2 Market Structure (분리 모듈 + 합성)](#32-market-structure-분리-모듈--합성)
-  - [3.3 Universe](#33-universe)
+  - [3.3 Universe-ETF](#33-universe-etf)
   - [3.4 Allocation Engine v0](#34-allocation-engine-v0)
 - [4. 4개 축 전략 철학 (재료 관점)](#4-4개-축-전략-철학-재료-관점)
 - [5. 실행 흐름](#5-실행-흐름)
@@ -38,7 +38,7 @@
 ## 1. 문서 목적
 ### 책임
 - Risk-Control 중심 전략 구조를 정의한다.
-- `Layer -> Market Structure -> Composer -> Universe -> Allocation Engine` 흐름 채택 이유를 명시한다.
+- `Layer -> Market Structure -> Composer -> Universe-ETF -> Allocation Engine` 흐름 채택 이유를 명시한다.
 - 전략 철학(Design)과 검증 가능한 스키마/불변식(Contract) 분리 원칙을 고정한다.
 
 ### Non-goals
@@ -62,8 +62,8 @@ flowchart TD
     MS_Mid --> MS_Composer
     MS_Short --> MS_Composer
     PolicyConfig[Policy Config] --> MS_Composer
-    MS_Composer --> Universe[Universe]
-    Universe --> Allocation[Allocation Engine v0]
+    MS_Composer --> UniverseETF[Universe-ETF]
+    UniverseETF --> Allocation[Allocation Engine v0]
     Allocation --> WeeklyReport[Weekly Strategy Report]
 ```
 
@@ -73,7 +73,7 @@ flowchart TD
 | --- | --- | --- |
 | Layer | 데이터 수집/정제/PIT-safe 확정 | 아니오 |
 | Market Structure(분리+합성) | 장/중/단기 상태 해석 + 합성 상태 벡터 제공 | 예 |
-| Universe | 후보 ETF 선별 | 부분적 |
+| Universe-ETF | 후보 ETF 선별 | 부분적 |
 | Allocation Engine v0 | 총 투자 비율 조절(`invested_ratio`) + risk gate 적용 | 예 |
 | Weekly Report | 주간 결과 요약/설명 | 아니오 |
 
@@ -92,14 +92,14 @@ flowchart TD
 - `ms_long_term_phase`: 장기 사이클 위치 판단
 - `ms_mid_term_regime`: 중기 레짐 판단
 - `ms_short_term_signal`: 단기 흐름/심리/스트레스 신호 판단
-- `ms_composer`: long/mid/short 출력을 단일 상태 벡터로 합성해 Universe/Allocation 입력으로 제공
-- 핵심 원칙: Universe/Allocation은 개별 모듈을 직접 참조하지 않고 Composer 출력만 의존
+- `ms_composer`: long/mid/short 출력을 단일 상태 벡터로 합성해 Universe-ETF/Allocation 입력으로 제공
+- 핵심 원칙: Universe-ETF/Allocation은 개별 모듈을 직접 참조하지 않고 Composer 출력만 의존
 
 #### Non-goals
 - 장/중/단기 모듈 간 가중치 수치화
 - 포트폴리오 구성 비중 결정
 
-### 3.3 Universe
+### 3.3 Universe-ETF
 #### 책임
 - Observability ETF 집합 내에서 후보를 선별한다.
 - Composer 결과를 반영하여 후보 집합을 제한한다.
@@ -107,7 +107,7 @@ flowchart TD
 
 #### Non-goals
 - Market Structure 하위 모듈 재계산/직접 참조
-- Universe 내부 가중치 조절을 수행하지 않는다(v0 금지).
+- Universe-ETF 내부 가중치 조절을 수행하지 않는다(v0 금지).
 
 ### 3.4 Allocation Engine v0
 #### 책임
@@ -120,7 +120,7 @@ flowchart TD
 - 즉시 올인/올아웃을 금지한다.
 
 #### Non-goals
-- Universe 내부 종목 비중 조절(v0 범위 밖)
+- Universe-ETF 내부 종목 비중 조절(v0 범위 밖)
 - 변동성/레짐 기반 가중 조절(v1+ 범위)
 - Policy Config 직접 참조(Composer 출력 경유만 허용)
 
@@ -151,8 +151,8 @@ flowchart TD
 1. Layer 계산 완료
 2. MS Long/Mid/Short 계산(병렬 가능)
 3. MS Composer 합성(단일 state vector)
-4. Composer 결과가 OFF(또는 `run_universe=false`)면 Universe/Allocation 스킵 가능(자원 절약)
-5. ON이면 Universe -> Allocation Engine 실행
+4. Composer 결과가 OFF(또는 `run_universe=false`)면 Universe-ETF/Allocation 스킵 가능(자원 절약)
+5. ON이면 Universe-ETF -> Allocation Engine 실행
 6. Weekly Strategy Report 생성
 
 운영 주기 분리:
@@ -173,7 +173,7 @@ market_structure:
   policy_profile_id: RC_V0_DEFAULT
   target_invested_range: [0.30, 0.50]
   adjustment_limit: 0.10
-universe:
+universe_etf:
   candidate_count: 0
 allocation:
   current_invested_ratio: 0.42

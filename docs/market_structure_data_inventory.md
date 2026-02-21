@@ -46,7 +46,7 @@
 - Layer에서 Market Structure로 전달되는 입력 데이터의 가용성 관리를 수행한다.
 
 ### Non-goals
-- Universe/Allocation 엔진 출력 정의
+- Universe-ETF/Allocation 엔진 출력 정의
 
 ## 3. 축별 데이터 현황
 
@@ -98,7 +98,7 @@
 - **v0**: 정책/매크로 + 가격/변동성 + 심리 proxy(Risk Spread/Volatility) 기반 운용, 총 투자 비율 조절
 - **v1**: VIX sentiment 입력 추가(직접 VIX vs term structure 범위 확정)
 - **v2**: 레짐 기반 allocation 입력 고도화
-- **v3**: Universe 그룹별 동적 가중치 지원을 위한 그룹별 상태 입력 확장
+- **v3**: Universe-ETF 그룹별 동적 가중치 지원을 위한 그룹별 상태 입력 확장
 
 ## 7. Non-Goals
 - 점수/가중치/컷오프 수치 정의

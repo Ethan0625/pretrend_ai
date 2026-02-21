@@ -4,7 +4,7 @@
 
 **Version:** 2025.12\
 **Period:** 2025.12 ~ 2026.11\
-**Scope:** 거시 → 테마 → 종목 Universe 기반 AI 자동매매 리서치 시스템
+**Scope:** 거시 → 테마 → 종목 Universe-Stock(U0~U3) 기반 AI 자동매매 리서치 시스템
 
 ---
 
@@ -17,8 +17,8 @@
 
 기본 전략 방향은 다음과 같다:
 
-* 한국 시장 제외 → **미국/글로벌 종목 중심** Universe
-* 전 종목 수집이 아닌 → **U0~U3 파이프라인 기반 최적 Universe만 추적**
+* 한국 시장 제외 → **미국/글로벌 종목 중심** Universe-Stock
+* 전 종목 수집이 아닌 → **U0~U3 파이프라인 기반 최적 Universe-Stock만 추적**
 * EOD·펀더멘털·거시·테마 신호를 결합한 AI 분석 시스템 설계
 * vLLM 기반 리서치 모듈 + FastAPI 백엔드 + Data Lake Architecture
 
@@ -30,8 +30,8 @@
 | ------ | ----- | ------------------------- | ------------------------------ |
 | **M0** | 2주    | 환경 세팅 & 문서 구조 확립          | Repo 구조, Docs, CI              |
 | **M1** | 4~6주  | Step 0: 데이터 소스 수집 레이어 구축  | Macro/Theme/Stock 인입 파이프라인     |
-| **M2** | 6~8주  | Universe 생성 파이프라인(U0~U3)  | Macro→Theme→Stock Universe 자동화 |
-| **M3** | 4~6주  | EOD 파이프라인(Step 1)         | U3 Universe 기반 EOD 수집          |
+| **M2** | 6~8주  | Universe-Stock 생성 파이프라인(U0~U3)  | Macro→Theme→Stock Universe-Stock 자동화 |
+| **M3** | 4~6주  | EOD 파이프라인(Step 1)         | U3 Universe-Stock 기반 EOD 수집          |
 | **M4** | 6~8주  | Silver/Gold Feature Layer | 성장성/수급/모멘텀 시계열 피처              |
 | **M5** | 8~12주 | 전략 신호 & 백테스트              | Pre-Trend Value Score 모델       |
 | **M6** | 8~12주 | MLOps / 서빙 / 자동화          | Docker/K8s/MLflow/Airflow      |
@@ -70,7 +70,7 @@
 
 ### 🎯 목표
 
-Universe 구축 전에 필요한 **Macro → Theme → Stock** 데이터 원천 확보.
+Universe-Stock 구축 전에 필요한 **Macro → Theme → Stock** 데이터 원천 확보.
 
 ### 📌 주요 작업
 
@@ -89,11 +89,11 @@ Universe 구축 전에 필요한 **Macro → Theme → Stock** 데이터 원천 
 
 ---
 
-## **M2. Universe Pipeline(U0~U3) 구현 (6~8주)**
+## **M2. Universe-Stock Pipeline(U0~U3) 구현 (6~8주)**
 
 ### 🎯 목표
 
-정책/거시 신호 기반 **테마 → 종목 Universe 자동 생성 시스템** 구축.
+정책/거시 신호 기반 **테마 → 종목 Universe-Stock 자동 생성 시스템** 구축.
 
 ### 📌 주요 작업
 
@@ -105,17 +105,18 @@ Universe 구축 전에 필요한 **Macro → Theme → Stock** 데이터 원천 
 
   * ETF 성과·유입 기반 테마 스코어
   * 테마 후보 자동 선정
-* U2: Theme Universe Builder
+* U2: Theme Universe-Stock Builder
 
   * 테마별 핵심 종목 자동 생성
 * U3: Growth & Flow Filtering
 
-  * 성장성 + 수급 proxy + 모멘텀 기반 최종 Universe 산출
+  * 성장성 + 수급 proxy + 모멘텀 기반 최종 Universe-Stock 산출
 
 ### 📦 산출물
 
 * `src/pretrend/universe/*`
-* Universe 업데이트 스케줄러
+* Universe-Stock 업데이트 스케줄러
+* 경계 원칙: M2는 Strategy Engine의 Universe-ETF(Execution Universe)와 별도 파이프라인
 * `tests/universe/test_*.py`
 
 ---
@@ -124,14 +125,14 @@ Universe 구축 전에 필요한 **Macro → Theme → Stock** 데이터 원천 
 
 ### 🎯 목표
 
-**U3 Universe 종목만** EOD 데이터를 Bronze 레이어에 수집.
+**U3 Universe-Stock 종목만** EOD 데이터를 Bronze 레이어에 수집.
 
 ### 📌 주요 작업
 
 * Fetcher / Normalizer / Writer 아키텍처
 * 멱등성: run_id, tmp-write → atomic move
 * Partition: `source/theme/symbol/trade_date`
-* Universe 변경 시 자동 종목 업데이트
+* Universe-Stock 변경 시 자동 종목 업데이트
 * 메타데이터 저장(성공/행수/체크섬)
 
 ### 📦 산출물
@@ -218,7 +219,7 @@ Pre-Trend Value 전략 신호 및 백테스트 시스템을 구축.
 ```plaintext
 M0 (2주): 환경/문서/구조 세팅
 M1 (4~6주): 데이터 소스 인입 레이어 구축
-M2 (6~8주): Universe 파이프라인(U0~U3)
+M2 (6~8주): Universe-Stock 파이프라인(U0~U3)
 M3 (4~6주): Step 1 EOD 수집 파이프라인
 M4 (6~8주): Silver/Gold Feature Layer
 M5 (8~12주): 전략 신호 + 백테스트 + 리서치
@@ -242,16 +243,16 @@ M6 (8~12주): MLOps + 서빙 + 자동화
 
 ## 6.1 목적
 - 전략 모듈을 점수 튜닝이 아닌 상태 기반 구조로 고정한다.
-- `Layer -> Market Structure -> Composer -> Universe -> Allocation Engine` 흐름을 기준으로 버전을 확장한다.
+- `Layer -> Market Structure -> Composer -> Universe-ETF -> Allocation Engine` 흐름을 기준으로 버전을 확장한다.
 
 ## 6.2 버전별 계획
 
 | 버전 | 범위 | 상태 | 비고 |
 | --- | --- | --- | --- |
-| v0 | 총 투자 비율 조절 + `risk_gate` | 진행/초기 | Universe 내부 가중치 조절 금지, 심리는 proxy 기반 운용 |
+| v0 | 총 투자 비율 조절 + `risk_gate` | 진행/초기 | Universe-ETF 내부 가중치 조절 금지, 심리는 proxy 기반 운용 |
 | v1 | volatility-aware adjustment + VIX 편입 | 예정 | 직접 VIX vs term structure 범위 결정 필요 |
 | v2 | regime-weighted allocation | 예정 | 레짐 반영 allocation 확장 |
-| v3 | Universe 그룹별 동적 가중치 | 예정 | 그룹별 가중치 조절 허용 |
+| v3 | Universe-ETF 그룹별 동적 가중치 | 예정 | 그룹별 가중치 조절 허용 |
 
 ## 6.3 운영 주기 원칙
 - Adjustment Cycle: 주 1회 (화요일)

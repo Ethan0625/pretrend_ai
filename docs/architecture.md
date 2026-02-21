@@ -22,7 +22,7 @@
 | 전략 상태판단 | Market Structure (Long/Mid/Short + Composer) | 4축 상태 해석 및 실행 게이트 생성 |
 | 전략 실행엔진 | Strategy Engine v0 | WHAT/EXPOSURE/SELL 경계 출력 생성 |
 | 시뮬레이션 | Backtest Engine (v0/v1 preset) | Strategy Engine 출력 기반 포트폴리오 시뮬레이션 |
-| 실행 제어    | Universe + Allocation Engine  | 후보 선별 및 총 투자 비율 조절(`invested_ratio`) |
+| 실행 제어    | Universe-ETF + Allocation Engine  | 후보 선별 및 총 투자 비율 조절(`invested_ratio`) |
 | API         | `backend_api/` (FastAPI)         | 전략/데이터/LLM 인터페이스 제공 |
 | LLM         | vLLM 서버 (Qwen/Llama 계열)      | 리서치 요약, 질의응답, RAG 기반 분석 |
 | 오케스트레이션 | Airflow DAG | Macro/EOD 등 ETL 파이프라인 스케줄링 및 재처리 |
@@ -54,7 +54,7 @@ flowchart LR
         INGEST[pretrend.pipeline.ingest.*]
         FEAT[pretrend.pipeline.features.*]
         MS[Market Structure\nlong/mid/short + composer]
-        UNI[Universe]
+        UNI[Universe-ETF]
         ALLOC[Allocation Engine v0]
         BT[Backtest Engine]
     end
@@ -92,7 +92,7 @@ Calendar Pipeline(v1) 설명:
 
 EOD Observability Set(v1) 설명:
 - EOD 관측용 ETF 세트는 시장 상태를 읽기 위한 Always-on 센서 입력으로 유지한다.
-- Universe-driven 대상과 분리하여 고정 수집/고정 라벨 정책을 적용한다.
+- Universe-ETF/Universe-Stock(U0~U3) 대상과 분리하여 고정 수집/고정 라벨 정책을 적용한다.
 - 분류 라벨(`asset_group`, `asset_name`, `asset_subtype`)은 Bronze에서 확정하고 Silver/Gold로 전파한다.
 - 상세 계약 문서: `docs/architecture/eod_observability_contract.md`
 
@@ -102,8 +102,8 @@ EOD Gold Feature v1 설명:
 - `eod_pipeline_dag`는 `run_eod_bronze_ingest` → `run_eod_silver_features` → `run_eod_gold_features` 체인으로 동작한다.
 
 Risk-Control 전략 구조(v0) 설명:
-- 전략 흐름은 `Layer -> Market Structure(4축) -> Composer -> Universe -> Allocation Engine -> Weekly Report`를 따른다.
-- Allocation Engine v0는 총 투자 비율(`invested_ratio`)만 조절하며, Universe 내부 가중치 조절은 수행하지 않는다.
+- 전략 흐름은 `Layer -> Market Structure(4축) -> Composer -> Universe-ETF -> Allocation Engine -> Weekly Report`를 따른다.
+- Allocation Engine v0는 총 투자 비율(`invested_ratio`)만 조절하며, Universe-ETF 내부 가중치 조절은 수행하지 않는다.
 - Strategy Engine v0는 Gold snapshot 입력을 기준으로 WHAT/EXPOSURE/SELL 경계 출력을 생성한다.
 - 관련 문서:
   - `docs/strategy_architecture.md`
@@ -171,7 +171,7 @@ pretrend_ai/
 │      │       ├─ fred_vintages.py   # Calendar fred_vintages Silver 변환
 │      │       └─ runner.py          # Calendar Silver runner CLI
 │      │   └─ eod_job.py             # EOD Bronze→Silver→Gold E2E runner
-│      │   └─ strategy_engine/       # Strategy Engine v0 (Axis/Horizon→Policy→Universe→Allocation→Sell)
+│      │   └─ strategy_engine/       # Strategy Engine v0 (Axis/Horizon→Policy→Universe-ETF→Allocation→Sell)
 │      │       ├─ strategy_job.py    # Strategy Engine runner CLI
 │      │       ├─ config.py          # Strategy policy/profile config
 │      │       ├─ io.py              # snapshot load/write

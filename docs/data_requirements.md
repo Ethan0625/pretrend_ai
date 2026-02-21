@@ -10,7 +10,7 @@
 ## 1. Overview
 
 본 문서는 현재 전략 구조
-`Layer -> Market Structure(4축) -> Composer -> Universe -> Allocation Engine v0`
+`Layer -> Market Structure(4축) -> Composer -> Universe-ETF -> Allocation Engine v0`
 에서 필요한 데이터 입력을 정의한다.
 
 본 문서의 범위는 **데이터 항목/스키마/운영 전제**이며,
@@ -37,13 +37,13 @@
 1. Macro 데이터 (정책/유동성 축)
 2. EOD Observability 데이터 (가격/변동성, 수급/구조, 심리 proxy 공통 입력)
 3. Market Structure 모듈 입력 (Long/Mid/Short)
-4. Composer/Universe 입력
+4. Composer/Universe-ETF 입력
 5. Allocation Engine v0 입력
 
 Non-Goals:
 - 종목 추천/전략 수익률 최적화용 feature 설계
 - Market Structure 점수식 정의
-- Universe 내부 종목 가중치 조정 규칙
+- Universe-ETF 내부 종목 가중치 조정 규칙
 
 ---
 
@@ -80,7 +80,7 @@ Non-Goals:
 ## 4. EOD Data Requirements (Observability Set v1)
 
 ### 4.1 역할
-- Observability Set v1은 Universe 결과와 무관하게 항상 수집되는 고정 관측 입력이다.
+- Observability Set v1은 Universe-ETF/Universe-Stock 결과와 무관하게 항상 수집되는 고정 관측 입력이다.
 - 분류 라벨(`asset_group`, `asset_name`, `asset_subtype`)은 Bronze에서 1회 확정하고 Silver/Gold로 그대로 전파한다.
 
 ### 4.2 필수 시세 컬럼
@@ -131,13 +131,13 @@ Non-Goals:
 
 ---
 
-## 6. Composer / Universe / Allocation 입력 계약 관점
+## 6. Composer / Universe-ETF / Allocation 입력 계약 관점
 
 ### 6.1 Composer 입력 요건
 - Long/Mid/Short 모듈 출력이 동일 `trade_date` 기준으로 정렬 가능해야 한다.
 - 입력 누락 시 `UNKNOWN` 상태를 허용해야 한다.
 
-### 6.2 Universe 입력 요건
+### 6.2 Universe-ETF 입력 요건
 - Composer 출력(`run_universe`, `risk_gate` 포함)
 - Gold EOD Feature + Observability 라벨
 - 라벨은 read-only
@@ -152,7 +152,7 @@ Non-Goals:
 | current_invested_ratio | FLOAT | Y | 현재 투자 비율 |
 | adjustment_limit | FLOAT | Y | 주기당 최대 조정폭 |
 | risk_gate | BOOLEAN | Y | 증가 허용 여부 |
-| run_universe | BOOLEAN | Y | Universe 실행 허용 여부 |
+| run_universe | BOOLEAN | Y | Universe-ETF 실행 허용 여부 |
 
 ---
 
@@ -169,7 +169,7 @@ Non-Goals:
 - PIT 불변식 준수: `selected_release_date < trade_date`
 - Observability 라벨 read-only 전파
 - Composer ENUM 외 값 금지
-- `run_universe=false`이면 Universe 결과는 비어야 함
+- `run_universe=false`이면 Universe-ETF 결과는 비어야 함
 - `risk_gate=false`이면 Allocation 증가(INCREASE) 금지
 
 ---
