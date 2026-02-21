@@ -82,15 +82,16 @@ def eod_pipeline():
     """
     EOD Bronze→Silver→Gold 전체를 한 번에 수행하는 Airflow DAG.
 
-    - execution_date / data_interval은 참고만 하고,
-      실제 EOD 대상 날짜는 US/Eastern 현재 시각 기준 '마지막 완전 거래일'로 계산.
+    - data_interval_start를 US/Eastern으로 변환하여 대상 거래일을 결정.
+      backfill/scheduled run 모두 논리 실행일 기준으로 처리.
     - Bronze ingest(Observability SOT 32개 ETF) → Silver Feature → Gold fact mart 순차 실행.
     """
 
     @task(task_id="run_eod_bronze_ingest")
     def run_eod_bronze_ingest_task(**context: Any) -> Dict[str, Any]:
-        # 1) 미국 시간(US/Eastern) 기준 현재 시각
-        now_et = pendulum.now("US/Eastern")
+        # 1) Airflow data_interval_start → US/Eastern 변환 (backfill 호환)
+        data_interval_start = context["data_interval_start"]
+        now_et = data_interval_start.in_tz("US/Eastern")
 
         # 2) 마지막 완전한 거래일 계산
         target_date: date = get_last_us_trading_date(now_et)
@@ -117,7 +118,7 @@ def eod_pipeline():
             "row_count": result.row_count,
             "symbols": ",".join(result.symbols),
             "target_date": str(target_date),
-            "now_et": now_et.to_iso8601_string(),
+            "data_interval_et": now_et.to_iso8601_string(),
         }
         return summary
 

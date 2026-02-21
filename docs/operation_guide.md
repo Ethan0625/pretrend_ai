@@ -79,3 +79,66 @@
 ## Backtest 테스트 실행
 - Backtest 테스트:
   - `conda run -n pytest-pretrend pytest tests/pipeline/backtest/ -v`
+
+## Airflow 서비스 관리 (systemd)
+
+서비스 파일 위치: `airflow_pretrend/airflow-scheduler.service`, `airflow_pretrend/airflow-webserver.service`
+시스템 등록 위치: `/etc/systemd/system/`
+
+### 최초 등록
+```bash
+sudo cp airflow_pretrend/airflow-scheduler.service /etc/systemd/system/
+sudo cp airflow_pretrend/airflow-webserver.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable airflow-scheduler airflow-webserver
+sudo systemctl start airflow-scheduler airflow-webserver
+```
+
+### 서비스 상태 확인
+```bash
+sudo systemctl status airflow-scheduler
+sudo systemctl status airflow-webserver
+```
+
+### 서비스 시작 / 중지 / 재시작
+```bash
+sudo systemctl start airflow-scheduler airflow-webserver
+sudo systemctl stop airflow-scheduler airflow-webserver
+sudo systemctl restart airflow-scheduler airflow-webserver
+```
+
+### 로그 확인
+재시작 시 덮어쓰기 — 최신 실행 로그만 유지된다.
+```bash
+# 실시간 스트림
+tail -f airflow_pretrend/logs/scheduler.log
+tail -f airflow_pretrend/logs/webserver.log
+
+# 에러만
+tail -f airflow_pretrend/logs/scheduler-error.log
+tail -f airflow_pretrend/logs/webserver-error.log
+```
+
+### DAG별 태스크 로그
+Airflow 내부 태스크 로그는 systemd와 무관하게 AIRFLOW_HOME 아래에 누적된다.
+```bash
+ls airflow_pretrend/logs/dag_id=*/run_id=*/task_id=*/
+```
+
+## Airflow DAG 스케줄 요약
+
+| DAG | 스케줄 | 설명 |
+|-----|--------|------|
+| `macro_pipeline_dag` | 매일 09:00 UTC | FRED Macro Bronze→Silver |
+| `eod_pipeline_dag` | 매일 08:00 UTC | EOD Bronze→Silver→Gold |
+| `strategy_engine_dag` | 매일 10:00 UTC | Strategy Engine 7단계 + Telegram 리포트 |
+
+실행 순서: EOD(08:00) → Macro(09:00) → Strategy(10:00), 고정 시간으로 의존성 보장.
+
+### Telegram 알림 설정
+`.env` 또는 systemd 서비스 파일의 `Environment=` 항목에 추가:
+```
+TELEGRAM_BOT_TOKEN=<bot_token>
+TELEGRAM_CHAT_ID=<chat_id>
+```
+미설정 시 알림만 스킵되고 파이프라인은 정상 실행된다.
