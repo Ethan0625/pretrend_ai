@@ -61,12 +61,20 @@
   - `PYTHONPATH=src python -m pretrend.pipeline.strategy_engine.strategy_job --date 2024-06-03 --invested-ratio 0.10`
 
 ## Backtest Engine 실행
+- 실행 규칙(현재):
+  - 월 첫 거래일: `monthly_addition` 자금 추가(DCA)
+  - 월요일: 전 거래일(T-1) 기준 신호 평가
+  - 화요일: `INCREASE` 실행(현금 배포 매수)
+  - 금요일: `DECREASE` 단계 매도(`50% → 30% → 20%`, 3주)
+  - `risk_gate=false(PANIC)`: `INCREASE` 허용, `DECREASE` 신규 생성 차단/진행 트랜치 동결
 - v0(range-maintenance) 실행:
   - `PYTHONPATH=src python -m pretrend.pipeline.backtest.runner --start 2006-01-03 --end 2024-06-03 --preset v0`
 - v1(target-seeking) 실행:
   - `PYTHONPATH=src python -m pretrend.pipeline.backtest.runner --start 2006-01-03 --end 2024-06-03 --preset v1`
 - v2(2D target-seeking: long_phase × mid_regime) 실행:
   - `PYTHONPATH=src python -m pretrend.pipeline.backtest.runner --start 2006-01-03 --end 2024-06-03 --preset v2`
+- v2 + DCA 월 적립금 지정 실행:
+  - `PYTHONPATH=src python -m pretrend.pipeline.backtest.runner --start 2006-01-03 --end 2024-06-03 --preset v2 --monthly-addition 300`
 - v1 + tactical override 실행:
   - `PYTHONPATH=src python -m pretrend.pipeline.backtest.runner --start 2006-01-03 --end 2024-06-03 --preset v1 --tactical SECTOR COMMODITY`
 

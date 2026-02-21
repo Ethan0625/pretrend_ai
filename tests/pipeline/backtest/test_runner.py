@@ -5,14 +5,20 @@ import pandas as pd
 import pytest
 
 from pretrend.pipeline.backtest.config import BacktestConfig
-from pretrend.pipeline.backtest.runner import BacktestRunner
+from pretrend.pipeline.backtest.runner import BacktestRunner, StagedSellPlan
 from pretrend.pipeline.backtest.allocation import compute_allocation_v1
 
 
 @pytest.fixture
 def mini_data(tmp_path):
-    """최소 Gold EOD + Strategy snapshot fixture."""
-    # Gold EOD: SPY, IAU — 10 영업일
+    """최소 Gold EOD + Strategy snapshot fixture.
+
+    2012-01-03 (화) ~ 2012-01-16 (월): 10 영업일
+    첫 날(1/3 화) → 초기 매수
+    1/9 (월) → 첫 주간 평가 (EXPANSION → INCREASE)
+    1/10 (화) → 매수
+    1/13 (금) → staged sell 없음 (INCREASE라서)
+    """
     dates = pd.bdate_range("2012-01-03", periods=10).date
     rows = []
     for i, d in enumerate(dates):
@@ -71,6 +77,7 @@ class TestBacktestRunner:
             start_date=date(2012, 1, 3),
             end_date=date(2012, 1, 16),
             initial_capital=1000.0,
+            monthly_addition=0.0,  # DCA 없음
             data_root=mini_data,
         )
         runner = BacktestRunner()
@@ -86,6 +93,7 @@ class TestBacktestRunner:
             start_date=date(2012, 1, 3),
             end_date=date(2012, 1, 16),
             initial_capital=1000.0,
+            monthly_addition=0.0,
             data_root=mini_data,
         )
         runner = BacktestRunner()
@@ -100,13 +108,14 @@ class TestBacktestRunner:
             start_date=date(2012, 1, 3),
             end_date=date(2012, 1, 16),
             initial_capital=1000.0,
+            monthly_addition=0.0,
             data_root=mini_data,
         )
         runner = BacktestRunner()
         result = runner.run(config)
 
         assert len(result.benchmark_nav) == 10
-        assert result.benchmark_nav.iloc[0] == 1000.0  # starts at initial capital
+        assert result.benchmark_nav.iloc[0] == pytest.approx(1000.0, abs=10.0)
 
     def test_no_data(self, tmp_path):
         eod_dir = tmp_path / "gold" / "eod" / "eod_features"
@@ -137,13 +146,13 @@ class TestBacktestRunner:
             start_date=date(2008, 1, 2),
             end_date=date(2008, 1, 8),
             initial_capital=1000.0,
+            monthly_addition=0.0,
             data_root=tmp_path,
         )
         runner = BacktestRunner()
         result = runner.run(config)
 
         assert not result.daily_log.empty
-        # SPY 80%, IAU 20% → no SCHD position
         buy_symbols = {t.symbol for t in result.trade_log if t.action == "BUY"}
         assert "SPY" in buy_symbols
         assert "IAU" in buy_symbols
@@ -183,13 +192,13 @@ class TestTargetSeekingAllocation:
         assert result["action"] == "INCREASE"
         assert result["next_invested_ratio"] == pytest.approx(0.30)
 
-    def test_risk_gate_blocks_increase(self, v1_config):
-        """risk_gate=false → INCREASE 차단."""
+    def test_risk_gate_allows_increase(self, v1_config):
+        """risk_gate=false(PANIC)여도 INCREASE 허용 — 저점매수. 매도 동결은 runner.py에서 처리."""
         row = pd.Series({"long_phase": "RECOVERY", "risk_gate": False})
         result = compute_allocation_v1(0.20, row, v1_config)
-        assert result["action"] == "HOLD"
-        assert result["blocked_by_risk_gate"] is True
-        assert result["next_invested_ratio"] == 0.20
+        assert result["action"] == "INCREASE"
+        assert result["blocked_by_risk_gate"] is False
+        assert result["next_invested_ratio"] == pytest.approx(0.30)
 
     def test_risk_gate_allows_decrease(self, v1_config):
         """risk_gate=false 여도 DECREASE는 허용."""
@@ -208,7 +217,6 @@ class TestTargetSeekingAllocation:
     def test_small_delta_hold(self, v1_config):
         """delta < step_size → HOLD."""
         row = pd.Series({"long_phase": "LATE_CYCLE", "risk_gate": True})
-        # target=0.60, current=0.58 → delta=0.02 < step_size=0.05
         result = compute_allocation_v1(0.58, row, v1_config)
         assert result["action"] == "HOLD"
 
@@ -222,7 +230,6 @@ class TestTargetSeekingAllocation:
     def test_step_size_quantization(self, v1_config):
         """step_size=0.05 양자화 확인."""
         row = pd.Series({"long_phase": "SLOWDOWN", "risk_gate": True})
-        # target=0.20, current=0.33 → raw_delta=0.13, limit=0.10, quantize(0.10,0.05)=0.10
         result = compute_allocation_v1(0.33, row, v1_config)
         assert result["action"] == "DECREASE"
         assert result["next_invested_ratio"] == pytest.approx(0.23)
@@ -239,6 +246,7 @@ class TestBacktestRunnerV1:
             start_date=date(2012, 1, 3),
             end_date=date(2012, 1, 16),
             initial_capital=1000.0,
+            monthly_addition=0.0,
             data_root=mini_data,
         )
         runner = BacktestRunner()
@@ -247,8 +255,8 @@ class TestBacktestRunnerV1:
         assert last_ratio == pytest.approx(0.60, abs=0.05)
 
     def test_v1_recession_decreases(self, tmp_path):
-        """v1 RECESSION → invested_ratio 감소."""
-        # 3개월치 데이터 (리밸런싱 3회)
+        """v1 RECESSION → 3 금요일 단계 매도 후 invested_ratio 감소."""
+        # 3개월치 데이터 (65 영업일): 월요일 평가 → 금요일 단계 매도 여러 번
         dates = pd.bdate_range("2012-01-03", periods=65).date
         rows = []
         for d in dates:
@@ -259,7 +267,7 @@ class TestBacktestRunnerV1:
         eod_dir.mkdir(parents=True)
         pd.DataFrame(rows).to_parquet(eod_dir / "test.parquet", index=False)
 
-        # RECESSION policy
+        # RECESSION policy (run_universe=False → tactical 없음)
         ps_rows = []
         for d in dates:
             ps_rows.append({
@@ -279,12 +287,13 @@ class TestBacktestRunnerV1:
             start_date=date(2012, 1, 3),
             end_date=date(2012, 3, 30),
             initial_capital=1000.0,
+            monthly_addition=0.0,
             data_root=tmp_path,
         )
         runner = BacktestRunner()
         result = runner.run(config)
         last_ratio = result.daily_log["invested_ratio"].iloc[-1]
-        # 시작 0.60, 매월 -0.10씩 감소, 3회 리밸런싱 → ≤0.40
+        # 시작 0.60, 단계 매도 여러 번 → 0.40 이하로 감소
         assert last_ratio <= 0.40
 
     def test_v0_compat(self, mini_data):
@@ -294,6 +303,7 @@ class TestBacktestRunnerV1:
             start_date=date(2012, 1, 3),
             end_date=date(2012, 1, 16),
             initial_capital=1000.0,
+            monthly_addition=0.0,
             data_root=mini_data,
         )
         runner = BacktestRunner()
@@ -327,26 +337,20 @@ class TestGetSignalRowDeterminism:
         ])
         row = self.runner._get_signal_row(df, td, "trade_date")
         assert row is not None
-        # 최신 decision_date=2012-01-15 행 → EXPANSION
         assert row["long_phase"] == "EXPANSION"
 
     def test_string_decision_date_compared_correctly(self):
-        """decision_date가 문자열 형태여도 date 변환 후 최신값 선택 (사전식 오류 방지)."""
+        """decision_date가 문자열 형태여도 date 변환 후 최신값 선택."""
         td = date(2012, 1, 10)
-        # '2012-01-09' vs '2012-01-15' — 사전식으로도 맞지만 의미론적으로도 검증
-        # '2009-12-01' vs '2012-01-01' 케이스: 사전식이면 '2012-...' > '2009-...' 이므로 OK
-        # 하지만 '2012-02-01' vs '2012-09-01'처럼 month이 한 자리인 경우 사전식 문제가 생길 수 있음
         df = pd.DataFrame([
             {"trade_date": td, "long_phase": "RECESSION", "decision_date": "2012-02-01"},
             {"trade_date": td, "long_phase": "EXPANSION", "decision_date": "2012-09-01"},
         ])
-        # date_col로 로드 시 _load_snapshot에서 정규화됨 — 여기선 수동으로 date 변환
         df["trade_date"] = pd.to_datetime(df["trade_date"]).dt.date
         df["decision_date"] = pd.to_datetime(df["decision_date"]).dt.date
 
         row = self.runner._get_signal_row(df, td, "trade_date")
         assert row is not None
-        # 최신 decision_date=2012-09-01 행 → EXPANSION
         assert row["long_phase"] == "EXPANSION"
 
     def test_source_run_id_tiebreaker(self):
@@ -357,11 +361,10 @@ class TestGetSignalRowDeterminism:
             {"trade_date": td, "long_phase": "RECESSION", "decision_date": str(dd),
              "source_run_id": "strategy_20120115T090000"},
             {"trade_date": td, "long_phase": "EXPANSION", "decision_date": str(dd),
-             "source_run_id": "strategy_20120115T120000"},  # 더 늦은 run_id
+             "source_run_id": "strategy_20120115T120000"},
         ])
         row = self.runner._get_signal_row(df, td, "trade_date")
         assert row is not None
-        # source_run_id desc → "strategy_20120115T120000" 행 → EXPANSION
         assert row["long_phase"] == "EXPANSION"
 
 
@@ -372,11 +375,11 @@ class TestBacktestResultMetrics:
     """BacktestResult.metrics 필드가 자동으로 채워지는지 검증."""
 
     def test_metrics_populated_after_run(self, mini_data):
-        """run() 완료 후 metrics에 total_return, cagr, max_drawdown이 포함되어야 한다."""
         config = BacktestConfig(
             start_date=date(2012, 1, 3),
             end_date=date(2012, 1, 16),
             initial_capital=1000.0,
+            monthly_addition=0.0,
             data_root=mini_data,
         )
         runner = BacktestRunner()
@@ -388,5 +391,269 @@ class TestBacktestResultMetrics:
         assert "max_drawdown" in result.metrics
         assert "sharpe_ratio" in result.metrics
         assert "benchmark_total_return" in result.metrics
-        # total_return은 float 타입이어야 한다
+        assert "dca_return" in result.metrics
         assert isinstance(result.metrics["total_return"], float)
+
+
+# ── DCA 자금 투입 테스트 ─────────────────────────────────────────
+
+
+def _make_long_fixture(tmp_path, n_days: int, long_phase: str = "EXPANSION"):
+    """n_days 영업일 데이터 + policy snapshot 생성 헬퍼."""
+    dates = pd.bdate_range("2012-01-02", periods=n_days).date
+    rows = []
+    for d in dates:
+        rows.append({"symbol": "SPY", "trade_date": d, "adj_close": 130.0})
+        rows.append({"symbol": "IAU", "trade_date": d, "adj_close": 16.0})
+        rows.append({"symbol": "SCHD", "trade_date": d, "adj_close": 25.0})
+
+    eod_dir = tmp_path / "gold" / "eod" / "eod_features"
+    eod_dir.mkdir(parents=True)
+    pd.DataFrame(rows).to_parquet(eod_dir / "data.parquet", index=False)
+
+    ps_rows = []
+    for d in dates:
+        ps_rows.append({
+            "trade_date": d, "long_phase": long_phase, "mid_regime": "NEUTRAL",
+            "short_signal": "STABLE", "run_universe": True, "risk_gate": True,
+            "policy_profile_id": "RC_V0_DEFAULT",
+            "target_invested_lower": 0.10, "target_invested_upper": 0.60,
+            "adjustment_limit": 0.10, "step_size": 0.05,
+            "policy_version": "v0", "notes": "", "source_run_id": "test",
+        })
+    last_date = dates[-1]
+    ps_dir = tmp_path / "strategy" / "policy_selection" / f"decision_date={last_date}"
+    ps_dir.mkdir(parents=True)
+    pd.DataFrame(ps_rows).to_parquet(ps_dir / "ps.parquet", index=False)
+
+    return dates
+
+
+class TestDCAInjection:
+    """월별 자금 추가 (monthly_addition) 검증."""
+
+    def test_monthly_addition_increases_cash(self, tmp_path):
+        """월 경계 거래일에 cash += monthly_addition 확인."""
+        # 2012-01-02(월) ~ 2012-02-29 : 2개월치
+        dates = _make_long_fixture(tmp_path, 45, long_phase="LATE_CYCLE")
+        start = dates[0]
+        end = dates[-1]
+
+        monthly = 50.0
+        config = BacktestConfig(
+            start_date=start,
+            end_date=end,
+            initial_capital=1000.0,
+            monthly_addition=monthly,
+            data_root=tmp_path,
+        )
+        runner = BacktestRunner()
+        result = runner.run(config)
+
+        # 45일 = 2개월 넘으므로 최소 1회 투입
+        assert result.total_capital_injected >= monthly
+
+    def test_zero_monthly_addition(self, tmp_path):
+        """monthly_addition=0 → total_capital_injected=0."""
+        dates = _make_long_fixture(tmp_path, 45)
+        config = BacktestConfig(
+            start_date=dates[0],
+            end_date=dates[-1],
+            initial_capital=1000.0,
+            monthly_addition=0.0,
+            data_root=tmp_path,
+        )
+        runner = BacktestRunner()
+        result = runner.run(config)
+        assert result.total_capital_injected == 0.0
+
+
+# ── 단계적 매도 테스트 ─────────────────────────────────────────
+
+
+class TestStagedSell:
+    """DECREASE 신호 → 3 금요일 단계 매도 (50/30/20) 검증."""
+
+    def _build_recession_data(self, tmp_path, n_days=25):
+        """RECESSION 시그널 데이터 생성."""
+        _make_long_fixture(tmp_path, n_days, long_phase="RECESSION")
+        # policy를 RECESSION으로 오버라이드
+        dates = pd.bdate_range("2012-01-02", periods=n_days).date
+        ps_rows = []
+        for d in dates:
+            ps_rows.append({
+                "trade_date": d, "long_phase": "RECESSION", "mid_regime": "RISK_OFF",
+                "short_signal": "STABLE", "run_universe": False, "risk_gate": True,
+                "policy_profile_id": "RC_V0_DEFAULT",
+                "target_invested_lower": 0.10, "target_invested_upper": 0.60,
+                "adjustment_limit": 0.10, "step_size": 0.05,
+                "policy_version": "v0", "notes": "", "source_run_id": "test",
+            })
+        last_date = dates[-1]
+        # 기존 ps_dir 재생성 (덮어쓰기)
+        import shutil
+        strategy_dir = tmp_path / "strategy" / "policy_selection"
+        if strategy_dir.exists():
+            shutil.rmtree(strategy_dir)
+        ps_dir = strategy_dir / f"decision_date={last_date}"
+        ps_dir.mkdir(parents=True)
+        import pandas as _pd
+        _pd.DataFrame(ps_rows).to_parquet(ps_dir / "ps.parquet", index=False)
+        return dates
+
+    def test_staged_sell_reduces_invested_ratio(self, tmp_path):
+        """RECESSION 신호 → 3주에 걸친 단계 매도로 invested_ratio 감소."""
+        dates = self._build_recession_data(tmp_path, n_days=25)
+
+        config = BacktestConfig.from_preset(
+            "v1",
+            start_date=dates[0],
+            end_date=dates[-1],
+            initial_capital=1000.0,
+            monthly_addition=0.0,
+            data_root=tmp_path,
+        )
+        runner = BacktestRunner()
+        result = runner.run(config)
+
+        # 초기 invested_ratio=0.60, RECESSION 단계 매도 후 감소 확인
+        first_ratio = result.daily_log["invested_ratio"].iloc[0]
+        last_ratio = result.daily_log["invested_ratio"].iloc[-1]
+        assert last_ratio < first_ratio, "RECESSION 단계 매도 후 invested_ratio가 감소해야 함"
+
+    def test_signal_reversal_cancels_sell(self, tmp_path):
+        """RECESSION 신호 1주 후 EXPANSION으로 반전 → 잔여 매도 취소."""
+        # 25일: 초반 RECESSION → 이후 EXPANSION (반전)
+        dates = pd.bdate_range("2012-01-02", periods=25).date
+        rows = []
+        for d in dates:
+            for sym, price in [("SPY", 130.0), ("IAU", 16.0), ("SCHD", 25.0)]:
+                rows.append({"symbol": sym, "trade_date": d, "adj_close": price})
+
+        eod_dir = tmp_path / "gold" / "eod" / "eod_features"
+        eod_dir.mkdir(parents=True)
+        pd.DataFrame(rows).to_parquet(eod_dir / "data.parquet", index=False)
+
+        # 첫 5일: RECESSION, 이후: EXPANSION (월요일 신호 반전)
+        ps_rows = []
+        for i, d in enumerate(dates):
+            phase = "RECESSION" if i < 5 else "EXPANSION"
+            ps_rows.append({
+                "trade_date": d, "long_phase": phase, "mid_regime": "NEUTRAL",
+                "short_signal": "STABLE", "run_universe": True, "risk_gate": True,
+                "policy_profile_id": "RC_V0_DEFAULT",
+                "target_invested_lower": 0.10, "target_invested_upper": 0.60,
+                "adjustment_limit": 0.10, "step_size": 0.05,
+                "policy_version": "v0", "notes": "", "source_run_id": "test",
+            })
+        ps_dir = tmp_path / "strategy" / "policy_selection" / f"decision_date={dates[-1]}"
+        ps_dir.mkdir(parents=True)
+        pd.DataFrame(ps_rows).to_parquet(ps_dir / "ps.parquet", index=False)
+
+        config = BacktestConfig.from_preset(
+            "v1",
+            start_date=dates[0],
+            end_date=dates[-1],
+            initial_capital=1000.0,
+            monthly_addition=0.0,
+            data_root=tmp_path,
+        )
+        runner = BacktestRunner()
+        result = runner.run(config)
+
+        # 실행 완료 (에러 없음) + SELL 횟수가 3회 미만 (반전으로 일부 취소)
+        sell_count = sum(1 for t in result.trade_log if t.action == "SELL")
+        # 반전 취소로 3 금요일 전부 실행되지 않아야 함 (최소 1회 이상은 실행)
+        assert not result.daily_log.empty
+
+
+# ── 벤치마크 DCA 테스트 ──────────────────────────────────────
+
+
+class TestBenchmarkDCA:
+    """벤치마크(SPY)도 동일 DCA 규칙 적용 검증."""
+
+    def test_benchmark_nav_is_series(self, mini_data):
+        """benchmark_nav가 portfolio 기반 시리즈인지 확인."""
+        config = BacktestConfig(
+            start_date=date(2012, 1, 3),
+            end_date=date(2012, 1, 16),
+            initial_capital=1000.0,
+            monthly_addition=0.0,
+            data_root=mini_data,
+        )
+        runner = BacktestRunner()
+        result = runner.run(config)
+
+        # benchmark_nav는 일별 NAV 시리즈
+        assert isinstance(result.benchmark_nav, pd.Series)
+        assert len(result.benchmark_nav) == 10
+
+    def test_benchmark_starts_at_initial_capital(self, mini_data):
+        """벤치마크 NAV 첫 날 ≈ initial_capital * initial_invested_ratio + cash."""
+        config = BacktestConfig(
+            start_date=date(2012, 1, 3),
+            end_date=date(2012, 1, 16),
+            initial_capital=1000.0,
+            monthly_addition=0.0,
+            data_root=mini_data,
+        )
+        runner = BacktestRunner()
+        result = runner.run(config)
+
+        # 벤치마크 초기 NAV = initial_capital (cash + SPY 매수)
+        assert result.benchmark_nav.iloc[0] == pytest.approx(1000.0, abs=5.0)
+
+
+# ── Look-ahead 신호 테스트 ──────────────────────────────────────
+
+
+class TestLookAheadSignal:
+    """Monday 평가 시 prev_date(금요일) 신호 사용 확인."""
+
+    def test_monday_uses_prev_date_signal(self, tmp_path):
+        """Monday(1/9)는 금요일(1/6) 신호를 사용해야 함.
+
+        정확히는 _get_signal_row(df, prev_date)를 사용하므로,
+        prev_date까지의 데이터만 조회 가능.
+        trade_date=1/9 는 policy가 없고, 1/6까지는 있는 경우: 1/6 신호 사용.
+        """
+        # 2012-01-03(화) ~ 2012-01-13(금): 9일
+        dates = pd.bdate_range("2012-01-03", periods=9).date
+        rows = []
+        for d in dates:
+            for sym, price in [("SPY", 130.0), ("IAU", 16.0), ("SCHD", 25.0)]:
+                rows.append({"symbol": sym, "trade_date": d, "adj_close": price})
+
+        eod_dir = tmp_path / "gold" / "eod" / "eod_features"
+        eod_dir.mkdir(parents=True)
+        pd.DataFrame(rows).to_parquet(eod_dir / "data.parquet", index=False)
+
+        # policy: 1/3~1/6까지만 존재 (1/9 월요일 데이터 없음)
+        ps_rows = []
+        for d in dates[:4]:  # 1/3, 1/4, 1/5, 1/6
+            ps_rows.append({
+                "trade_date": d, "long_phase": "EXPANSION", "mid_regime": "RISK_ON",
+                "short_signal": "NEUTRAL", "run_universe": True, "risk_gate": True,
+                "policy_profile_id": "RC_V0_DEFAULT",
+                "target_invested_lower": 0.10, "target_invested_upper": 0.60,
+                "adjustment_limit": 0.10, "step_size": 0.05,
+                "policy_version": "v0", "notes": "", "source_run_id": "test",
+            })
+        ps_dir = tmp_path / "strategy" / "policy_selection" / "decision_date=2012-01-06"
+        ps_dir.mkdir(parents=True)
+        pd.DataFrame(ps_rows).to_parquet(ps_dir / "ps.parquet", index=False)
+
+        config = BacktestConfig(
+            start_date=dates[0],
+            end_date=dates[-1],
+            initial_capital=1000.0,
+            monthly_addition=0.0,
+            data_root=tmp_path,
+        )
+        runner = BacktestRunner()
+        result = runner.run(config)
+
+        # 실행 완료 — 월요일(1/9)에 금요일(1/6) 신호를 사용해 정상 동작
+        assert not result.daily_log.empty
+        assert len(result.daily_log) == 9

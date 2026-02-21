@@ -109,25 +109,31 @@ class TestPickTactical:
 
 class TestApplyTactical:
     def test_single_tactical(self, default_config):
+        # 비례 차감: core 전체에서 5:3:2 비율 그대로 차감
         base = {"SCHD": 0.50, "SPY": 0.30, "IAU": 0.20}
         result = _apply_tactical(base, ["XLK"], default_config, date(2024, 1, 2))
         assert result["XLK"] == 0.15
-        assert result["SCHD"] == pytest.approx(0.35)  # 0.50 - 0.15
-        assert result["SPY"] == 0.30
-        assert result["IAU"] == 0.20
+        assert result["SCHD"] == pytest.approx(0.425)  # 0.50 - 0.15*0.50
+        assert result["SPY"] == pytest.approx(0.255)   # 0.30 - 0.15*0.30
+        assert result["IAU"] == pytest.approx(0.170)   # 0.20 - 0.15*0.20
 
     def test_two_tactical(self, default_config):
+        # 비례 차감: tactical 2개(30%) → 각 core에서 30% 비례 차감
         base = {"SCHD": 0.50, "SPY": 0.30, "IAU": 0.20}
         result = _apply_tactical(base, ["XLK", "XLE"], default_config, date(2024, 1, 2))
         assert result["XLK"] == 0.15
         assert result["XLE"] == 0.15
-        assert result["SCHD"] == pytest.approx(0.20)  # 0.50 - 0.30
+        assert result["SCHD"] == pytest.approx(0.35)  # 0.50 - 0.30*0.50
+        assert result["SPY"] == pytest.approx(0.21)   # 0.30 - 0.30*0.30
+        assert result["IAU"] == pytest.approx(0.14)   # 0.20 - 0.30*0.20
 
     def test_pre_schd_tactical(self, default_config):
+        # 비례 차감: SPY 80%, IAU 20% 구성에서 15% 차감
         base = {"SPY": 0.80, "IAU": 0.20}
         result = _apply_tactical(base, ["XLE"], default_config, date(2008, 6, 1))
         assert result["XLE"] == 0.15
-        assert result["SPY"] == pytest.approx(0.65)  # 0.80 - 0.15
+        assert result["SPY"] == pytest.approx(0.68)  # 0.80 - 0.15*0.80
+        assert result["IAU"] == pytest.approx(0.17)  # 0.20 - 0.15*0.20
 
 
 class TestComputeTargetWeights:
@@ -156,16 +162,17 @@ class TestComputeTargetWeights:
         assert ratio == 0.60  # config default
 
     def test_pre_schd_weights(self, default_config):
+        # pre-SCHD 기간: DVY 25% + VIG 25% + SPY 30% + IAU 20%
         ratio, weights = compute_target_weights(
             trade_date=date(2008, 6, 1),
             policy_row=None,
             allocation_row=None,
             universe_df=None,
             config=default_config,
-            prices={"SPY": 100.0, "IAU": 50.0},
+            prices={"DVY": 50.0, "VIG": 60.0, "SPY": 100.0, "IAU": 50.0},
         )
         assert "SCHD" not in weights
-        assert weights == {"SPY": 0.80, "IAU": 0.20}
+        assert weights == {"DVY": 0.25, "VIG": 0.25, "SPY": 0.30, "IAU": 0.20}
 
 
 # ── Tactical v1 테스트 ────────────────────────────────────

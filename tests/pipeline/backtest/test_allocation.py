@@ -138,15 +138,15 @@ class TestAllocationV2Fallback:
 class TestAllocationV2Guards:
     """risk_gate, run_universe INCREASE 차단 동작."""
 
-    def test_risk_gate_blocks_increase(self, v2_config):
-        """risk_gate=false → INCREASE 차단."""
+    def test_risk_gate_allows_increase(self, v2_config):
+        """risk_gate=false(PANIC)여도 INCREASE 허용 — 저점매수. 매도 동결은 runner.py에서 처리."""
         row = pd.Series({
             "long_phase": "EXPANSION", "mid_regime": "RISK_ON",
             "risk_gate": False, "run_universe": True,
         })
         result = compute_allocation_v2(0.30, row, v2_config)
-        assert result["action"] == "HOLD"
-        assert result["blocked_by_risk_gate"] is True
+        assert result["action"] == "INCREASE"
+        assert result["blocked_by_risk_gate"] is False
 
     def test_run_universe_blocks_increase(self, v2_config):
         """run_universe=false → INCREASE 차단."""

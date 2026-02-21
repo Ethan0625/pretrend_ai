@@ -12,7 +12,7 @@ from typing import Dict, List, Optional, Tuple
 
 import pandas as pd
 
-from .metrics import compute_metrics, compute_period_metrics, compute_phase_distribution
+from .metrics import compute_metrics, compute_xirr, compute_period_metrics, compute_phase_distribution
 
 logger = logging.getLogger(__name__)
 
@@ -38,29 +38,73 @@ def print_report(result) -> None:
     start = nav_series.index[0].strftime("%Y-%m")
     end = nav_series.index[-1].strftime("%Y-%m")
 
-    # 전체 성과
-    metrics = compute_metrics(nav_series, benchmark_nav)
+    total_injected = getattr(result, "total_capital_injected", 0.0)
+    cash_flows = getattr(result, "cash_flows", None)
+    bm_cash_flows = getattr(result, "bm_cash_flows", None)
 
-    print(f"\n{'='*60}")
-    print(f"  Backtest Result ({start} ~ {end})")
-    print(f"{'='*60}")
-    print(f"  Preset:           {result.config.preset_name or 'custom'}")
-    print(f"  Initial Capital:  ${result.config.initial_capital:,.0f}")
-    print(f"  Final NAV:        ${nav_series.iloc[-1]:,.2f}")
-    print(f"  Total Return:     {metrics['total_return']:+.1%}")
-    print(f"  CAGR:             {metrics['cagr']:+.2%}")
-    print(f"  Max Drawdown:     {metrics['max_drawdown']:.2%}")
-    print(f"  Sharpe Ratio:     {metrics['sharpe_ratio']:.2f}")
-    print(f"  Sortino Ratio:    {metrics['sortino_ratio']:.2f}")
-    print(f"  Calmar Ratio:     {metrics['calmar_ratio']:.2f}")
-    print(f"  Win Rate (M):     {metrics['win_rate_monthly']:.1%}")
-    print(f"{'─'*60}")
-    print(f"  Benchmark (SPY B&H):")
-    print(f"  Total Return:     {metrics['benchmark_total_return']:+.1%}")
-    print(f"  CAGR:             {metrics['benchmark_cagr']:+.2%}")
-    print(f"  Max Drawdown:     {metrics['benchmark_max_drawdown']:.2%}")
-    print(f"  Excess Return:    {metrics['excess_return']:+.1%}")
-    print(f"  Excess CAGR:      {metrics['excess_cagr']:+.2%}")
+    # 포트폴리오 성과
+    metrics = compute_metrics(
+        nav_series, benchmark_nav,
+        total_capital_injected=total_injected,
+        cash_flows=cash_flows,
+    )
+    # 벤치마크 성과 (동일 지표 — SPY를 portfolio로 재계산)
+    bm_metrics = compute_metrics(
+        benchmark_nav, benchmark_nav,
+        total_capital_injected=total_injected,
+        cash_flows=bm_cash_flows,
+    ) if not benchmark_nav.empty else {}
+
+    preset = result.config.preset_name or "custom"
+    SEP = "─" * 62
+
+    # 사이드바이사이드 행 포맷: 라벨 | 전략 | SPY
+    def row(label: str, pval: str, bval: str = "") -> str:
+        return f"  {label:<26} {pval:>13}  {bval:>13}"
+
+    def hdr(label: str, pcol: str, bcol: str) -> str:
+        return f"  {label:<26} {pcol:>13}  {bcol:>13}"
+
+    print(f"\n{'='*62}")
+    print(f"  백테스트 결과 (Backtest Result) — {start} ~ {end}")
+    print(f"{'='*62}")
+    print(f"  전략 (Preset):     {preset}")
+    print(f"  초기 자본:         ${result.config.initial_capital:,.2f}"
+          f"   │  월 적립금:  ${result.config.monthly_addition:,.2f}")
+    print(f"  총 투입금:         ${total_injected:,.2f}")
+    print(f"  {SEP}")
+    print(hdr("", f"전략 ({preset})", "SPY B&H"))
+    print(f"  {SEP}")
+
+    bm_final = f"${benchmark_nav.iloc[-1]:,.2f}" if not benchmark_nav.empty else "—"
+    print(row("최종 자산 (Final NAV)", f"${nav_series.iloc[-1]:,.2f}", bm_final))
+    print(f"  {SEP}")
+    print(row("적립식 수익률 (DCA Ret)",
+              f"{metrics.get('dca_return', 0):+.1%}",
+              f"{bm_metrics.get('dca_return', 0):+.1%}"))
+    print(row("내부수익률 (XIRR)",
+              f"{metrics.get('xirr', 0):+.2%}",
+              f"{bm_metrics.get('xirr', 0):+.2%}"))
+    print(row("연평균 수익률 (CAGR)",
+              f"{metrics['cagr']:+.2%}",
+              f"{bm_metrics.get('cagr', 0):+.2%}"))
+    print(row("최대 낙폭 (MDD)",
+              f"{metrics['max_drawdown']:.2%}",
+              f"{bm_metrics.get('max_drawdown', 0):.2%}"))
+    print(row("샤프 비율 (Sharpe)",
+              f"{metrics['sharpe_ratio']:.2f}",
+              f"{bm_metrics.get('sharpe_ratio', 0):.2f}"))
+    print(row("소르티노 비율 (Sortino)",
+              f"{metrics['sortino_ratio']:.2f}",
+              f"{bm_metrics.get('sortino_ratio', 0):.2f}"))
+    print(row("칼마 비율 (Calmar)",
+              f"{metrics['calmar_ratio']:.2f}",
+              f"{bm_metrics.get('calmar_ratio', 0):.2f}"))
+    print(row("월 승률 (Win Rate)",
+              f"{metrics['win_rate_monthly']:.1%}",
+              f"{bm_metrics.get('win_rate_monthly', 0):.1%}"))
+    print(f"  {SEP}")
+    print(row("초과 연평균 (Excess CAGR)", f"{metrics['excess_cagr']:+.2%}", ""))
 
     # 구간별 성과
     for name, ps, pe in NOTABLE_PERIODS:
@@ -68,16 +112,54 @@ def print_report(result) -> None:
         if pm["total_return"] == 0.0 and pm["max_drawdown"] == 0.0:
             continue
         print(f"{'─'*60}")
-        print(f"  {name} ({ps[:7]} ~ {pe[:7]})")
-        print(f"    Return:    {pm['total_return']:+.1%}  vs  SPY {pm['benchmark_total_return']:+.1%}")
-        print(f"    MDD:       {pm['max_drawdown']:.2%}  vs  SPY {pm['benchmark_max_drawdown']:.2%}")
+        print(f"  [{name}] {ps[:7]} ~ {pe[:7]}")
+        print(f"    수익률 (Return): {pm['total_return']:+.1%}  vs  SPY {pm['benchmark_total_return']:+.1%}")
+        print(f"    최대낙폭 (MDD):  {pm['max_drawdown']:.2%}  vs  SPY {pm['benchmark_max_drawdown']:.2%}")
+
+    def _print_holdings_table(positions: dict, total_val: float, label: str) -> None:
+        if not positions:
+            return
+        print(f"{'─'*60}")
+        print(f"  {label}")
+        print(f"  {'Symbol':<8} {'Shares':>10} {'AvgCost':>9} {'Price':>9} {'Return':>8} {'Value':>12} {'Weight':>7}")
+        print(f"  {'─'*8} {'─'*10} {'─'*9} {'─'*9} {'─'*8} {'─'*12} {'─'*7}")
+        sorted_pos = sorted(
+            [(sym, d) for sym, d in positions.items() if sym != "_CASH"],
+            key=lambda x: x[1]["value"],
+            reverse=True,
+        )
+        for sym, d in sorted_pos:
+            shares_str = f"{d['shares']:>10.2f}"
+            avg_cost_str = f"${d.get('avg_cost', 0.0):>7.2f}"
+            price_str = f"${d['price']:>7.2f}"
+            gain_str = f"{d.get('gain_pct', 0.0):>+7.1%}"
+            value_str = f"${d['value']:>10,.2f}"
+            weight_str = f"{d['weight']:>6.1%}"
+            print(f"  {sym:<8} {shares_str} {avg_cost_str} {price_str} {gain_str} {value_str} {weight_str}")
+        if "_CASH" in positions:
+            cd = positions["_CASH"]
+            print(f"  {'Cash':<8} {'':>10} {'':>9} {'':>9} {'':>8} ${cd['value']:>10,.2f} {cd['weight']:>6.1%}")
+        print(f"  {'─'*8} {'─'*10} {'─'*9} {'─'*9} {'─'*8} {'─'*12} {'─'*7}")
+        print(f"  {'Total':<8} {'':>10} {'':>9} {'':>9} {'':>8} ${total_val:>10,.2f} {'100.0%':>7}")
+
+    # 최종 포트폴리오 구성
+    final_positions = getattr(result, "final_positions", {})
+    final_benchmark_positions = getattr(result, "final_benchmark_positions", {})
+    if final_positions:
+        _print_holdings_table(final_positions, nav_series.iloc[-1], f"최종 포트폴리오 구성 — 전략 ({preset})")
+    if final_benchmark_positions and not benchmark_nav.empty:
+        _print_holdings_table(final_benchmark_positions, benchmark_nav.iloc[-1], "최종 포트폴리오 구성 — SPY B&H")
 
     # 매매 요약
     n_trades = len(result.trade_log)
     n_buys = sum(1 for t in result.trade_log if t.action == "BUY")
     n_sells = sum(1 for t in result.trade_log if t.action == "SELL")
     print(f"{'─'*60}")
-    print(f"  Trades: {n_trades} total ({n_buys} buys, {n_sells} sells)")
+    print(f"  매매 횟수 (Trades): 총 {n_trades}회  (매수 {n_buys} / 매도 {n_sells})")
+    print(f"{'─'*60}")
+    print(f"  ⚠  배당금: adj_close 기준 총수익(배당 재투자) 포함.")
+    print(f"  ⚠  신호 기준: 전일(T-1) 종가 — 부분적 미래참조 보정.")
+    print(f"     완전한 Point-in-Time 검증 → 워크포워드(4년 창) 사용 권장.")
     print(f"{'='*60}\n")
 
 
@@ -270,6 +352,7 @@ def _config_to_dict(config) -> dict:
         "start_date":                 _v(cfg.start_date),
         "end_date":                   _v(cfg.end_date),
         "initial_capital":            cfg.initial_capital,
+        "monthly_addition":           cfg.monthly_addition,
         "initial_invested_ratio":     cfg.initial_invested_ratio,
         "initial_weights":            _v(cfg.initial_weights),
         "schd_start_date":            _v(cfg.schd_start_date),

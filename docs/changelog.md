@@ -1,5 +1,87 @@
 # Changelog
 
+## v2026.02.21b — Backtest Runner 실행 규칙 정합화 및 리포트 지표 확장
+
+### fix(backtest): 실행 스케줄/리스크 게이트/유니버스 참조 경로 정합화
+- `runner.py` 실행 규칙을 주간 단위로 명시하고 코드/동작을 정합화:
+  - 월요일: 전 거래일(T-1) 신호 평가
+  - 화요일: `INCREASE` 실행(현금 배포 매수)
+  - 금요일: `DECREASE` 단계 매도 실행(`50% → 30% → 20%`, 3주)
+- `risk_gate=false(PANIC)` 처리 변경:
+  - `INCREASE`는 허용(저점 매수)
+  - `DECREASE` 신규 생성 차단 + 진행 중 트랜치 동결
+- `what_to_hold` snapshot 직접 의존 대신 `gold_eod`(`ret_20d`, `asset_group`) 기반 inline Universe 계산 경로 유지
+- 월 첫 거래일 DCA 자금 투입(`monthly_addition`) 및 벤치마크(SPY) 동일 규칙 적용
+
+### feat(backtest): DCA/XIRR 및 최종 포지션 리포트 확장
+- `BacktestConfig`/`BacktestPreset`에 `monthly_addition` 필드 추가
+- `metrics.py`에 `compute_xirr()` 추가, `compute_metrics()`에 아래 지표 확장:
+  - `dca_return`, `xirr`, `total_capital_injected`
+- `BacktestResult` 확장:
+  - `total_capital_injected`, `cash_flows`, `bm_cash_flows`
+  - `final_positions`, `final_benchmark_positions`
+- `report.py` 출력 확장:
+  - 전략 vs SPY 병렬 성과표
+  - DCA/IRR 지표 표기
+  - 최종 보유 포지션 테이블 출력
+
+### fix(backtest): 보조 로직 정합화
+- `rebalancer.py` 전술 비중 차감 로직 개선:
+  - 단일 core 차감 방식 → core 전체 비례 차감(기존 core 비율 유지)
+  - 최소 core 비중 제약(`0.05`) 기반 슬롯 축소 처리
+- pre-SCHD 기본 구성 변경:
+  - `SPY 80 / IAU 20` → `DVY 25 / VIG 25 / SPY 30 / IAU 20`
+  - SCHD 출시 후 DVY/VIG→SCHD 단계 전환 로직 반영
+- `portfolio.py`:
+  - `add_cash()` 추가(DCA 투입)
+  - snapshot에 `avg_cost` 포함
+
+### 테스트 영향
+- backtest 관련 테스트 기대값/시나리오를 신규 규칙에 맞게 갱신
+  - `tests/pipeline/backtest/test_runner.py`
+  - `tests/pipeline/backtest/test_rebalancer.py`
+  - `tests/pipeline/backtest/test_allocation.py`
+
+---
+
+## v2026.02.21 — Universe Engine v1 + Strategy/Backtest Universe 경로 수정
+
+### feat(universe): Phase-based eligible pool + mid_regime Top-N
+- Universe Engine v1 구현: 단순 `is_candidate=True` 방식에서 `phase eligible pool + mid_regime Top-N` 구조로 전환
+- Phase 제외 규칙:
+  - `RECESSION`: `{USO, UNG}`
+  - `SLOWDOWN`: `{UNG}`
+  - `LATE_CYCLE`: `{}` (전체 허용, live RS 위임)
+  - `EXPANSION`: `{UNG}`
+  - `RECOVERY`: `{USO, UNG, XLE}`
+  - `UNKNOWN`: `{}` (fail-open)
+- `mid_regime` Top-N:
+  - `RISK_OFF=5`, `NEUTRAL=7`, `RISK_ON=9`, `UNKNOWN=7`
+- 상대강도 정의: `relative_strength = ret_20d(symbol) - ret_20d(SPY)`
+- CORE(`SPY`, `TLT`, `IAU`)는 phase 필터 및 Top-N과 무관하게 항상 `is_candidate=true`
+- 테스트: `tests/pipeline/strategy_engine/test_universe.py` UV1~UV6, 총 15건 통과
+
+### fix(strategy/backtest): what_to_hold 누적 버그 및 snapshot 의존 경로 수정
+- `strategy_job.py` 수정:
+  - 기존 `build_universe(df_ps, df_gold_eod)` 호출이 전 기간 `policy_selection`을 전달해 `what_to_hold` snapshot 누적 발생
+  - 수정: `decision_date` 하루치(`df_ps_today`)만 `build_universe` 입력으로 전달
+- `backtest/runner.py` 수정:
+  - 누적 가능성이 있는 `what_to_hold` snapshot 로드 제거
+  - `_load_gold_eod_features()` 추가
+  - `_compute_universe_inline()` 추가
+  - 리밸런싱 시점별 inline Universe 계산으로 전환
+- 성과(2006-01-03 ~ 2024-06-03, `z_threshold=0.3`):
+
+| 지표 | v0 | v1 | v2 | SPY B&H |
+| --- | --- | --- | --- | --- |
+| CAGR | +5.98% | +3.51% | +3.99% | +10.13% |
+| MDD | -28.51% | -26.51% | -19.75% | -55.19% |
+| Sharpe | 0.68 | 0.51 | 0.62 | - |
+
+- 테스트: 전체 `346 passed, 1 skipped`
+
+---
+
 ## v2026.02.20 — Text Data Pipeline 설계 확정 + Universe 이원화 문서 정합화
 
 ### 변경 요약

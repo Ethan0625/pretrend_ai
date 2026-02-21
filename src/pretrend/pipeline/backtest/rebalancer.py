@@ -132,25 +132,32 @@ def _apply_tactical(
 ) -> Dict[str, float]:
     """전술 종목을 편입하고 core 비중을 조정한다.
 
-    전술 비중은 core에서 가장 큰 비중 종목(SCHD 또는 SPY)에서 차감.
+    전술 비중은 core 전체에서 비율대로 차감 → core 내 비율 유지 (5:3:2 등).
     """
     weights = dict(base_weights)
-    tactical_total = len(tactical_symbols) * config.tactical_weight
+    n = len(tactical_symbols)
+    if n == 0:
+        return weights
 
-    # 차감 대상: SCHD 또는 SPY (가장 큰 비중)
-    deduct_symbol = max(weights, key=weights.get)
-    remaining = weights[deduct_symbol] - tactical_total
+    tactical_total = n * config.tactical_weight
+    core_total = sum(weights.values())
+    if core_total <= 0:
+        return weights
 
-    if remaining < 0.05:
-        # 비중이 너무 작아지면 tactical 수 축소
-        max_slots = int((weights[deduct_symbol] - 0.05) / config.tactical_weight)
+    # core 각 종목이 최소 0.05 유지 가능한지 검증 → 초과 시 slots 축소
+    max_deductable = sum(max(0.0, w - 0.05) for w in weights.values())
+    if tactical_total > max_deductable:
+        max_slots = int(max_deductable / config.tactical_weight)
         if max_slots <= 0:
             return weights
         tactical_symbols = tactical_symbols[:max_slots]
-        tactical_total = len(tactical_symbols) * config.tactical_weight
-        remaining = weights[deduct_symbol] - tactical_total
+        n = len(tactical_symbols)
+        tactical_total = n * config.tactical_weight
 
-    weights[deduct_symbol] = remaining
+    # core 비례 차감 (기존 비율 그대로 유지)
+    for sym in list(weights.keys()):
+        weights[sym] = max(0.05, weights[sym] - tactical_total * (weights[sym] / core_total))
+
     for sym in tactical_symbols:
         weights[sym] = config.tactical_weight
 
@@ -168,3 +175,13 @@ def is_rebalance_day(
     if prev_trade_date is None:
         return True  # 첫 날
     return trade_date.month != prev_trade_date.month
+
+
+def is_first_of_month(trade_date: date, prev_date: Optional[date]) -> bool:
+    """월 첫 거래일 판단 (DCA 자금 투입 트리거).
+
+    최초 거래일(prev_date=None)에는 미투입.
+    """
+    if prev_date is None:
+        return False
+    return trade_date.month != prev_date.month

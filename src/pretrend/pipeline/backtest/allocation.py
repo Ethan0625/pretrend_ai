@@ -5,9 +5,9 @@ Backtest Allocation — 버전별 allocation 함수 + 레지스트리.
 새 버전 추가 시: 함수 정의 → ALLOCATION_REGISTRY 등록 → runner.py 변경 없음.
 
 Contract:
-  - risk_gate=false  → INCREASE 금지 (모든 버전 공통)
   - run_universe=false → INCREASE 금지 (모든 버전 공통)
-  - DECREASE는 risk_gate / run_universe 무관하게 허용
+  - risk_gate=false  → INCREASE 허용 (저점매수), DECREASE는 runner.py에서 동결 처리
+  - DECREASE는 run_universe 무관하게 허용
   - next_invested_ratio ∈ [0.0, 1.0]
   - step_size 단위 양자화 (ROUND_DOWN)
 """
@@ -71,14 +71,8 @@ def _apply_delta(
         }
 
     if raw_delta > 0:
-        if not risk_gate:
-            return {
-                "action": "HOLD",
-                "next_invested_ratio": current,
-                "delta_ratio": 0.0,
-                "blocked_by_risk_gate": True,
-                "notes": [f"{notes_prefix}increase_blocked_by_risk_gate"],
-            }
+        # risk_gate=False(PANIC)여도 INCREASE 허용 — 저점매수 목적
+        # PANIC 중 매도 동결은 runner.py(staged sell freeze)에서 처리
         if not run_universe:
             return {
                 "action": "HOLD",

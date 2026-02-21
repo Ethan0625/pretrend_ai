@@ -21,7 +21,7 @@
 | 파이프라인   | `pretrend.pipeline.*`            | Ingest, Feature 변환, Calendar 증거 파이프라인, (향후) Label/Train |
 | 전략 상태판단 | Market Structure (Long/Mid/Short + Composer) | 4축 상태 해석 및 실행 게이트 생성 |
 | 전략 실행엔진 | Strategy Engine v0 | WHAT/EXPOSURE/SELL 경계 출력 생성 |
-| 시뮬레이션 | Backtest Engine (v0/v1 preset) | Strategy Engine 출력 기반 포트폴리오 시뮬레이션 |
+| 시뮬레이션 | Backtest Engine (v0/v1/v2 preset) | Strategy Engine 출력 기반 주간 실행 시뮬레이션(DCA + staged sell) |
 | 실행 제어    | Universe-ETF + Allocation Engine  | 후보 선별 및 총 투자 비율 조절(`invested_ratio`) |
 | API         | `backend_api/` (FastAPI)         | 전략/데이터/LLM 인터페이스 제공 |
 | LLM         | vLLM 서버 (Qwen/Llama 계열)      | 리서치 요약, 질의응답, RAG 기반 분석 |
@@ -116,11 +116,16 @@ Risk-Control 전략 구조(v0) 설명:
   - `docs/architecture/allocation_engine_contract.md`
   - `docs/market_structure_data_inventory.md`
 
-Backtest Engine(v0/v1) 설명:
+Backtest Engine(v0/v1/v2) 설명:
 - `pretrend.pipeline.backtest.*`는 Strategy Engine 출력과 Gold snapshot을 입력으로 포트폴리오 시뮬레이션을 수행한다.
 - Preset 기반 동작:
   - v0: range-maintenance
   - v1: target-seeking
+  - v2: 2D target-seeking(`long_phase × mid_regime`)
+- 실행 규칙:
+  - 월 첫 거래일 DCA 자금 투입(`monthly_addition`)
+  - 월요일(T-1 신호 평가) → 화요일(INCREASE 실행) → 금요일(DECREASE 단계 매도)
+  - `risk_gate=false(PANIC)` 시 DECREASE 생성/진행을 동결하고 INCREASE는 허용
 - 구현 모듈: `config.py`, `portfolio.py`, `rebalancer.py`, `runner.py`, `metrics.py`, `report.py`
 
 ---
@@ -176,7 +181,7 @@ pretrend_ai/
 │      │       ├─ config.py          # Strategy policy/profile config
 │      │       ├─ io.py              # snapshot load/write
 │      │       └─ ...                # axis_features / horizon_state / composer / universe / allocation / sell
-│      │   └─ backtest/              # Backtest Engine (v0/v1 preset)
+│      │   └─ backtest/              # Backtest Engine (v0/v1/v2 preset, DCA/weekly execution)
 │      │       ├─ config.py          # BacktestPreset / PRESET_REGISTRY / from_preset
 │      │       ├─ portfolio.py       # Position/Trade/Portfolio
 │      │       ├─ rebalancer.py      # target weights / rebalance day / tactical rotation

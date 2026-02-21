@@ -29,6 +29,8 @@ class BacktestPreset:
     tactical_groups: Tuple[str, ...] = ("SECTOR",)
     # v2: 2D lookup (long_phase, mid_regime) → target ratio
     target_ratio_map_v2: Optional[Dict[Tuple[str, str], float]] = None
+    # DCA: 매월 자금 추가액
+    monthly_addition: float = 300.0
 
 
 PRESET_V0 = BacktestPreset(
@@ -100,10 +102,11 @@ class BacktestConfig:
         default_factory=lambda: {"SCHD": 0.50, "SPY": 0.30, "IAU": 0.20}
     )
 
-    # SCHD 미출시 기간 (2006-2010) → SPY 대체
+    # SCHD 미출시 기간 (2006-2011-10) → DVY 25% + VIG 25% + SPY 30% + IAU 20% 대체
+    # SCHD 출시(2011-10-24) 이후 → 3주 단계 매도 (50/30/20%) 후 SCHD로 전환
     schd_start_date: date = date(2011, 10, 24)
     pre_schd_weights: Dict[str, float] = field(
-        default_factory=lambda: {"SPY": 0.80, "IAU": 0.20}
+        default_factory=lambda: {"DVY": 0.25, "VIG": 0.25, "SPY": 0.30, "IAU": 0.20}
     )
 
     # 리밸런싱
@@ -115,6 +118,9 @@ class BacktestConfig:
     tactical_groups: List[str] = field(
         default_factory=lambda: ["SECTOR"]
     )
+
+    # DCA: 매월 첫 거래일 자금 추가액
+    monthly_addition: float = 300.0
 
     # Allocation v1: 시장 상태 → 목표 투자비율 매핑
     # None = v0 (range-maintenance), dict = v1 (target-seeking)
@@ -144,6 +150,8 @@ class BacktestConfig:
             raise ValueError(
                 f"initial_invested_ratio must be in [0, 1], got {self.initial_invested_ratio}"
             )
+        if self.monthly_addition < 0:
+            raise ValueError(f"monthly_addition must be >= 0, got {self.monthly_addition}")
         if self.target_ratio_map is not None:
             for phase, ratio in self.target_ratio_map.items():
                 if not (0.0 <= ratio <= 1.0):
@@ -181,6 +189,7 @@ class BacktestConfig:
             "allocation_step_size": preset.allocation_step_size,
             "tactical_groups": list(preset.tactical_groups),
             "preset_name": preset.name,
+            "monthly_addition": preset.monthly_addition,
         }
         defaults.update(overrides)
         return cls(start_date=start_date, end_date=end_date, **defaults)

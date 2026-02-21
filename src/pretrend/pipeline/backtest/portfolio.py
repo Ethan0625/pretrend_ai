@@ -66,6 +66,11 @@ class Portfolio:
             return 0.0
         return self.invested_value(prices) / tv
 
+    def add_cash(self, amount: float) -> None:
+        """현금 추가 (DCA 월 자금 투입)."""
+        if amount > 0:
+            self.cash += amount
+
     def buy(self, symbol: str, amount: float, price: float) -> Optional[Trade]:
         """종가 매수. amount = 투입 금액(USD)."""
         if amount <= 0 or price <= 0:
@@ -198,10 +203,12 @@ class Portfolio:
         positions = {}
         for sym, pos in self.positions.items():
             if pos.shares > 0 and sym in prices:
+                cur_price = prices[sym]
                 positions[sym] = {
                     "shares": round(pos.shares, 6),
-                    "price": prices[sym],
-                    "value": round(pos.market_value(prices[sym]), 2),
+                    "avg_cost": round(pos.avg_cost, 4),
+                    "price": cur_price,
+                    "value": round(pos.market_value(cur_price), 2),
                 }
         return {
             "cash": round(self.cash, 2),
