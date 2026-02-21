@@ -6,15 +6,18 @@
 | Status | Active |
 | Structure Policy | 구조는 고정, 기능은 확장 |
 | Effective Date | 2026-02-13 |
+| Last Updated | 2026-02-20 |
 | Change Tracking | docs/changelog.md |
 
 ## Capability Matrix
 | Capability | Status | Notes |
 | --- | --- | --- |
-| Bronze text raw SOT | Active | 원문 원본 저장/재처리 보장 |
-| Silver LLM annotation | Active | 배열 기반 저장(유연성 유지) |
-| Gold text daily/event features | Active | Strategy Engine 입력은 Gold 숫자 피처만 사용 |
-| VIX/외부 감성 연동 | Reserved | v1+ 확장 |
+| Bronze text raw SOT | Active | 원문 원본 저장/재처리 보장. 멱등키: `(source, source_doc_id)` |
+| Silver 정규화/dedup/quality_flags | Active | v0 구현 범위. clean_text + asset_scope + quality_flags |
+| Silver LLM annotation | Reserved (v1+) | topics/tags/tone_spans/evidence_spans — LLM 통합 후 확장 |
+| Gold rule-based features (long format) | Active | Strategy Engine 입력. long 포맷 `(trade_date, feature_name, feature_value)` |
+| Gold LLM-derived features | Reserved (v1+) | LLM annotation 연계 후 확장 |
+| VIX/외부 감성 연동 | Reserved (v1+) | 별도 확장 |
 | Numeric score tuning | Not supported | 본 계약 범위에서 금지 |
 
 ## TOC
@@ -23,10 +26,12 @@
 - [3. Topic/Tag Allowlist](#3-topictag-allowlist)
 - [4. 이벤트 정렬 규칙](#4-이벤트-정렬-규칙)
 - [5. Strategy Engine 연동 규칙](#5-strategy-engine-연동-규칙)
-- [6. Invariants](#6-invariants)
-- [7. Validation / DoD](#7-validation--dod)
-- [8. Silver JSON 예시](#8-silver-json-예시)
-- [9. 버전 관리](#9-버전-관리)
+- [6. Fail-open 정책](#6-fail-open-정책)
+- [7. 품질 KPI](#7-품질-kpi)
+- [8. Invariants](#8-invariants)
+- [9. Validation / DoD](#9-validation--dod)
+- [10. Silver JSON 예시](#10-silver-json-예시)
+- [11. 버전 관리](#11-버전-관리)
 - [Change History](#change-history)
 
 참조:
@@ -50,96 +55,105 @@
 ### 2.1 Bronze Layer — `bronze.text_raw`
 목적: 원문 백업 및 재처리 보장(SOT)
 
-| 컬럼 | 타입 | 설명 |
-| --- | --- | --- |
-| `doc_id` | str | PK (`canonical_url + published_ts` 해시) |
-| `source` | str | 뉴스/리포트 출처 |
-| `canonical_url` | str | 원문 URL |
-| `published_ts_utc` | datetime | UTC 게시 시각 |
-| `title` | str | 제목 |
-| `body` | str | 본문 |
-| `lang` | str | 언어 코드 |
+**멱등키**: `(source, source_doc_id)` — 동일 문서 재수집 시 중복 미발생 보장
+
+| 컬럼 | 타입 | 필수 | 설명 |
+| --- | --- | --- | --- |
+| `doc_id` | str | Y | PK (`source + source_doc_id` 해시) |
+| `source` | str | Y | 출처 식별자 (`sec_edgar`, `fed_fomc`, `fmp_news` 등) |
+| `source_doc_id` | str | Y | 소스 내부 문서 ID (멱등키 구성) |
+| `canonical_url` | str | Y | 원문 URL |
+| `published_at` | datetime | Y | 게시 시각 (UTC) |
+| `ingested_at` | datetime | Y | 수집 시각 (UTC) |
+| `title` | str | Y | 제목 |
+| `body` | str | Y | 본문 원문 |
+| `lang` | str | Y | 언어 코드 (예: `en`) |
+| `raw_payload_hash` | str | Y | body SHA-256 해시 (재처리 변경 감지) |
+
+파티션: `source` / `ingest_date`
 
 규칙:
 - Bronze 원문은 수정하지 않는다.
 - Silver/Gold 재처리는 Bronze를 기준으로 수행한다.
+- `(source, source_doc_id)` 중복 시 최신 `ingested_at` 기준으로 upsert.
 
 ### 2.2 Silver Layer — `silver.text_enriched`
-목적: LLM annotation 결과 저장(topic/tag/tone/evidence)
+목적: 정규화, dedup, 품질 플래그. v0에서 LLM annotation은 Reserved.
 
-| 컬럼 | 타입 | 설명 |
-| --- | --- | --- |
-| `doc_id` | str | Bronze FK |
-| `summary` | str | fact 중심 요약 |
-| `topics` | list[str] | Topic allowlist 기반 |
-| `tags` | list[str] | Tag allowlist 기반 |
-| `tone_spans` | list[ToneSpan] | 문장 단위 tone 근거 |
-| `evidence_spans` | list[EvidenceSpan] | topic/tag 근거 스팬 |
-| `model_id` | str | LLM 모델 ID |
-| `prompt_version` | str | 프롬프트 버전 |
-| `enricher_version` | str | 코드/파서 버전 |
-| `input_hash` | str | body 해시 |
+#### v0 필수 필드
 
-#### Tone 정의 (중요)
+| 컬럼 | 타입 | 필수 | 설명 |
+| --- | --- | --- | --- |
+| `doc_id` | str | Y | Bronze FK |
+| `canonical_source` | str | Y | 정규화된 출처 (`sec_edgar`, `fed_fomc` 등) |
+| `event_date` | date | Y | 이벤트 정렬 거래일 (§4 기준) |
+| `asset_scope` | str | Y | 문서 대상 범위 (`macro`, `theme`, `ticker`) |
+| `clean_text` | str | Y | HTML 제거 + 정규화된 본문 |
+| `quality_flags` | list[str] | Y | 품질 이슈 플래그 (`body_too_short`, `lang_unsupported`, `duplicate_title` 등) |
+| `enricher_version` | str | Y | 파서/정규화 코드 버전 |
+| `input_hash` | str | Y | Bronze body 해시 (재처리 감지) |
+
+파티션: `event_date`
+
+dedup 기준: `canonical_source + normalized_title + event_date` 조합 동일 시 최신 `ingested_at` 우선.
+
+#### v1+ Reserved (LLM annotation)
+> 아래 필드는 LLM 통합 이후 확장. v0에서 저장하지 않음.
+
+| 컬럼 | 설명 |
+| --- | --- |
+| `summary` | fact 중심 요약 |
+| `topics` | Topic allowlist 기반 |
+| `tags` | Tag allowlist 기반 |
+| `tone_spans` | 문장 단위 tone 근거 |
+| `evidence_spans` | topic/tag 근거 스팬 |
+| `model_id` | LLM 모델 ID |
+| `prompt_version` | 프롬프트 버전 |
+
+#### Tone 정의 (v1+ 참조용)
 - Tone은 텍스트의 언어적 논조(language polarity)를 의미하며, 가격 영향(impact)을 의미하지 않는다.
 - neutral은 별도 enum 라벨로 저장하지 않는다.
 - 문서 단위 tone은 span 단위 근거(`tone_spans[]`)의 존재 여부로 파생한다.
 
-파생 규칙:
-- `has_positive_language = (positive tone_spans 개수 > 0)`
-- `has_negative_language = (negative tone_spans 개수 > 0)`
-- `fact_only = (not has_positive_language and not has_negative_language)`
-- `mixed_tone = (has_positive_language and has_negative_language)`
-
-#### ToneSpan
-```json
-{
-  "polarity": "positive|negative",
-  "sentence": "string",
-  "start_offset": 0,
-  "end_offset": 10
-}
-```
-
-#### EvidenceSpan
-```json
-{
-  "sentence": "string",
-  "start_offset": 0,
-  "end_offset": 10,
-  "supports": {
-    "topics": ["string"],
-    "tags": ["string"]
-  }
-}
-```
-
 ### 2.3 Gold Layer — Text Observability
-목적: Silver 배열을 전략 소비용 숫자 피처로 집계
+목적: Silver를 전략 소비용 숫자 피처로 집계 (long 포맷)
 
-#### Gold Daily Signals (`gold.text_daily_signals`)
-| 컬럼 | 타입 | 설명 |
+#### Gold Daily Features (`gold.text_daily_features`) — v0 스키마
+
+**포맷**: long format — feature 종류별 1행
+
+| 컬럼 | 타입 | 필수 | 설명 |
+| --- | --- | --- | --- |
+| `trade_date` | date | Y | 거래일 |
+| `feature_name` | str | Y | feature 식별자 |
+| `feature_value` | float | Y | feature 수치 |
+| `feature_version` | str | Y | 계산 로직 버전 |
+| `coverage_ratio` | float | Y | 해당 날짜 소스 커버리지 (0~1) |
+| `staleness_days` | int | Y | 가장 최근 문서 기준 경과 일수 |
+
+**v0 초기 feature 목록**:
+
+| feature_name | 소스 | 계산 방식 |
 | --- | --- | --- |
-| `trade_date` | date | 거래일 |
-| `doc_count` | int | 해당 날짜 문서 수 |
-| `topic_counts` | map(topic→int) | topic별 문서 수 |
-| `tag_counts` | map(tag→int) | tag별 문서 수 |
-| `pos_tone_span_count` | int | 긍정 tone span 합 |
-| `neg_tone_span_count` | int | 부정 tone span 합 |
-| `has_any_tag` | bool | `doc_count > 0` |
+| `macro_hawkish_score` | fed_fomc | FOMC/Fed 문서 내 "hike/tighten/hawkish" 키워드 비율 (0~1) |
+| `filing_risk_burst` | sec_edgar | 일별 8-K 건수 rolling z-score (20일 기준) |
+| `policy_uncertainty_idx` | sec_edgar + fed_fomc | SEC burst + Fed burst 가중합 (정규화) |
 
-#### Gold Event Study (`gold.text_event_study`)
-| 컬럼 | 타입 | 설명 |
-| --- | --- | --- |
-| `doc_id` | str | Silver FK |
-| `symbol` | str | 관측 symbol(ETF) |
-| `event_trade_date` | date | 이벤트 정렬 거래일 |
-| `ret_1d` | float | 1일 수익률 |
-| `ret_5d` | float | 5일 수익률 |
-| `ret_21d` | float | 21일 수익률 |
+파티션: `year` / `month`
 
-노트:
-- tone(언어적 뉘앙스)와 가격 반응(ret)은 독립 관측값으로 취급한다.
+결측 처리:
+- 특정 소스 장애 시 해당 소스 feature에 `coverage_ratio=0.0`, `staleness_days`는 마지막 성공일 기준으로 기록.
+- 결측이 있어도 파티션 파일 자체는 생성 (fail-open).
+
+#### Gold Event Study (`gold.text_event_study`) — v1+ Reserved
+> tone + 수익률 연계 분석. LLM annotation 이후 확장.
+
+| 컬럼 | 설명 |
+| --- | --- |
+| `doc_id` | Silver FK |
+| `symbol` | 관측 ETF 심볼 |
+| `event_trade_date` | 이벤트 정렬 거래일 |
+| `ret_1d` / `ret_5d` / `ret_21d` | 수익률 |
 
 ## 3. Topic/Tag Allowlist
 
@@ -200,63 +214,69 @@
 
 ## 5. Strategy Engine 연동 규칙
 - Strategy Engine은 Silver 배열(`topics`, `tags`, `tone_spans`, `evidence_spans`)을 직접 소비하지 않는다.
-- Strategy Engine 입력은 Gold day-level numeric features(`gold.text_daily_signals`)로 고정한다.
+- Strategy Engine 입력은 Gold long-format features (`gold.text_daily_features`)로 고정한다.
+- **텍스트 feature는 보조 입력**: Strategy Engine 핵심 판단(4축 Axis Feature)은 Macro + EOD 기반. 텍스트 결측 시에도 핵심 로직은 계속 동작한다.
 - 흐름:
-  - `Silver (array storage) -> Gold (numeric features) -> Strategy Engine`
+  - `Bronze (raw) -> Silver (clean/dedup) -> Gold (numeric features) -> Strategy Engine (auxiliary input)`
 - Text 데이터는 v0에서 Strategy Engine의 점수/가중치 입력으로 직접 주입하지 않는다. (Numeric score tuning 금지)
-- Strategy Engine은 Gold에서 집계된 day-level numeric features만 소비하며, Silver의 배열 구조 변경과 독립이어야 한다.
+- Strategy Engine은 Gold의 long-format numeric features만 소비하며, Silver 구조 변경과 독립이어야 한다.
 
-## 6. Invariants
+## 6. Fail-open 정책
+
+텍스트 파이프라인 장애 시 Strategy Engine은 fail-open으로 동작한다.
+
+| 장애 상황 | 대응 |
+| --- | --- |
+| Bronze 수집 실패 (특정 소스) | 해당 소스 건너뜀. 나머지 소스로 Gold 생성 계속 |
+| Silver dedup/파싱 실패 | quality_flags에 기록. 해당 문서 제외 후 계속 |
+| Gold feature 결측 (소스 전체 장애) | `coverage_ratio=0.0`, `staleness_days` 갱신. 파티션 파일 생성 유지 |
+| Gold feature 없음 | Strategy Engine은 텍스트 feature 없이 계속 동작. 결측 로그만 기록 |
+
+원칙:
+- 텍스트 결측은 Strategy Engine 핵심 판단을 차단하지 않는다.
+- 결측이 발생해도 Gold 파티션 파일 자체는 항상 생성 (빈 DataFrame 허용).
+
+## 7. 품질 KPI
+
+| 지표 | 기준 | 경고 조건 |
+| --- | --- | --- |
+| 수집 성공률 | ≥ 95% (소스별) | 소스별 3일 연속 미달 |
+| Gold 커버리지 (`coverage_ratio`) | ≥ 90% (거래일 기준) | 주별 평균 미달 |
+| Staleness (`staleness_days`) | ≤ 3일 (핵심 feature) | 5일 초과 시 경고 |
+| Bronze 중복률 | ≤ 5% (Silver 변환 후) | 10% 초과 시 경고 |
+
+## 8. Invariants
 - Bronze 원문은 immutable이며 재처리 SOT로 유지된다.
-- Silver `topics[]`, `tags[]`는 allowlist 외 값을 허용하지 않는다.
+- `(source, source_doc_id)` 멱등키는 Bronze 수준에서 강제된다.
 - Strategy Engine은 Silver 배열을 직접 참조하지 않는다.
 - Event-sort는 동일 입력에 대해 deterministic해야 한다.
-- `model_id`, `prompt_version`, `enricher_version`, `input_hash`는 Silver에서 필수 메타다.
+- Gold feature 결측 시에도 파티션 파일은 생성된다 (fail-open).
 - Tone은 언어적 논조이며, 가격 반응(impact)은 Gold 수익률(ret_*)로만 정의된다.
 
-## 7. Validation / DoD
-- Topic allowlist 검증: `topics[]` 허용값 준수
-- Tag allowlist 검증: `tags[]` 허용값 준수
-- Tone span 검증: `sentence`가 Bronze `body` substring과 일치
-- Span limit 검증: positive/negative 각 최대 5개
-- Parity 검증: span count 파생값과 저장 필드 정합성
-- Event-sort 재현성: 동일 입력에서 `event_trade_date` 결정성 보장
+## 9. Validation / DoD
+- Bronze 멱등성: 동일 `(source, source_doc_id)` 재수집 → 중복 미발생
+- Silver dedup: 동일 이벤트 변형 입력 → 병합 처리
+- Gold feature 범위: `macro_hawkish_score` ∈ [0, 1], `filing_risk_burst` z-score 범위
+- Gold coverage_ratio: 소스 장애 시 0.0 기록
+- Fail-open: 소스 전체 장애 → Gold 파티션 파일 생성 확인
+- Contract 회귀: Bronze/Silver/Gold 필수 컬럼 타입 일치
 
-## 8. Silver JSON 예시
+## 10. Silver JSON 예시 (v0 포맷)
 ```json
 {
   "doc_id": "hash://...",
-  "summary": "Fed raised interest rate by 25bp...",
-  "topics": ["us_treasury_long", "sp500"],
-  "tags": ["hike", "risk_off"],
-  "tone_spans": [
-    {
-      "polarity": "negative",
-      "sentence": "The market reacted sharply to the hike announcement.",
-      "start_offset": 120,
-      "end_offset": 208
-    }
-  ],
-  "evidence_spans": [
-    {
-      "sentence": "The Fed raised rates by 25 basis points.",
-      "start_offset": 30,
-      "end_offset": 72,
-      "supports": {
-        "topics": ["us_treasury_long"],
-        "tags": ["hike"]
-      }
-    }
-  ],
-  "model_id": "ollama/llama-3",
-  "prompt_version": "v0.1",
-  "enricher_version": "v0.1-contract",
-  "input_hash": "hash://..."
+  "canonical_source": "fed_fomc",
+  "event_date": "2026-01-29",
+  "asset_scope": "macro",
+  "clean_text": "The Federal Open Market Committee decided to maintain the target range...",
+  "quality_flags": [],
+  "enricher_version": "v0.1",
+  "input_hash": "sha256://..."
 }
 ```
 
-## 9. 버전 관리
-- Silver에는 `model_id`, `prompt_version`, `enricher_version`, `input_hash`를 필수 저장한다.
+## 11. 버전 관리
+- Silver에는 `enricher_version`, `input_hash`를 필수 저장한다. (v1+에서 `model_id`, `prompt_version` 추가)
 - taxonomy(`topic/tag allowlist`) 변경 시 문서 버전 업(계약 갱신)으로 처리한다.
 
 ---
@@ -264,4 +284,5 @@
 ## Change History
 | Date | Summary | References |
 | --- | --- | --- |
+| 2026-02-20 | 수집 전략 v1 확정 반영: Bronze 멱등키 `(source, source_doc_id)` + 신규 필드 추가, Silver LLM → Reserved(v1+) + v0 필수 필드(asset_scope/quality_flags), Gold long 포맷 + 초기 3개 feature, Fail-open 정책 + 품질 KPI 섹션 추가 | docs/changelog.md |
 | 2026-02-13 | Text Observability Layer 계약 문서 신규 추가 (Bronze/Silver/Gold + Strategy 연동 규칙) | docs/changelog.md |
