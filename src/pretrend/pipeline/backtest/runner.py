@@ -2,9 +2,9 @@
 BacktestRunner — Strategy Engine 기반 포트폴리오 시뮬레이션.
 
 매매 규칙:
-  - 월 첫 거래일: monthly_addition 자금 추가 (DCA)
+  - 월 첫 거래일: monthly_addition 자금 추가 (DCA) + 전체 포트폴리오 월간 리밸런싱 (매도+매수)
   - 월요일: 전 금요일(T-1) 신호 평가 → INCREASE/HOLD/DECREASE 판단
-  - 화요일: INCREASE 신호 시 현금으로 target_weights 비율 매수
+  - 화요일: INCREASE 신호 시 보유 현금을 target_weights 비율대로 매수 (매도 없음)
   - 금요일: DECREASE 신호 시 단계적 매도 (50% → 30% → 20%, 3주)
   - 신호 반전(HOLD/INCREASE): 잔여 단계 매도 취소
   - PANIC(risk_gate=False): DECREASE 신규 생성 차단 + 진행 중 트랜치 동결 (팔지 않음)
@@ -50,7 +50,7 @@ class StagedSellPlan:
     tranches: List[float]             # [0.50, 0.30, 0.20]
     tranche_idx: int                  # 현재 실행할 인덱스 (0→1→2→완료)
     signal_date: date                 # DECREASE 신호 발생 월요일
-    target_weights: Dict[str, float] = field(default_factory=dict)  # 매도 시 비중 기준
+    target_weights: Dict[str, float] = field(default_factory=dict)  # 월간 리밸런싱 비중 기준
 
 
 @dataclass
@@ -149,7 +149,7 @@ class BacktestRunner:
                 initialized = True
 
             else:
-                # [2] 월 첫 거래일: DCA 자금 투입
+                # [2] 월 첫 거래일: DCA 자금 투입 + 월간 리밸런싱
                 if is_first_of_month(td, prev_date):
                     portfolio.add_cash(config.monthly_addition)
                     benchmark.add_cash(config.monthly_addition)
@@ -157,6 +157,31 @@ class BacktestRunner:
                     cash_flows.append((td, -config.monthly_addition))     # DCA 투입 (outflow)
                     bm_cash_flows.append((td, -config.monthly_addition))  # 벤치마크도 동일
                     logger.debug("[Backtest] DCA injection $%.0f on %s", config.monthly_addition, td)
+
+                    # 월간 리밸런싱: DCA 후 전체 포트폴리오 재조정 (매도+매수)
+                    # schd_transition 진행 중에는 건너뜀 (충돌 방지)
+                    if last_monday_target_weights and schd_transition is None:
+                        if (
+                            last_monday_alloc_row is not None
+                            and "next_invested_ratio" in last_monday_alloc_row.index
+                        ):
+                            monthly_target_ratio = float(last_monday_alloc_row["next_invested_ratio"])
+                        else:
+                            monthly_target_ratio = config.initial_invested_ratio
+                        monthly_target_invested = portfolio.total_value(day_prices) * monthly_target_ratio
+                        monthly_trades = portfolio.rebalance_to_weights(
+                            last_monday_target_weights, day_prices, monthly_target_invested, td,
+                        )
+                        trade_log.extend(monthly_trades)
+                        bm_target_invested = benchmark.total_value(day_prices) * monthly_target_ratio
+                        bm_monthly_trades = benchmark.rebalance_to_weights(
+                            {"SPY": 1.0}, day_prices, bm_target_invested, td,
+                        )
+                        trade_log.extend(bm_monthly_trades)
+                        logger.debug(
+                            "[Backtest] 월간 리밸런싱 on %s — target_ratio=%.0f%%",
+                            td, monthly_target_ratio * 100,
+                        )
 
                 # [2.5] SCHD 전환 트리거 — 출시일 이후 DVY/VIG 보유 시 1회 생성
                 if (
@@ -454,7 +479,9 @@ class BacktestRunner:
         """DECREASE 신호 기반 단계 매도 계획 생성.
 
         총 매도 금액 = current_invested - target_invested.
-        target_weights: 매도 시 과매수 종목 우선 정리에 사용.
+        매도 실행은 현재 보유 비중 그대로 비례 매도 (proportional).
+        — Sell Planner v0의 sell_priority_list는 모니터링/리포팅 참고 정보로 사용하며
+          실행 엔진(백테스트 및 라이브)은 비례 매도로 통일한다.
         """
         current_invested = portfolio.invested_value(prices)
         target_ratio = float(alloc_row.get("next_invested_ratio", 0.0))
@@ -600,16 +627,27 @@ class BacktestRunner:
         prices: Dict[str, float],
         trade_date: date,
     ) -> List[Trade]:
-        """보유 현금 전량 배포 + 기존 포지션 비율 정상화.
+        """보유 현금을 target_weights 비율대로 매수 (매도 없음).
 
-        current_invested + cash = total_value 를 target_weights 비율로 리밸런싱.
-        - 매도 우선(비중 축소 / 전술 교체) → 매수 순으로 처리
-        - 기존 포지션 드리프트(예: SCHD 과비중)도 함께 정상화
+        DCA 목적: 잔여 현금을 target_weights 비율대로 배포.
+        기존 포지션 드리프트 보정은 월간 리밸런싱에서 처리.
         """
-        target_invested = portfolio.total_value(prices)  # 현금 포함 전량 배포
-        return portfolio.rebalance_to_weights(
-            target_weights, prices, target_invested, trade_date
-        )
+        cash = portfolio.cash
+        if cash < 0.01:
+            return []
+        trades: List[Trade] = []
+        for sym, w in target_weights.items():
+            price = prices.get(sym, 0.0)
+            if price <= 0:
+                continue
+            amount = cash * w
+            if amount < 0.01:
+                continue
+            t = portfolio.buy(sym, amount, price)
+            if t:
+                t.trade_date = trade_date
+                trades.append(t)
+        return trades
 
     def _load_gold_eod_features(self, config: BacktestConfig) -> pd.DataFrame:
         """Gold EOD features 로드 (universe inline 계산용)."""

@@ -4,12 +4,13 @@
 비중 결정 흐름:
 1. allocation → target_invested_ratio (총 투자 비율)
 2. core weights → SCHD/SPY/IAU (기본 비중)
-3. universe → relative_strength 기반 전술 종목 교체
+3. universe → is_candidate + relative_strength 기반 전술 종목 교체
 
-섹터 교체 조건:
-- run_universe=true AND risk_gate=true AND long_phase not in {RECESSION, SLOWDOWN}
-- SECTOR 그룹의 relative_strength 상위 ETF가 SPY보다 강하면 tactical slot 편입
-- tactical 1개당 15% → SCHD(또는 SPY)에서 차감
+전술 교체 조건:
+- run_universe=true AND risk_gate=true
+- Universe v1 is_candidate=True ETF 중 SPY보다 RS 높은 종목을 tactical slot 편입
+- phase 기반 차단 없음 — Universe v1 phase eligible pool이 이미 처리
+- tactical 1개당 15% → core 전체에서 비율대로 차감
 """
 from __future__ import annotations
 
@@ -19,9 +20,6 @@ from typing import Dict, List, Optional, Tuple
 import pandas as pd
 
 from .config import BacktestConfig
-
-# 전술 배제 phase
-TACTICAL_EXCLUDE_PHASES = frozenset({"RECESSION", "SLOWDOWN"})
 
 
 def compute_target_weights(
@@ -60,19 +58,16 @@ def compute_target_weights(
 
 
 def _should_run_tactical(policy_row: Optional[pd.Series]) -> bool:
-    """전술 포지션 교체 조건 충족 여부."""
+    """전술 포지션 교체 조건 충족 여부.
+
+    phase 체크 없음 — Universe v1 phase eligible pool이 이미 처리.
+    """
     if policy_row is None:
         return False
 
     run_universe = policy_row.get("run_universe", False)
     risk_gate = policy_row.get("risk_gate", False)
-    long_phase = policy_row.get("long_phase", "UNKNOWN")
-
-    if not run_universe or not risk_gate:
-        return False
-    if long_phase in TACTICAL_EXCLUDE_PHASES:
-        return False
-    return True
+    return bool(run_universe and risk_gate)
 
 
 def _pick_tactical(
@@ -102,6 +97,9 @@ def _pick_tactical(
 
     # 설정된 tactical groups 필터
     candidates = df[df["asset_group"].isin(config.tactical_groups)].copy()
+    # Universe v1 is_candidate 필터: Strategy Engine 선정 결과 준수
+    if "is_candidate" in candidates.columns:
+        candidates = candidates[candidates["is_candidate"] == True]
     if candidates.empty:
         return []
 

@@ -33,16 +33,18 @@ class BacktestPreset:
     monthly_addition: float = 300.0
 
 
+_ALL_TACTICAL_GROUPS = ("SECTOR", "COMMODITY", "BOND", "COUNTRY")
+
 PRESET_V0 = BacktestPreset(
     name="v0",
-    description="Range-maintenance: [0.10, 0.60] 범위 유지, SECTOR only",
+    description="Range-maintenance: [0.10, 0.60] 범위 유지, all tactical groups",
     target_ratio_map=None,
-    tactical_groups=("SECTOR",),
+    tactical_groups=_ALL_TACTICAL_GROUPS,
 )
 
 PRESET_V1 = BacktestPreset(
     name="v1",
-    description="Target-seeking: phase별 목표 비율 추적, SECTOR only",
+    description="Target-seeking: phase별 목표 비율 추적, all tactical groups",
     target_ratio_map={
         "EXPANSION": 0.60,
         "RECOVERY": 0.60,
@@ -51,12 +53,12 @@ PRESET_V1 = BacktestPreset(
         "RECESSION": 0.10,
         "UNKNOWN": 0.40,
     },
-    tactical_groups=("SECTOR",),
+    tactical_groups=_ALL_TACTICAL_GROUPS,
 )
 
 PRESET_V2 = BacktestPreset(
     name="v2",
-    description="2D allocation: f(long_phase, mid_regime), SECTOR only",
+    description="2D allocation: f(long_phase, mid_regime), all tactical groups",
     target_ratio_map=None,
     target_ratio_map_v2={
         ("EXPANSION", "RISK_ON"): 0.80, ("EXPANSION", "NEUTRAL"): 0.70,
@@ -72,7 +74,7 @@ PRESET_V2 = BacktestPreset(
         ("UNKNOWN", "RISK_ON"): 0.50, ("UNKNOWN", "NEUTRAL"): 0.40,
         ("UNKNOWN", "RISK_OFF"): 0.30, ("UNKNOWN", "UNKNOWN"): 0.40,
     },
-    tactical_groups=("SECTOR",),
+    tactical_groups=_ALL_TACTICAL_GROUPS,
 )
 
 PRESET_REGISTRY: Dict[str, BacktestPreset] = {
@@ -116,7 +118,7 @@ class BacktestConfig:
     max_tactical_slots: int = 2
     tactical_weight: float = 0.15  # 전술 1개당 비중
     tactical_groups: List[str] = field(
-        default_factory=lambda: ["SECTOR"]
+        default_factory=lambda: ["SECTOR", "COMMODITY", "BOND", "COUNTRY"]
     )
 
     # DCA: 매월 첫 거래일 자금 추가액

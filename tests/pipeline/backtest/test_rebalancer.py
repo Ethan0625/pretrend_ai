@@ -62,20 +62,22 @@ class TestShouldRunTactical:
         assert _should_run_tactical(row) is False
 
     def test_recession(self):
+        """RECESSION: phase 차단 없음 — Universe v1 eligible pool이 처리."""
         row = pd.Series({
             "run_universe": True,
             "risk_gate": True,
             "long_phase": "RECESSION",
         })
-        assert _should_run_tactical(row) is False
+        assert _should_run_tactical(row) is True
 
     def test_slowdown(self):
+        """SLOWDOWN: phase 차단 없음 — Universe v1 eligible pool이 처리."""
         row = pd.Series({
             "run_universe": True,
             "risk_gate": True,
             "long_phase": "SLOWDOWN",
         })
-        assert _should_run_tactical(row) is False
+        assert _should_run_tactical(row) is True
 
     def test_none_row(self):
         assert _should_run_tactical(None) is False
@@ -179,17 +181,37 @@ class TestComputeTargetWeights:
 
 
 class TestPickTacticalV1:
-    def test_sector_only_default(self, default_config):
-        """v0 default: SECTOR만 선택, COMMODITY 제외."""
+    def test_sector_only_config(self):
+        """SECTOR 단독 config: COMMODITY 제외."""
+        config = BacktestConfig(
+            start_date=date(2006, 1, 3),
+            end_date=date(2024, 6, 3),
+            tactical_groups=["SECTOR"],
+        )
         universe_df = pd.DataFrame([
             {"rebalance_date": date(2024, 1, 2), "symbol": "SPY", "asset_group": "INDEX", "relative_strength": 0.05, "is_candidate": True},
             {"rebalance_date": date(2024, 1, 2), "symbol": "XLK", "asset_group": "SECTOR", "relative_strength": 0.10, "is_candidate": True},
             {"rebalance_date": date(2024, 1, 2), "symbol": "USO", "asset_group": "COMMODITY", "relative_strength": 0.12, "is_candidate": True},
         ])
         prices = {"SPY": 100.0, "XLK": 50.0, "USO": 30.0}
-        result = _pick_tactical(universe_df, prices, default_config, date(2024, 1, 2))
+        result = _pick_tactical(universe_df, prices, config, date(2024, 1, 2))
         assert "XLK" in result
         assert "USO" not in result
+
+    def test_is_candidate_filter(self, default_config):
+        """is_candidate=False인 ETF는 tactical 제외."""
+        universe_df = pd.DataFrame([
+            {"rebalance_date": date(2024, 1, 2), "symbol": "SPY",
+             "asset_group": "INDEX", "relative_strength": 0.05, "is_candidate": True},
+            {"rebalance_date": date(2024, 1, 2), "symbol": "TLT",
+             "asset_group": "BOND", "relative_strength": 0.12, "is_candidate": False},
+            {"rebalance_date": date(2024, 1, 2), "symbol": "XLK",
+             "asset_group": "SECTOR", "relative_strength": 0.10, "is_candidate": True},
+        ])
+        prices = {"SPY": 100.0, "TLT": 90.0, "XLK": 50.0}
+        result = _pick_tactical(universe_df, prices, default_config, date(2024, 1, 2))
+        assert "TLT" not in result   # is_candidate=False → 제외
+        assert "XLK" in result
 
     def test_sector_and_commodity(self):
         """v1: SECTOR + COMMODITY 모두 선택."""
