@@ -1,7 +1,7 @@
 """
 Axis Feature schema definitions.
 
-Contract: docs/architecture/axis_horizon_dependency_v1_contract.md §3
+Contract: docs/architecture/axis_horizon_dependency_contract.md §3
 """
 from __future__ import annotations
 

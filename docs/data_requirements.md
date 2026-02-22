@@ -170,7 +170,7 @@ Non-Goals:
 - Observability 라벨 read-only 전파
 - Composer ENUM 외 값 금지
 - `run_universe=false`이면 Universe-ETF 결과는 비어야 함
-- `risk_gate=false`이면 Allocation 증가(INCREASE) 금지
+- `risk_gate=false`이면 Allocation 증가(INCREASE) 금지 (v0 기준)
 
 ---
 

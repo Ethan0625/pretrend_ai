@@ -169,7 +169,7 @@ mid_regime Top-N:
 - `data/strategy/policy_selection/decision_date=YYYY-MM-DD/policy_selection_YYYYMMDD.parquet`
 - `data/strategy/what_to_hold/decision_date=YYYY-MM-DD/what_to_hold_YYYYMMDD.parquet`
 - `data/strategy/exposure/decision_date=YYYY-MM-DD/exposure_YYYYMMDD.parquet`
-- `data/strategy/sell_plan/decision_date=YYYY-MM-DD/sell_plan_YYYYMMDD.parquet`
+- `data/strategy/sell_advice/decision_date=YYYY-MM-DD/sell_advice_YYYYMMDD.parquet`
 - `data/strategy/weekly_report/decision_date=YYYY-MM-DD/weekly_report_YYYYMMDD.parquet`
 
 ---
@@ -178,7 +178,9 @@ mid_regime Top-N:
 
 - Axis×Horizon 슬롯은 `4 x 3 = 12`로 고정한다.
 - 상태 출력은 ENUM 기반만 허용하며 numeric score 출력은 금지한다.
-- `risk_gate=false`이면 `action=INCREASE`는 금지한다.
+- `risk_gate=false` 규칙은 allocation mode에 따라 다르다:
+  - v0: `INCREASE` 금지
+  - v1/v2: `INCREASE` 허용(저점매수), 단 `run_universe=false`이면 여전히 `INCREASE` 금지
 - `run_universe=false`이면 `buy_candidates`는 비어야 하며 증가 액션도 금지한다.
 - `adjustment_limit`은 exposure 변화량에 반드시 적용되어야 한다.
 - `step_size` 양자화 규칙은 exposure 조정 결과에 반드시 반영되어야 한다.

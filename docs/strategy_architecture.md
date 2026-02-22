@@ -116,7 +116,7 @@ flowchart TD
 - 정책 파라미터 연결: Composer가 `policy_profile_id`를 기반으로 Policy Config에서 resolve한 값(`target_invested_lower/upper`, `adjustment_limit`, `step_size`)을 출력에 포함하고, Allocation은 이를 직접 소비한다.
 - 규칙:
   - 목표 범위 밖이면 `adjustment_limit` 이내에서만 이동
-  - `risk_gate=false`이면 증가(INCREASE) 금지
+  - `risk_gate=false`이면 증가(INCREASE) 금지 (v0 규칙)
 - 즉시 올인/올아웃을 금지한다.
 
 #### Non-goals

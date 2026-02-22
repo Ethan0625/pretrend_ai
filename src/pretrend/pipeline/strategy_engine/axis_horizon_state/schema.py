@@ -6,7 +6,7 @@ Contract:
   - docs/architecture/market_structure_long_v1_contract.md
   - docs/architecture/market_structure_mid_v1_contract.md
   - docs/architecture/market_structure_short_v1_contract.md
-  - docs/architecture/axis_horizon_dependency_v1_contract.md
+  - docs/architecture/axis_horizon_dependency_contract.md
 """
 from __future__ import annotations
 

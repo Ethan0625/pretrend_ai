@@ -250,7 +250,7 @@ export FRED_API_KEY=YOUR_FRED_API_KEY
 PYTHONPATH=src python -m pretrend.pipeline.strategy_engine.strategy_job --date 2024-06-03 --invested-ratio 0.10
 
 # z-threshold 지정 실행
-PYTHONPATH=src python -m pretrend.pipeline.strategy_engine.strategy_job --date 2024-06-03 --invested-ratio 0.10 --z-threshold 0.3
+PYTHONPATH=src python -m pretrend.pipeline.strategy_engine.strategy_job --date 2024-06-03 --invested-ratio 0.10 --long-z-threshold 0.3
 
 # 전체 테스트
 conda run -n pytest-pretrend pytest tests/ -v

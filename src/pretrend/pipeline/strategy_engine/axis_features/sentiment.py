@@ -1,7 +1,7 @@
 """
 Axis Feature: sentiment — Gold EOD에서 심리 proxy 축 추출.
 
-Contract: docs/architecture/axis_horizon_dependency_v1_contract.md §3.2
+Contract: docs/architecture/axis_horizon_dependency_contract.md §3.2
 v0: Risk Spread(SPY/TLT/IAU) + Volatility Proxy(SPY vol, IWM/SPY vol, intraday_range)
 VIX는 v0에서 필수 입력이 아님.
 """

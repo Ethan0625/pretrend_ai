@@ -1,7 +1,7 @@
 """
 Axis Feature: flow_structure — Gold EOD에서 수급/구조 축 추출 + 파생.
 
-Contract: docs/architecture/axis_horizon_dependency_v1_contract.md §3.2
+Contract: docs/architecture/axis_horizon_dependency_contract.md §3.2
 v0: 부분 수집 상태 허용, 누락 시 UNKNOWN 허용.
 """
 from __future__ import annotations
@@ -29,7 +29,7 @@ def build_flow_structure_axis(df_gold_eod: pd.DataFrame) -> pd.DataFrame:
     기존 컬럼 선택 + 신규 파생:
     - obv_slope: OBV(On-Balance Volume) 20일 기울기
     - turnover_spike_flag: volume_zscore_20d > threshold
-    - breadth_iwm_spy_ratio: IWM ret_20d / SPY ret_20d
+    - breadth_iwm_spy_spread: IWM ret_20d - SPY ret_20d
 
     빈 입력이면 빈 DataFrame 반환.
     """

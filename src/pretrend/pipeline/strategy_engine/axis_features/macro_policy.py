@@ -1,7 +1,7 @@
 """
 Axis Feature: macro_policy — Gold Macro에서 정책/매크로 축 추출.
 
-Contract: docs/architecture/axis_horizon_dependency_v1_contract.md §3.2
+Contract: docs/architecture/axis_horizon_dependency_contract.md §3.2
 """
 from __future__ import annotations
 

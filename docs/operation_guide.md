@@ -34,7 +34,7 @@
 - Strategy Engine v0 단일 실행:
   - `PYTHONPATH=src python -m pretrend.pipeline.strategy_engine.strategy_job --date 2024-06-03 --invested-ratio 0.10`
 - Strategy Engine z-threshold 지정 실행:
-  - `PYTHONPATH=src python -m pretrend.pipeline.strategy_engine.strategy_job --date 2024-06-03 --invested-ratio 0.10 --z-threshold 0.3`
+  - `PYTHONPATH=src python -m pretrend.pipeline.strategy_engine.strategy_job --date 2024-06-03 --invested-ratio 0.10 --long-z-threshold 0.3`
 - 입력 전제:
   - Gold Macro snapshot
   - Gold EOD snapshot
@@ -49,8 +49,8 @@
 ## 통합 테스트 실행
 - 전체 테스트:
   - `conda run -n pytest-pretrend pytest tests/ -v`
-- 2026-02-21 기준 보고:
-  - `305 passed, 1 skipped`
+- 2026-02-22 기준 보고:
+  - `389 passed, 1 skipped`
 
 ## 권장 E2E 실행 시퀀스
 - Macro 파이프라인(Bronze→Silver→Calendar→Gold):
