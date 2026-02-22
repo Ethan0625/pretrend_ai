@@ -2,7 +2,7 @@
 Strategy Engine E2E Runner + CLI.
 
 Gold Macro/EOD → Axis Features → Axis×Horizon State → Market Position
-→ Policy Selection → Universe → Allocation → Sell Plan → Snapshot Write.
+→ Policy Selection → Universe → Allocation → Sell Advice → Snapshot Write.
 
 SOT: docs/strategy_engine_design.md
 패턴: macro_job.py (Config/Runner/Result/CLI)
@@ -33,7 +33,7 @@ from .market_position.engine import build_market_position
 from .policy_selector.engine import build_policy_selection
 from .universe.engine import build_universe
 from .allocation.engine import build_allocation
-from .sell_planner.engine import build_sell_plan
+from .sell_advisor.engine import build_sell_advice
 
 logger = logging.getLogger(__name__)
 if not logger.handlers:
@@ -61,7 +61,7 @@ class StrategyJobResult:
     policy_selection: StrategyStageResult = field(default_factory=StrategyStageResult)
     universe: StrategyStageResult = field(default_factory=StrategyStageResult)
     allocation: StrategyStageResult = field(default_factory=StrategyStageResult)
-    sell_plan: StrategyStageResult = field(default_factory=StrategyStageResult)
+    sell_advice: StrategyStageResult = field(default_factory=StrategyStageResult)
 
 
 class StrategyJobRunner:
@@ -73,11 +73,13 @@ class StrategyJobRunner:
         policy_profile_id: str = "RC_V0_DEFAULT",
         current_invested_ratio: float = 0.0,
         long_z_threshold: float = 0.0,
+        allocation_mode: str = "v0",
     ) -> None:
         self.config = config
         self.policy_profile_id = policy_profile_id
         self.current_invested_ratio = current_invested_ratio
         self.long_z_threshold = long_z_threshold
+        self.allocation_mode = allocation_mode
 
     def run(self, decision_date: date) -> StrategyJobResult:
         """전체 Strategy Engine 파이프라인 실행."""
@@ -147,7 +149,7 @@ class StrategyJobRunner:
             )
 
         # 7) Build Allocation (HOW_MUCH_EXPOSURE)
-        df_alloc = build_allocation(df_ps, self.current_invested_ratio)
+        df_alloc = build_allocation(df_ps, self.current_invested_ratio, self.allocation_mode)
         result.allocation = StrategyStageResult(row_count=len(df_alloc))
         if not df_alloc.empty:
             write_snapshot_atomic(
@@ -155,13 +157,13 @@ class StrategyJobRunner:
                 "exposure", decision_date, run_id,
             )
 
-        # 8) Build Sell Plan (HOW_MUCH_TO_SELL)
-        df_sell = build_sell_plan(df_alloc, df_ps, df_universe)
-        result.sell_plan = StrategyStageResult(row_count=len(df_sell))
+        # 8) Build Sell Advice (HOW_MUCH_TO_SELL — advisory)
+        df_sell = build_sell_advice(df_alloc, df_ps, df_universe)
+        result.sell_advice = StrategyStageResult(row_count=len(df_sell))
         if not df_sell.empty:
             write_snapshot_atomic(
                 df_sell, self.config.strategy_output_root,
-                "sell_plan", decision_date, run_id,
+                "sell_advice", decision_date, run_id,
             )
 
         # 9) Meta log
@@ -183,7 +185,7 @@ class StrategyJobRunner:
             "ps_rows": result.policy_selection.row_count,
             "universe_rows": result.universe.row_count,
             "allocation_rows": result.allocation.row_count,
-            "sell_plan_rows": result.sell_plan.row_count,
+            "sell_advice_rows": result.sell_advice.row_count,
             "completed_at": pd.Timestamp.now("UTC"),
         }])
 
@@ -206,6 +208,11 @@ def main() -> None:
     parser.add_argument("--long-z-threshold", type=float, default=0.0,
                         help="Long Engine z-score threshold (default: 0.0). "
                              "Positive values reduce SLOWDOWN/RECESSION sensitivity.")
+    parser.add_argument("--allocation-mode", default="v0",
+                        choices=["v0", "v1", "v2"],
+                        help="Allocation mode: v0=range-maintenance, "
+                             "v1=f(long_phase) target-seeking, "
+                             "v2=f(long_phase,mid_regime) 2D lookup. (default: v0)")
     args = parser.parse_args()
 
     decision_date = date.fromisoformat(args.date)
@@ -215,12 +222,14 @@ def main() -> None:
         policy_profile_id=args.policy,
         current_invested_ratio=args.invested_ratio,
         long_z_threshold=args.long_z_threshold,
+        allocation_mode=args.allocation_mode,
     )
     result = runner.run(decision_date)
     print(f"Strategy Engine completed: run_id={result.run_id}, "
           f"AHS={result.axis_horizon_state.row_count}, "
           f"Universe={result.universe.row_count}, "
-          f"Allocation={result.allocation.row_count}")
+          f"Allocation={result.allocation.row_count}, "
+          f"SellAdvice={result.sell_advice.row_count}")
 
 
 if __name__ == "__main__":

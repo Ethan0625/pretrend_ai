@@ -39,8 +39,9 @@ class TestCoreHoldRegistry:
     def test_core_holds_exist(self):
         assert len(CORE_HOLD_REGISTRY) >= 2
         assert "SPY" in CORE_HOLD_REGISTRY
-        assert "TLT" in CORE_HOLD_REGISTRY
+        assert "SCHD" in CORE_HOLD_REGISTRY   # 배당 핵심 CORE
         assert "IAU" in CORE_HOLD_REGISTRY
+        assert "TLT" not in CORE_HOLD_REGISTRY  # TLT는 BOND tactical로 이동
 
     def test_core_holds_are_strings(self):
         for sym in CORE_HOLD_REGISTRY:

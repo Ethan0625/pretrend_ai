@@ -36,11 +36,22 @@ def _judge_run_universe(long_phase: str, mid_regime: str) -> bool:
 
 
 def _judge_risk_gate(short_signal: str) -> bool:
-    """Allocation 증가 허용 여부 판정 (v0 규칙)."""
-    # PANIC 시 증가 차단
-    if short_signal == "PANIC":
-        return False
-    return True
+    """Allocation INCREASE 허용 여부 판정 (v0 규칙).
+
+    Notes
+    -----
+    risk_gate는 long_phase(RECESSION 등)와 무관하며,
+    short_signal이 PANIC인지만 판단한다.
+
+    - PANIC  → False (단기 급락 중 추가 매수 차단)
+    - 그 외  → True  (RELIEF, STRESS, UNKNOWN 등 정상 허용)
+
+    RECESSION + risk_gate=True 해석:
+      long 관점은 침체이나 단기 급락(PANIC)이 아닌 상태.
+      INCREASE 자체는 허용되지만 allocation target이 0.10이므로
+      실질적으로 DECREASE 신호가 발생한다.
+    """
+    return short_signal != "PANIC"
 
 
 def _build_notes(long_phase: str, mid_regime: str, short_signal: str,

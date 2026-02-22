@@ -36,7 +36,7 @@ def resolve_policy(policy_profile_id: str) -> PolicyProfile:
 
 CORE_HOLD_REGISTRY: List[str] = [
     "SPY",   # US Large-Cap Index
-    "TLT",   # US Long-Term Treasury
+    "SCHD",  # US Dividend (배당 핵심 CORE)
     "IAU",   # Gold
 ]
 
@@ -48,7 +48,7 @@ CORE_HOLD_REGISTRY: List[str] = [
 TACTICAL_GROUP_REGISTRY: Dict[str, List[str]] = {
     "COUNTRY": ["EWJ", "EWZ", "EWY", "EWG", "INDA", "VWO"],
     "COMMODITY": ["USO", "DBA", "UNG", "SLV"],
-    "BOND": ["HYG", "LQD", "SHY", "TIP"],
+    "BOND": ["TLT", "HYG", "LQD", "SHY", "TIP"],
     "SECTOR": ["XLV", "XLE", "XLF", "XLK", "XLI", "XLU", "XLRE"],
 }
 
