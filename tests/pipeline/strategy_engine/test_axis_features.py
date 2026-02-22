@@ -222,7 +222,7 @@ class TestFlowStructureAxis:
             assert col in result.columns, f"Missing required column: {col}"
         assert "obv_slope" in result.columns
         assert "turnover_spike_flag" in result.columns
-        assert "breadth_iwm_spy_ratio" in result.columns
+        assert "breadth_iwm_spy_spread" in result.columns
 
     def test_empty_input(self):
         result = build_flow_structure_axis(pd.DataFrame())
@@ -234,10 +234,10 @@ class TestFlowStructureAxis:
         iwm_rows = result[sample_gold_eod["symbol"] == "IWM"]
         assert iwm_rows["turnover_spike_flag"].any()
 
-    def test_breadth_ratio_present(self, sample_gold_eod):
+    def test_breadth_spread_present(self, sample_gold_eod):
         result = build_flow_structure_axis(sample_gold_eod)
-        # IWM과 SPY가 있으므로 breadth ratio 산출 가능
-        assert result["breadth_iwm_spy_ratio"].notna().any()
+        # IWM과 SPY가 있으므로 breadth spread 산출 가능
+        assert result["breadth_iwm_spy_spread"].notna().any()
 
 
 # ── sentiment 테스트 ──────────────────────────────────────
