@@ -66,9 +66,9 @@ class TestOL1SotCoverage:
     """OL1: Observability SOT 커버리지 및 중복 없음."""
 
     def test_ol1_sot_coverage_and_no_duplicates(self):
-        """OBSERVABILITY_SET_V1에 33개 ETF가 중복 없이 존재한다."""
-        # 33개 ETF (XLI 추가 v2026.02.20)
-        assert len(OBSERVABILITY_SET_V1) == 33
+        """OBSERVABILITY_SET_V1에 35개 ETF가 중복 없이 존재한다."""
+        # 35개 ETF
+        assert len(OBSERVABILITY_SET_V1) == 35
 
         # symbol 중복 금지
         symbols = [entry["symbol"] for entry in OBSERVABILITY_SET_V1]

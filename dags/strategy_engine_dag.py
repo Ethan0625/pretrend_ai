@@ -95,6 +95,28 @@ def _load_snapshot(strategy_root: Path, stage: str, decision_date: date) -> "pd.
     return pd.read_parquet(files[0])
 
 
+# ── Telegram 메시지 구성 상수 ────────────────────────────
+
+# v2 목표 비율 룩업 (allocation_mode="v2" 기준, SE allocation/engine.py 와 동기화)
+_V2_TARGET_MAP: dict = {
+    ("EXPANSION",  "RISK_ON"):  0.80, ("EXPANSION",  "NEUTRAL"): 0.70,
+    ("EXPANSION",  "RISK_OFF"): 0.55, ("EXPANSION",  "UNKNOWN"): 0.65,
+    ("LATE_CYCLE", "RISK_ON"):  0.60, ("LATE_CYCLE", "NEUTRAL"): 0.45,
+    ("LATE_CYCLE", "RISK_OFF"): 0.30, ("LATE_CYCLE", "UNKNOWN"): 0.45,
+    ("SLOWDOWN",   "RISK_ON"):  0.35, ("SLOWDOWN",   "NEUTRAL"): 0.25,
+    ("SLOWDOWN",   "RISK_OFF"): 0.15, ("SLOWDOWN",   "UNKNOWN"): 0.25,
+    ("RECOVERY",   "RISK_ON"):  0.70, ("RECOVERY",   "NEUTRAL"): 0.60,
+    ("RECOVERY",   "RISK_OFF"): 0.45, ("RECOVERY",   "UNKNOWN"): 0.60,
+    ("RECESSION",  "RISK_ON"):  0.20, ("RECESSION",  "NEUTRAL"): 0.10,
+    ("RECESSION",  "RISK_OFF"): 0.05, ("RECESSION",  "UNKNOWN"): 0.10,
+    ("UNKNOWN",    "RISK_ON"):  0.50, ("UNKNOWN",    "NEUTRAL"): 0.40,
+    ("UNKNOWN",    "RISK_OFF"): 0.30, ("UNKNOWN",    "UNKNOWN"): 0.40,
+}
+
+_CORE_HOLD: frozenset = frozenset({"SPY", "SCHD", "IAU"})  # 항상 보유 — 매일 표시 생략
+_WEEKDAY_KO = ["월", "화", "수", "목", "금", "토", "일"]
+
+
 # ── DAG ──────────────────────────────────────────────────
 
 @dag(
@@ -133,6 +155,7 @@ def strategy_engine_pipeline():
             config=config,
             policy_profile_id="RC_V0_DEFAULT",
             current_invested_ratio=current_ratio,
+            allocation_mode="v2",  # f(long_phase, mid_regime) 2D lookup — Backtest v2 기준
         )
         result = runner.run(decision_date=decision_date)
 
@@ -143,7 +166,7 @@ def strategy_engine_pipeline():
             "ahs_rows": result.axis_horizon_state.row_count,
             "universe_rows": result.universe.row_count,
             "allocation_rows": result.allocation.row_count,
-            "sell_plan_rows": result.sell_plan.row_count,
+            "sell_advice_rows": result.sell_advice.row_count,
         }
 
     @task(task_id="send_telegram_report")
@@ -165,7 +188,7 @@ def strategy_engine_pipeline():
         df_mp = _load_snapshot(strategy_root, "market_position", decision_date)
         df_alloc = _load_snapshot(strategy_root, "exposure", decision_date)
         df_univ = _load_snapshot(strategy_root, "what_to_hold", decision_date)
-        df_sell = _load_snapshot(strategy_root, "sell_plan", decision_date)
+        df_sell = _load_snapshot(strategy_root, "sell_advice", decision_date)
 
         # ── Market Position ──
         long_phase = mid_regime = short_signal = "UNKNOWN"
@@ -188,24 +211,25 @@ def strategy_engine_pipeline():
             next_ratio = float(row.get("next_invested_ratio", next_ratio))
             delta = float(row.get("delta_ratio", 0.0))
 
-        # ── Universe (최신 rebalance_date만 필터) ──
-        core_symbols: List[str] = []
-        tactical_symbols: List[str] = []
+        # ── Universe — 전술 ETF + RS 점수 ──────────────────────
+        tactical_with_rs: List[str] = []
         if not df_univ.empty:
-            # 전체 히스토리가 포함돼 있으므로 최신 날짜만 사용
             if "rebalance_date" in df_univ.columns:
                 latest = df_univ["rebalance_date"].max()
                 df_univ = df_univ[df_univ["rebalance_date"] == latest]
-            # is_candidate=True 필터
             if "is_candidate" in df_univ.columns:
                 df_univ = df_univ[df_univ["is_candidate"] == True]
-            if "role" in df_univ.columns:
-                core_symbols = df_univ[df_univ["role"] == "CORE"]["symbol"].tolist()
-                tactical_symbols = df_univ[df_univ["role"] == "TACTICAL"]["symbol"].tolist()
-            elif "symbol" in df_univ.columns:
-                core_symbols = df_univ["symbol"].tolist()
+            if "symbol" in df_univ.columns:
+                df_tac = df_univ[~df_univ["symbol"].isin(_CORE_HOLD)]
+                if "relative_strength" in df_tac.columns:
+                    df_tac = df_tac.sort_values("relative_strength", ascending=False)
+                for _, r in df_tac.head(5).iterrows():
+                    rs = r.get("relative_strength", None)
+                    sym = r["symbol"]
+                    entry = f"{sym} {float(rs):+.1%}" if rs is not None else sym
+                    tactical_with_rs.append(entry)
 
-        # ── Sell ──
+        # ── Sell ─────────────────────────────────────────────
         sell_budget = 0.0
         sell_list: List[str] = []
         if not df_sell.empty:
@@ -214,70 +238,73 @@ def strategy_engine_pipeline():
             raw = row.get("sell_priority_list", None)
             sell_list = list(raw) if raw is not None else []
 
-        # ── 용어 매핑 ──
+        # ── V2 목표 비율 ──────────────────────────────────────
+        v2_target = _V2_TARGET_MAP.get(
+            (long_phase, mid_regime),
+            _V2_TARGET_MAP.get((long_phase, "UNKNOWN"),
+            _V2_TARGET_MAP.get(("UNKNOWN", "UNKNOWN"), 0.40)),
+        )
+
+        # ── 표시 텍스트 ───────────────────────────────────────
         _LONG_LABEL = {
-            "EXPANSION": "확장",
-            "LATE_CYCLE": "후기사이클",
-            "SLOWDOWN": "둔화",
-            "RECESSION": "침체",
-            "RECOVERY": "회복",
-            "UNKNOWN": "판단불가",
+            "EXPANSION": "확장기", "LATE_CYCLE": "후기사이클",
+            "SLOWDOWN": "둔화기", "RECESSION": "침체기",
+            "RECOVERY": "회복기", "UNKNOWN": "판단불가",
         }
         _MID_LABEL = {
-            "RISK_ON": "위험선호",
-            "NEUTRAL": "중립",
-            "RISK_OFF": "위험회피",
-            "UNKNOWN": "판단불가",
+            "RISK_ON": "위험선호", "NEUTRAL": "중립",
+            "RISK_OFF": "위험회피", "UNKNOWN": "판단불가",
         }
         _SHORT_LABEL = {
-            "PANIC": "공황",
-            "RELIEF": "안도",
-            "NEUTRAL": "중립",
-            "UNKNOWN": "판단불가",
+            "PANIC": "공황", "RELIEF": "안도",
+            "NEUTRAL": "중립", "UNKNOWN": "판단불가",
         }
-        _ACTION_LABEL = {
-            "INCREASE": "비중확대",
-            "DECREASE": "비중축소",
-            "HOLD": "유지",
+        _LONG_SHORT = {
+            "EXPANSION": "확장", "LATE_CYCLE": "후기", "SLOWDOWN": "둔화",
+            "RECESSION": "침체", "RECOVERY": "회복", "UNKNOWN": "불가",
         }
+        _MID_SHORT = {
+            "RISK_ON": "위험선호", "NEUTRAL": "중립",
+            "RISK_OFF": "위험회피", "UNKNOWN": "불가",
+        }
+        _ACTION_KO = {"INCREASE": "비중확대", "DECREASE": "비중축소", "HOLD": "유지"}
 
-        def _fmt(val: str, mapping: dict) -> str:
-            label = mapping.get(val, val)
-            return f"{label} ({val})"
-
-        # ── 액션 이모지 ──
+        weekday = _WEEKDAY_KO[decision_date.weekday()]
         action_emoji = {"INCREASE": "📈", "DECREASE": "📉", "HOLD": "⏸"}.get(action, "❓")
-        risk_tag = " 🔒 <b>RISK GATE ON</b> (포지션 증가 금지)" if risk_gate else ""
+        is_panic = (short_signal == "PANIC")
+        driver = f"{_LONG_SHORT.get(long_phase, long_phase)}+{_MID_SHORT.get(mid_regime, mid_regime)}"
+        cur_pct = strategy_summary["current_invested_ratio"]
 
-        # ── 메시지 조립 ──
+        # ── 메시지 조립 ───────────────────────────────────────
         lines = [
-            f"📊 <b>Pretrend Daily Strategy</b> [{decision_date.isoformat()}]",
+            f"📊 <b>Pretrend</b> · {decision_date.isoformat()} ({weekday})",
             "",
-            f"{action_emoji} <b>액션:</b> {_fmt(action, _ACTION_LABEL)}  (Δ{delta:+.0%}){risk_tag}",
-            f"💼 <b>투자비중:</b> {strategy_summary['current_invested_ratio']:.0%} → {next_ratio:.0%}",
-            "",
-            "📍 <b>시장 국면</b>",
-            f"  장기 : {_fmt(long_phase, _LONG_LABEL)}",
-            f"  중기 : {_fmt(mid_regime, _MID_LABEL)}",
-            f"  단기 : {_fmt(short_signal, _SHORT_LABEL)}",
-            f"  유니버스 가동: {'✅' if run_universe else '❌'}",
+            (
+                f"{action_emoji} <b>{_ACTION_KO.get(action, action)}</b>  "
+                f"{cur_pct:.0%} → {next_ratio:.0%}  |  목표 <b>{v2_target:.0%}</b> ({driver})"
+            ),
         ]
 
-        if core_symbols or tactical_symbols:
-            lines += ["", "🎯 <b>편입 후보</b>"]
-            if core_symbols:
-                lines.append(f"  핵심 : {', '.join(core_symbols)}")
-            if tactical_symbols:
-                lines.append(f"  전술 : {', '.join(tactical_symbols)}")
+        if is_panic:
+            lines += ["", "⚠️ 단기 공황 — 이번 주 매도 신호 동결 가능"]
+
+        lines += [
+            "",
+            (
+                f"시장: {_LONG_LABEL.get(long_phase, long_phase)}"
+                f" | {_MID_LABEL.get(mid_regime, mid_regime)}"
+                f" | {_SHORT_LABEL.get(short_signal, short_signal)}"
+            ),
+        ]
+
+        if tactical_with_rs:
+            lines += ["", f"🎯 {' · '.join(tactical_with_rs)}"]
 
         if sell_budget > 0:
-            lines += [
-                "",
-                f"🚨 <b>매도 예산:</b> {sell_budget:.0%}",
-                f"  우선순위: {', '.join(sell_list) if sell_list else '—'}",
-            ]
+            sell_order = " → ".join(sell_list) if sell_list else "—"
+            lines += ["", f"🚨 <b>매도 예산</b> {sell_budget:.0%}  순서: {sell_order}"]
 
-        lines += ["", f"🔖 run_id: <code>{strategy_summary['run_id']}</code>"]
+        lines += ["", f"<code>─ {strategy_summary['run_id']}</code>"]
 
         _send_telegram(token, chat_id, "\n".join(lines))
 

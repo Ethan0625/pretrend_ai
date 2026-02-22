@@ -5,7 +5,7 @@
 | --- | --- |
 | Status | Active |
 | Structure Policy | 구조는 고정, 기능은 확장 |
-| Effective Date | 2026-02-13 |
+| Effective Date | 2026-02-21 |
 | Change Tracking | docs/changelog.md |
 
 ## Capability Matrix
@@ -65,6 +65,8 @@
 | 입력 | 컬럼 | 타입 | 필수 | 설명 |
 | --- | --- | --- | --- | --- |
 | MS Composer | trade_date | DATE | Y | 기준일 |
+| MS Composer | long_phase | TEXT | Y | 장기 국면(`EXPANSION/LATE_CYCLE/SLOWDOWN/RECOVERY/RECESSION/UNKNOWN`) |
+| MS Composer | mid_regime | TEXT | Y | 중기 위험 상태(`RISK_ON/NEUTRAL/RISK_OFF/UNKNOWN`) |
 | MS Composer | run_universe | BOOLEAN | Y | Universe-ETF 실행 여부 |
 | MS Composer | risk_gate | BOOLEAN | Y | 증가 차단 브레이크 상태 |
 | Gold EOD | symbol | TEXT | Y | Observability 심볼 |
@@ -89,7 +91,7 @@
 | rebalance_date | DATE | Y | 리밸런싱 기준일 |
 | symbol | TEXT | Y | ETF 심볼 |
 | asset_group | TEXT | Y | 그룹 라벨 |
-| relative_strength | FLOAT | N | 상대강도 지표 |
+| relative_strength | FLOAT | N | 상대강도 지표 (`ret_20d(symbol) - ret_20d(SPY)`) |
 | is_candidate | BOOLEAN | Y | 후보 여부 |
 
 개념 예시:
@@ -124,6 +126,28 @@ is_candidate: true
 - `run_universe=false`이면 candidate 0개
 - `is_candidate`는 BOOLEAN 외 값 금지
 - `asset_group`은 Observability ENUM(`INDEX/COUNTRY/COMMODITY/BOND/SECTOR`) 외 값 금지
+- Phase eligible pool 규칙은 아래 표를 따른다.
+
+| long_phase | 제외 심볼 |
+| --- | --- |
+| RECESSION | `USO`, `UNG` |
+| SLOWDOWN | `UNG` |
+| LATE_CYCLE | 없음 (전체 허용) |
+| EXPANSION | `UNG` |
+| RECOVERY | `USO`, `UNG`, `XLE` |
+| UNKNOWN | 없음 (fail-open) |
+
+- `mid_regime`별 TACTICAL Top-N 규칙은 아래 표를 따른다.
+
+| mid_regime | Top-N |
+| --- | --- |
+| RISK_OFF | 5 |
+| NEUTRAL | 7 |
+| RISK_ON | 9 |
+| UNKNOWN | 7 |
+
+- CORE(`SPY`, `SCHD`, `IAU`)는 phase 필터/Top-N 적용 대상이 아니며 항상 `is_candidate=true`를 유지한다.
+  (TLT는 BOND tactical로 이동 — RECESSION/SLOWDOWN에서 RS 기반 자동 선정됨)
 
 ## 7. DoD
 ### 책임
@@ -135,11 +159,15 @@ is_candidate: true
 - **UV1**: 차단 상태(`run_universe=false`) 입력 시 candidate 0개 검증
 - **UV2**: 필수 컬럼/타입 검증
 - **UV3**: `asset_group` ENUM 위반 금지 검증
+- **UV4**: phase별 제외 규칙(`RECESSION/SLOWDOWN/RECOVERY`) 검증
+- **UV5**: `mid_regime`별 Top-N(`RISK_OFF=5`, `RISK_ON=9`) 검증
+- **UV6**: 상대강도 공식(`ret_20d - ret_20d(SPY)`) 검증
 
 ---
 
 ## Change History
 | Date | Summary | References |
 | --- | --- | --- |
+| 2026-02-21 | Universe-ETF v1 규칙 반영: phase eligible pool, mid_regime Top-N, RS 정의 및 CORE 예외 명시 | docs/changelog.md |
 | 2026-02-21 | Universe 용어 이원화 반영: Universe-ETF(Execution) 계약으로 명시, Universe-Stock(U0~U3) 범위 분리 | docs/changelog.md |
 | 2026-02-13 | 파일명 버전 제거 및 문서 표준 블록(Document Status/Capability Matrix) 적용 | docs/changelog.md |

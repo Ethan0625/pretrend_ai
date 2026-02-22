@@ -29,14 +29,16 @@ class ObservabilityEntry(TypedDict):
 
 # ── Observability Set v1 (32 ETFs) ──────────────────────
 
-OBSERVABILITY_SET_V1: List[ObservabilityEntry] = [  # 33 ETFs total
-    # INDEX (6)
-    {"symbol": "SPY",  "asset_group": "INDEX", "asset_name": "SP500",          "asset_subtype": "BROAD_MARKET"},
-    {"symbol": "VOO",  "asset_group": "INDEX", "asset_name": "SP500",          "asset_subtype": "BROAD_MARKET"},
-    {"symbol": "QQQ",  "asset_group": "INDEX", "asset_name": "NASDAQ100",      "asset_subtype": "GROWTH_TECH"},
-    {"symbol": "DIA",  "asset_group": "INDEX", "asset_name": "DOW30",          "asset_subtype": "VALUE_INDUSTRIAL"},
-    {"symbol": "SCHD", "asset_group": "INDEX", "asset_name": "US_DIVIDEND",    "asset_subtype": "DIVIDEND_GROWTH"},
-    {"symbol": "IWM",  "asset_group": "INDEX", "asset_name": "RUSSELL2000",    "asset_subtype": "SMALL_CAP"},
+OBSERVABILITY_SET_V1: List[ObservabilityEntry] = [  # 36 ETFs total
+    # INDEX (8)
+    {"symbol": "SPY",  "asset_group": "INDEX", "asset_name": "SP500",                    "asset_subtype": "BROAD_MARKET"},
+    {"symbol": "VOO",  "asset_group": "INDEX", "asset_name": "SP500",                    "asset_subtype": "BROAD_MARKET"},
+    {"symbol": "QQQ",  "asset_group": "INDEX", "asset_name": "NASDAQ100",                "asset_subtype": "GROWTH_TECH"},
+    {"symbol": "DIA",  "asset_group": "INDEX", "asset_name": "DOW30",                    "asset_subtype": "VALUE_INDUSTRIAL"},
+    {"symbol": "SCHD", "asset_group": "INDEX", "asset_name": "US_DIVIDEND",              "asset_subtype": "DIVIDEND_GROWTH"},
+    {"symbol": "IWM",  "asset_group": "INDEX", "asset_name": "RUSSELL2000",              "asset_subtype": "SMALL_CAP"},
+    {"symbol": "DVY",  "asset_group": "INDEX", "asset_name": "US_DIVIDEND_SELECT",       "asset_subtype": "DIVIDEND_YIELD"},
+    {"symbol": "VIG",  "asset_group": "INDEX", "asset_name": "US_DIVIDEND_APPRECIATION", "asset_subtype": "DIVIDEND_GROWTH"},
     # COUNTRY (5)
     {"symbol": "EWY",  "asset_group": "COUNTRY", "asset_name": "SOUTH_KOREA",  "asset_subtype": "EM_ASIA"},
     {"symbol": "ASHR", "asset_group": "COUNTRY", "asset_name": "CHINA",        "asset_subtype": "CHINA_A_SHARES"},
