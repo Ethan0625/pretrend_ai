@@ -1,5 +1,124 @@
 # Changelog
 
+## v2026.02.22c — Mid Engine v1.1 spread 버그 수정 + Short Engine 보강
+
+### fix(strategy_engine): Mid Engine breadth 부호 반전 버그 수정 (v1.1)
+- 원인: `breadth_iwm_spy_ratio = iwm_ret_20d / spy_ret_20d`는 `spy_ret_20d < 0` 구간에서 부호/해석 반전 발생
+  - 예: `SPY=-5%`, `IWM=-3%` → ratio=0.6 (기존 로직은 `RISK_OFF` 오판정)
+- 수정:
+  - `flow_structure.py`: `_compute_breadth_ratio()` → `_compute_breadth_spread()`
+  - 계산식: `breadth_iwm_spy_spread = iwm_ret_20d - spy_ret_20d`
+  - `schema.py`: `FLOW_OPTIONAL_COLUMNS` 컬럼명 갱신
+  - `mid_engine.py`: ratio 임계값(`>1.0/<0.8`) 제거, spread 임계값(`>+0.005/<-0.005`) 적용
+- 효과:
+  - spread 표준편차(`0.028`) 기준 약 `0.18σ` 노이즈 필터 구간 확보
+  - `NEUTRAL` 구간 약 `15.3%` 확보
+
+### feat(strategy_engine): Short Engine secondary PANIC 신호 확장
+- `short_engine.py`에 `smallcap_stress` 신호 추가:
+  - 조건: `iwm_spy_vol_spread > 0.005`
+  - 의미: 소형주 변동성 스트레스 감지
+- secondary PANIC 확인 규칙:
+  - 기존 3신호(`vol_spike`, `wide_intraday`, `flight_to_safety`)
+  - 변경 4신호 + `2개 이상` 충족 시 PANIC 확인
+
+### test(strategy_engine): Mid/Short 회귀 테스트 추가
+- `tests/pipeline/strategy_engine/test_mid_engine.py`
+  - MM4 fixture: ratio → spread 값 반영
+  - MM5 신규 3건: ratio 부호 반전 케이스를 spread 방식으로 교정 검증
+- `tests/pipeline/strategy_engine/test_short_engine.py`
+  - MSH7 신규 2건: `smallcap_stress` 경계값(`>0.005`, `<=0.005`) 검증
+- `tests/pipeline/strategy_engine/test_axis_features.py`
+  - breadth 컬럼/메서드명 변경 반영(2곳)
+
+### 성과 비교 (v2 preset, 2006-01 ~ 2024-06, DCA $300/월)
+
+| 엔진 | XIRR | MDD | Sharpe |
+| --- | --- | --- | --- |
+| v0 | +8.00% | -15.71% | 1.69 |
+| v1 | +6.94% | -17.74% | 1.65 |
+| v1.1 | +7.25% | -15.65% | 1.68 |
+
+- v1.1 결과: `XIRR +0.31%p` 회복, `MDD -15.65%`로 v0 대비 소폭 개선, Sharpe 1.68
+- 전체 테스트: `389 passed, 1 skipped`
+
+---
+
+## v2026.02.22b — Strategy Engine Allocation v1/v2 업그레이드
+
+### feat(strategy_engine): Allocation v1/v2 모드 추가
+
+`allocation/engine.py`:
+- `_ALLOCATION_V1_MAP`: `long_phase` → 목표 비율 (EXPANSION=0.60, RECESSION=0.10, SLOWDOWN=0.20, UNKNOWN=0.40 등)
+- `_ALLOCATION_V2_MAP`: `(long_phase, mid_regime)` → 목표 비율 (6×4 = 24 셀, 4단계 fallback)
+- `_apply_delta()`: v1/v2 공통 gradual movement 헬퍼. PANIC(risk_gate=False)이어도 INCREASE 허용(저점매수)
+- `_compute_allocation_v1()`, `_compute_allocation_v2()`: phase/regime 기반 target-seeking
+- `build_allocation(allocation_mode="v0")`: `"v0"|"v1"|"v2"` dispatch 지원. 미등록 mode → v0 fallback
+
+`strategy_job.py`:
+- `StrategyJobRunner(allocation_mode="v0")` 필드 추가
+- CLI `--allocation-mode v0|v1|v2` 인자 추가
+
+**v0 vs v1/v2 PANIC 동작 차이:**
+- v0: risk_gate=False → INCREASE 차단 (범위유지 보수적)
+- v1/v2: risk_gate=False → INCREASE 허용 (target-seeking 저점매수)
+
+### test(strategy_engine): Allocation v1/v2 테스트 추가 (+19건)
+- `TestAllocationV1`: EXPANSION(+), RECESSION(-), SLOWDOWN(-), at_target, run_universe gate, risk_gate PANIC, unknown fallback, adj_limit 경계
+- `TestAllocationV2`: LATE_CYCLE+RISK_OFF(-), EXPANSION+RISK_ON(+), RECESSION+RISK_OFF(-), UNKNOWN+UNKNOWN(HOLD), fallback chain, PANIC/run_universe gate
+- `TestAllocationModeDispatch`: default=v0, unknown mode fallback
+- 전체 테스트: `373 passed, 1 skipped`
+
+### docs(strategy_engine): K4/K5/K7/K9 갱신
+- K4: 373 passed, SE 소계 140
+- K5: Allocation v1/v2 수정 이력 추가
+- K7: v1/v2 CLI 예시 추가
+- K9: SE v1/v2 지원 완료 표 갱신
+
+---
+
+## v2026.02.22 — 문서 정합성 수정 및 Backtest Sell 실행 로직 안정화
+
+### fix(docs): strategy_engine_design.md CORE 정의 수정 (TLT→SCHD)
+- `§D1-1` CORE 목록을 `(SPY, TLT, IAU)` → `(SPY, SCHD, IAU)`로 정정
+  - `TLT`는 BOND tactical로 이동 — RECESSION/SLOWDOWN 구간에서 RS 기반 자동 선정
+  - `SCHD`는 2011-10-24 이전 데이터 없음 → Universe Engine이 `gold_eod` 미존재 심볼을 자동 제외하므로 별도 처리 불필요
+- `§D1-1` 관련 `docs/architecture/universe_contract.md` CORE 정의 동기화
+
+### feat(docs): K8 성과 지표 DCA 기준으로 교체 (v2026.02.22 기준)
+- 기존 CAGR/MDD/Sharpe 단순 테이블 → DCA 총수익/XIRR/MDD/Sharpe/Calmar 확장 테이블
+
+| 지표 | v0 | v1 | v2 | SPY B&H |
+| --- | --- | --- | --- | --- |
+| DCA 총수익 | +46.9% | +60.0% | +122.9% | - |
+| XIRR (DCA) | +3.97% | +4.81% | +8.00% | +10.13% |
+| MDD | -11.18% | -20.19% | -15.71% | -55.19% |
+| Sharpe | 1.76 | 1.60 | 1.69 | - |
+| Calmar | 2.53 | 1.43 | 1.99 | - |
+
+### feat(docs): K9 Backtest Allocation 아키텍처 vs Strategy Engine 신규 섹션
+- Allocation 버전 차이 명시 (SE=RC_V0_DEFAULT 단일 / Backtest=v0/v1/v2 프리셋)
+- Sell Advisor advisory 역할 명시:
+  - `sell_budget_ratio` / `sell_priority_list`는 권고 출력
+  - 실제 매도 실행은 `_execute_sell_tranche()`의 target_weights 기반 로직
+  - Sell Planner → Sell Advisor 명칭 변경 완료 (P3 이행)
+
+### fix(backtest): Sell 실행 전략 확정 — target_weights 기반 (phase-based 실험 후 복원)
+- PHASE_SELL_MODE (phase별 rs_priority/비례 혼합) 실험 후 제거
+  - Full rs_priority: v0 +15.4%, v2 +102.6%
+  - Phase-based 혼합: v0 +15.4~15.8%, v2 +96.2~97.8%
+  - Pure 비례: v0 +15.8%, v2 +92.8%
+  - **target_weights (복원)**: v0 +46.9%, v1 +60.0%, v2 +122.9%
+- target_weights 방식이 단순 비례/rs_priority 대비 v2 기준 +20~30%p 우수
+  - 이유: 매도와 동시에 내부 비중 정상화 (과매수 포지션 선제 정리)
+- `config.py` PHASE_SELL_MODE 상수 제거, `runner.py` StagedSellPlan 단순화
+
+### K4 테스트 현황 갱신
+- 전체: `305 passed` → `354 passed, 1 skipped`
+- Strategy Engine: 121건 / Backtest Engine: 62건
+
+---
+
 ## v2026.02.21b — Backtest Runner 실행 규칙 정합화 및 리포트 지표 확장
 
 ### fix(backtest): 실행 스케줄/리스크 게이트/유니버스 참조 경로 정합화

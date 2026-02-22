@@ -5,7 +5,7 @@
 | --- | --- |
 | Status | Active |
 | Structure Policy | 구조는 고정, 기능은 확장 |
-| Effective Date | 2026-02-13 |
+| Effective Date | 2026-02-22 |
 | Change Tracking | docs/changelog.md |
 
 ## Capability Matrix
@@ -66,7 +66,7 @@
 | Gold EOD | trade_date | DATE | Y | 기준일 |
 | Gold EOD | ret_20d | FLOAT | N | 추세 proxy |
 | Gold EOD | vol_20d | FLOAT | N | 변동성 proxy |
-| Flow/Breadth (선택) | breadth_iwm_spy_ratio | FLOAT | N | breadth proxy |
+| Flow/Breadth (선택) | breadth_iwm_spy_spread | FLOAT | N | breadth proxy (`iwm_ret_20d - spy_ret_20d`) |
 | Flow/Breadth (선택) | volume_zscore_20d | FLOAT | N | flow proxy |
 
 결측 처리:
@@ -119,10 +119,12 @@
 - **MM1**: 입력/출력 컬럼 계약 검증
 - **MM2**: `mid_regime` ENUM 검증
 - **MM3**: 결측 입력 시 `UNKNOWN` 출력 검증
+- **MM5**: `SPY ret_20d < 0` 구간에서 spread 방식이 부호 반전 오판정을 방지함을 검증
 
 ---
 
 ## Change History
 | Date | Summary | References |
 | --- | --- | --- |
+| 2026-02-22 | Mid Engine v1.1 반영: breadth 계산을 ratio에서 spread(`iwm_ret_20d - spy_ret_20d`)로 변경 | docs/changelog.md |
 | 2026-02-13 | 파일명 버전 제거 및 문서 표준 블록(Document Status/Capability Matrix) 적용 | docs/changelog.md |

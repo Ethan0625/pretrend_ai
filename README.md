@@ -70,10 +70,12 @@ Strategy Engine은 **정책·전략 상태에 따라 변경 가능한 계산 결
 * 🧠 **Strategy Engine v0 구현**
 
   * Gold Macro + Gold EOD snapshot을 입력으로 7단계 파이프라인 실행
-  * 단계: Axis Features(4축) → Axis×Horizon(12-slot) → Market Position → Policy Selector → Universe-ETF → Allocation → Sell Planner
+  * 단계: Axis Features(4축) → Axis×Horizon(12-slot) → Market Position → Policy Selector → Universe-ETF → Allocation → Sell Advisor
   * 출력 경계: WHAT_TO_HOLD / HOW_MUCH_EXPOSURE / HOW_MUCH_TO_SELL
   * `decision_date` snapshot 저장 및 재현성(멱등 overwrite) 보장
   * Long Engine v1: `delta_6m` rolling z-score 정규화 + `z_threshold=0.3` 운영
+  * Mid Engine v1.1: breadth 계산을 `iwm/spy ratio`에서 `iwm-spy spread`로 교체(음수 SPY 구간 부호 반전 버그 수정)
+  * Short Engine 보강: `smallcap_stress(iwm_spy_vol_spread > 0.005)` 추가, secondary PANIC 4신호 체계 적용
 * 🧪 **Backtest Engine v2 + Walk-Forward**
 
   * Preset v2(`long_phase × mid_regime` 2D lookup) 지원
@@ -254,8 +256,8 @@ PYTHONPATH=src python -m pretrend.pipeline.strategy_engine.strategy_job --date 2
 conda run -n pytest-pretrend pytest tests/ -v
 ```
 
-검증 기준(2026-02-21 세션):
-- 테스트: `305 passed, 1 skipped`
+검증 기준(2026-02-22 세션):
+- 테스트: `389 passed, 1 skipped`
 - Strategy snapshots: `2009-03-09`, `2024-06-03` 기준 스모크 검증 완료
 
 ### 4.4 Backtest / Walk-Forward 실행
@@ -270,6 +272,14 @@ PYTHONPATH=src python -m pretrend.pipeline.backtest.walk_forward --preset v2 --w
 # Walk-Forward 저장 (parquet + summary json)
 PYTHONPATH=src python -m pretrend.pipeline.backtest.walk_forward --preset v2 --window-years 4 --step-years 2 --save
 ```
+
+v2 preset 성과 비교(2006-01 ~ 2024-06, DCA $300/월):
+
+| 엔진 | XIRR | MDD | Sharpe |
+| --- | --- | --- | --- |
+| v0 | +8.00% | -15.71% | 1.69 |
+| v1 | +6.94% | -17.74% | 1.65 |
+| v1.1 | +7.25% | -15.65% | 1.68 |
 
 ---
 

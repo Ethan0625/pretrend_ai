@@ -5,7 +5,7 @@
 | --- | --- |
 | Status | Active |
 | Structure Policy | 구조는 고정, 기능은 확장 |
-| Effective Date | 2026-02-13 |
+| Effective Date | 2026-02-22 |
 | Change Tracking | docs/changelog.md |
 
 ## Capability Matrix
@@ -112,6 +112,8 @@
 - 입력 read-only
 - 결측 입력은 `UNKNOWN`으로 표준화
 - 점수/가중치 계산 없이 상태 전이 로직만 허용
+- secondary PANIC 확인 신호는 4개(`vol_spike`, `wide_intraday`, `flight_to_safety`, `smallcap_stress`) 중 2개 이상 충족 규칙을 따른다.
+- `smallcap_stress`는 `iwm_spy_vol_spread > 0.005` 조건으로 판정한다.
 
 ## 7. DoD
 ### 책임
@@ -124,10 +126,12 @@
 - **MSH2**: `short_signal` ENUM 검증
 - **MSH3**: 핵심 입력 결측 시 `UNKNOWN` 출력 검증
 - **MSH4**: VIX 누락 시에도 v0 파이프라인이 동작함을 검증
+- **MSH7**: `smallcap_stress` 임계값 경계(`>0.005`, `<=0.005`) 검증
 
 ---
 
 ## Change History
 | Date | Summary | References |
 | --- | --- | --- |
+| 2026-02-22 | Short Engine 보강: secondary PANIC 4신호 체계 및 `smallcap_stress(iwm_spy_vol_spread > 0.005)` 기준 반영 | docs/changelog.md |
 | 2026-02-13 | 파일명 버전 제거 및 문서 표준 블록(Document Status/Capability Matrix) 적용 | docs/changelog.md |

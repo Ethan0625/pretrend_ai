@@ -87,7 +87,7 @@
 | --- | --- |
 | macro_policy | `delta_1m`, `delta_3m`, `delta_6m`, `release_source` |
 | price_volatility | `outlier_flag`, `drawdown_*`, `range_*` |
-| flow_structure | `volume_zscore_20d`, `obv_*`, `breadth_proxy(iwm_spy_ratio)` |
+| flow_structure | `volume_zscore_20d`, `obv_*`, `breadth_proxy(iwm_spy_spread)` |
 | sentiment | v0: `iwm_spy_vol_spread`, `intraday_range` / v1+: `vix_level`, `vix_term_structure_*` |
 
 ### 3.4 가용성 명시
