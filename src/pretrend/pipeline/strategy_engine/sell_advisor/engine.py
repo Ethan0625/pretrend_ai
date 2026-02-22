@@ -1,6 +1,7 @@
 """
-Sell Planner Engine — HOW_MUCH_TO_SELL 경계.
+Sell Advisor Engine — HOW_MUCH_TO_SELL 경계.
 
+Advisory 출력: 실제 매도 실행은 Backtest runner(_execute_sell_tranche)가 담당한다.
 v0: 매도 예산(sell_budget_ratio)과 우선순위(sell_priority_list)만 정의.
 종목별 정밀 매도 비율은 다루지 않는다.
 
@@ -13,17 +14,17 @@ from typing import List
 
 import pandas as pd
 
-from .schema import SELL_PLAN_OUTPUT_COLUMNS
+from .schema import SELL_ADVICE_OUTPUT_COLUMNS
 
 logger = logging.getLogger(__name__)
 
 
-def build_sell_plan(
+def build_sell_advice(
     allocation: pd.DataFrame,
     policy_selection: pd.DataFrame,
     universe: pd.DataFrame,
 ) -> pd.DataFrame:
-    """Sell plan을 생성한다.
+    """Sell advice를 생성한다.
 
     Parameters
     ----------
@@ -36,10 +37,15 @@ def build_sell_plan(
 
     Returns
     -------
-    DataFrame with SELL_PLAN_OUTPUT_COLUMNS.
+    DataFrame with SELL_ADVICE_OUTPUT_COLUMNS.
+
+    Notes
+    -----
+    Advisory 출력: sell_budget_ratio / sell_priority_list 는 참고값이며
+    실제 매도 실행은 Backtest runner(_execute_sell_tranche, target_weights 기반)가 담당한다.
     """
     if allocation.empty:
-        return pd.DataFrame(columns=SELL_PLAN_OUTPUT_COLUMNS)
+        return pd.DataFrame(columns=SELL_ADVICE_OUTPUT_COLUMNS)
 
     rows = []
     for _, alloc_row in allocation.iterrows():
@@ -76,4 +82,4 @@ def build_sell_plan(
             "execution_notes": [],
         })
 
-    return pd.DataFrame(rows, columns=SELL_PLAN_OUTPUT_COLUMNS)
+    return pd.DataFrame(rows, columns=SELL_ADVICE_OUTPUT_COLUMNS)
