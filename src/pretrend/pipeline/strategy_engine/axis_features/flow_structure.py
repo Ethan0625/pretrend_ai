@@ -49,8 +49,8 @@ def build_flow_structure_axis(df_gold_eod: pd.DataFrame) -> pd.DataFrame:
     # obv_slope: symbol별 OBV 누적 → 20일 기울기
     df["obv_slope"] = _compute_obv_slope(df)
 
-    # breadth_iwm_spy_ratio: cross-symbol 파생
-    df["breadth_iwm_spy_ratio"] = _compute_breadth_ratio(df)
+    # breadth_iwm_spy_spread: cross-symbol 파생 (IWM - SPY ret_20d)
+    df["breadth_iwm_spy_spread"] = _compute_breadth_spread(df)
 
     for col in FLOW_COLUMNS:
         if col not in df.columns:
@@ -81,10 +81,16 @@ def _compute_obv_slope(df: pd.DataFrame) -> pd.Series:
     return results
 
 
-def _compute_breadth_ratio(df: pd.DataFrame) -> pd.Series:
-    """IWM/SPY ret_20d ratio (breadth proxy).
+def _compute_breadth_spread(df: pd.DataFrame) -> pd.Series:
+    """IWM ret_20d - SPY ret_20d spread (breadth proxy).
 
-    trade_date별로 IWM ret_20d / SPY ret_20d를 계산하여
+    ratio(나눗셈) 방식은 SPY가 음수일 때 부호 반전 발생:
+      SPY=-5%, IWM=-3% → ratio=0.6 → 잘못된 RISK_OFF
+    spread(뺄셈) 방식은 방향 무관하게 상대 성과를 정확히 측정:
+      SPY=-5%, IWM=-3% → spread=+2% → 올바른 RISK_ON
+    SPY=0인 경우도 spread=IWM (나눗셈 불필요, None 처리 불필요)
+
+    trade_date별로 IWM ret_20d - SPY ret_20d를 계산하여
     전체 행에 브로드캐스트한다.
     """
     if "ret_20d" not in df.columns or "symbol" not in df.columns:
@@ -101,13 +107,9 @@ def _compute_breadth_ratio(df: pd.DataFrame) -> pd.Series:
         return pd.Series(None, index=df.index, dtype="float64")
 
     ratio_df = iwm.merge(spy, on="trade_date", how="inner")
-    ratio_df["ratio"] = np.where(
-        ratio_df["spy_ret_20d"].abs() > 1e-10,
-        ratio_df["iwm_ret_20d"] / ratio_df["spy_ret_20d"],
-        None,
-    )
+    ratio_df["spread"] = ratio_df["iwm_ret_20d"] - ratio_df["spy_ret_20d"]
 
     merged = df[["trade_date"]].merge(
-        ratio_df[["trade_date", "ratio"]], on="trade_date", how="left"
+        ratio_df[["trade_date", "spread"]], on="trade_date", how="left"
     )
-    return merged["ratio"].astype("float64")
+    return merged["spread"].astype("float64")

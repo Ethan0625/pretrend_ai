@@ -69,7 +69,7 @@ FLOW_OPTIONAL_COLUMNS: List[str] = [
     "volume_zscore_20d",
     "obv_slope",
     "turnover_spike_flag",
-    "breadth_iwm_spy_ratio",
+    "breadth_iwm_spy_spread",
 ]
 
 FLOW_COLUMNS: List[str] = FLOW_REQUIRED_COLUMNS + FLOW_OPTIONAL_COLUMNS
