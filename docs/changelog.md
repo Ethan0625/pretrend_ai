@@ -7,6 +7,50 @@
 
 > 참고: changelog 과거 섹션은 작성 시점 원문을 보존한다.
 
+## v2026.02.23 — Telegram 보고 포맷 고도화 (컨텍스트 3줄 + 근거 4축)
+
+### feat(strategy_engine): AHS detail_json 저장 추가
+- `axis_horizon_state` 스키마에 아래 컬럼 추가:
+  - `long_detail_json`
+  - `mid_detail_json`
+  - `short_detail_json`
+- Long/Mid/Short 엔진에서 상태 판정 근거를 JSON 문자열로 저장
+  - Long: `regime_mode`, `regime_votes`, `delta_6m_z_mean`, `z_threshold`, fallback 여부
+  - Mid: `price_signal`, `macro_signal`, `breadth_signal`, `majority_source`, `breadth_spread`
+  - Short: primary/secondary 판정, confirmation count/list, `smallcap_stress` 등
+- 하위 호환: 과거 스냅샷(신규 컬럼 없음)은 DAG fallback 문구로 안전 처리
+
+### feat(dag): Telegram 메시지 `시장 컨텍스트 + 시장 근거` 포맷 확장
+- 기존 `시장` 상태 표시를 `시장 컨텍스트` 섹션으로 정리:
+  - 장기/중기/단기 3줄 + 요약 설명 문장
+- 신규 `시장 근거` 섹션 추가(항상 4줄):
+  - `매크로,정책`
+  - `가격`
+  - `수급/구조`
+  - `심리`
+- detail JSON 누락/파싱 실패 시 기본 문구 고정:
+  - `영향 근거 없음`
+- LLM 호출 없이 결정론적 템플릿으로 렌더링
+
+### test: AHS detail 및 Telegram 포맷 회귀 테스트 추가
+- `tests/pipeline/strategy_engine/test_axis_horizon_state.py`
+  - detail_json 컬럼 존재/JSON 유효성 검증
+- `tests/pipeline/strategy_engine/test_mid_engine.py`
+  - mid detail에 signal source/value 반영 검증
+- `tests/pipeline/strategy_engine/test_short_engine.py`
+  - short detail에 confirmation/smallcap 필드 반영 검증
+- `tests/pipeline/strategy_engine/test_strategy_engine_dag_report.py`
+  - 컨텍스트 3축 표시 검증
+  - 근거 4축 fallback(`영향 근거 없음`) 검증
+
+### docs/telegram: 용어 혼동 제거 표기 정비
+- Telegram 컨텍스트 문구를 아래 별칭으로 통일:
+  - `중기 성향` (`mid_regime`)
+  - `단기 공황 여부` (`is_panic = not risk_gate`)
+  - `전술 실행` (`run_universe`: 허용/제한)
+- 내부 스키마/로직(`risk_gate`, `run_universe`, `mid_regime`)은 그대로 유지
+- 목적: 상태 라벨과 실행 스위치의 의미를 분리해 사용자 해석 혼동 최소화
+
 ## v2026.02.22c — Mid Engine v1.1 spread 버그 수정 + Short Engine 보강
 
 ### fix(strategy_engine): Mid Engine breadth 부호 반전 버그 수정 (v1.1)

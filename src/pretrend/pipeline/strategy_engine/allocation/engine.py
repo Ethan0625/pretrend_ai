@@ -9,7 +9,7 @@ SOT: docs/strategy_engine_design.md §D2, §F
 v0 규칙 (range-maintenance):
   1. 현재 비율이 목표 범위 내 → HOLD
   2. 범위 밖 → adjustment_limit 이내 이동
-  3. risk_gate=false → INCREASE 금지
+  3. risk_gate=false → INCREASE 금지 (is_panic=True)
   4. run_universe=false → INCREASE 금지
   5. next_invested_ratio ∈ [0.0, 1.0]
   6. step_size 단위 양자화 (ROUND_DOWN)
@@ -17,7 +17,7 @@ v0 규칙 (range-maintenance):
 v1 규칙 (target-seeking, f(long_phase)):
   - long_phase → 목표 비율 조회 (_ALLOCATION_V1_MAP)
   - 목표로 gradual movement (adj_limit, step_size)
-  - risk_gate=false → INCREASE 허용 (저점매수)
+  - risk_gate=false → INCREASE 허용 (저점매수, is_panic=True)
   - run_universe=false → INCREASE 금지
 
 v2 규칙 (2D lookup, f(long_phase, mid_regime)):

@@ -9,7 +9,9 @@ Contract: docs/architecture/market_structure_composer_contract.md §4, §6
 
 v0 판정 규칙 (상태 조합 기반):
   run_universe: long=RECESSION + mid=RISK_OFF → false, 그 외 true
+    - 사용자 표시 별칭: "전술 실행 허용 스위치"
   risk_gate: short=PANIC → false, 그 외 true
+    - 사용자 표시 별칭: "단기 공황 여부" (is_panic = not risk_gate)
 """
 from __future__ import annotations
 
@@ -25,7 +27,10 @@ logger = logging.getLogger(__name__)
 
 
 def _judge_run_universe(long_phase: str, mid_regime: str) -> bool:
-    """Universe 실행 여부 판정 (v0 규칙)."""
+    """Universe 실행 여부 판정 (v0 규칙).
+
+    사용자 표시 별칭: 전술 실행 허용 스위치.
+    """
     # RECESSION + RISK_OFF → 신규 매수 허용 안 함
     if long_phase == "RECESSION" and mid_regime == "RISK_OFF":
         return False
@@ -50,6 +55,11 @@ def _judge_risk_gate(short_signal: str) -> bool:
       long 관점은 침체이나 단기 급락(PANIC)이 아닌 상태.
       INCREASE 자체는 허용되지만 allocation target이 0.10이므로
       실질적으로 DECREASE 신호가 발생한다.
+
+    사용자 표시 별칭:
+      is_panic = not risk_gate
+      - is_panic=True  → 단기 공황 여부: 예
+      - is_panic=False → 단기 공황 여부: 아니오
     """
     return short_signal != "PANIC"
 
