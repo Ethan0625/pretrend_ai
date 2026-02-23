@@ -5,7 +5,7 @@
 | --- | --- |
 | Status | Active |
 | Structure Policy | 구조는 고정, 기능은 확장 |
-| Effective Date | 2026-02-13 |
+| Effective Date | 2026-02-23 |
 | Change Tracking | docs/changelog.md |
 
 ## Capability Matrix
@@ -36,7 +36,7 @@
 
 ## 1. 문서 목적
 ### 책임
-- Allocation Engine v0의 입력/출력/불변식을 고정한다.
+- Allocation Engine(v0/v1/v2)의 입력/출력/불변식을 고정한다.
 - 총 투자 비율 조절(`invested_ratio`)을 계약 형태로 명확히 한다.
 
 ### Non-goals
@@ -47,11 +47,11 @@
 ### Scope
 - 주기 기반 총 투자 비율 조절
 - `adjustment_limit` 기반 분할 조정
-- `risk_gate` 기반 증가 차단 브레이크
+- `risk_gate`/`run_universe` 기반 증감 허용 규칙
 
 ### Non-goals
 - 즉시 올인/올아웃 실행
-- v1+ 고도화(`volatility-aware`, `regime-weighted`) 구현
+- v3+ 고도화(`volatility-aware`, `regime-weighted`) 구현
 
 ## 3. Inputs
 ### 책임
@@ -102,15 +102,23 @@ current_invested_ratio: 0.62
 
 ## 4. Rules
 ### 책임
-- v0 조정 규칙을 수치 튜닝 없이 형태로만 고정한다.
+- allocation mode별 조정 규칙을 수치 튜닝 없이 형태로 고정한다.
 
 ### Non-goals
 - 목표 범위/조정폭 최적값 정의
 
-- 목표 범위 밖이면 `adjustment_limit` 이내에서만 이동
-- `risk_gate=false`이면 INCREASE 금지
-- `run_universe=false`이면 증가 금지(유지 또는 감소만 허용)
-- 조정은 총 투자 비율 단일 축에서만 수행
+- 공통:
+  - 조정은 총 투자 비율 단일 축에서만 수행
+  - `run_universe=false`이면 `INCREASE` 금지(모든 mode 공통)
+  - `next_invested_ratio`는 `[0.0, 1.0]` 범위를 유지
+  - `abs(delta_ratio) <= adjustment_limit` 제약 유지
+  - `step_size > 0`이면 양자화 규칙을 적용
+- v0(range-maintenance):
+  - 목표 범위(`[target_invested_lower, target_invested_upper]`) 기반 유지
+  - `risk_gate=false`이면 `INCREASE` 금지
+- v1(target-seeking), v2(2D target-seeking):
+  - 상태 기반 목표 비율 추적(target-seeking)
+  - `risk_gate=false`여도 `INCREASE` 허용(저점매수)
 
 ## 5. Outputs
 ### 책임
@@ -140,15 +148,17 @@ current_invested_ratio: 0.62
 
 ## 7. Invariants
 ### 책임
-- v0 핵심 제약을 강제한다.
+- mode 공존 시에도 핵심 제약을 강제한다.
 
 ### Non-goals
 - 투자 성과 보장
 
 - `next_invested_ratio`는 `[0.0, 1.0]` 범위를 벗어나지 않는다.
 - `abs(delta_ratio) <= adjustment_limit`
-- `risk_gate=false`이면 `action != INCREASE`
 - `run_universe=false`이면 `action=INCREASE` 금지
+- `risk_gate` 처리:
+  - v0: `risk_gate=false`이면 `action != INCREASE`
+  - v1/v2: `risk_gate=false`여도 `INCREASE` 허용
 - 즉시 올인/올아웃 금지(단일 주기에서 극단 이동 금지)
 - `step_size > 0`이면 `delta_ratio`는 `step_size` 단위로 양자화된다(rounding_policy 적용)
 - Allocation은 Composer 출력만 의존하며, Policy Config를 직접 참조하지 않는다.
@@ -162,12 +172,14 @@ current_invested_ratio: 0.62
 
 - **AE1**: 입력/출력 필수 컬럼 및 타입 검증
 - **AE2**: `adjustment_limit` 제약(`abs(delta_ratio) <= adjustment_limit`) 검증
-- **AE3**: `risk_gate=false` 시 증가 차단 검증
-- **AE4**: `run_universe=false` 시 증가 차단 검증
+- **AE-v0**: `risk_gate=false` 시 `INCREASE` 차단 검증
+- **AE-v1**: `risk_gate=false` 시 `INCREASE` 허용 검증
+- **AE-v2**: `risk_gate=false` 시 `INCREASE` 허용 + `run_universe=false` 시 `INCREASE` 차단 검증
 
 ---
 
 ## Change History
 | Date | Summary | References |
 | --- | --- | --- |
+| 2026-02-23 | v0/v1/v2 공존 계약으로 확장: mode별 risk_gate 규칙과 DoD 분리 명시 | docs/changelog.md |
 | 2026-02-13 | 파일명 버전 제거 및 문서 표준 블록(Document Status/Capability Matrix) 적용 | docs/changelog.md |

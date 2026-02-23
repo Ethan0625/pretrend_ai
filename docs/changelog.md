@@ -1,5 +1,12 @@
 # Changelog
 
+## 현재 유효 규칙 (As-Is)
+- Strategy Engine SOT: `docs/strategy_engine_design.md`
+- Allocation 계약(SOT): `docs/architecture/allocation_engine_contract.md`
+- 운영 실행 가이드: `docs/operation_guide.md`
+
+> 참고: changelog 과거 섹션은 작성 시점 원문을 보존한다.
+
 ## v2026.02.22c — Mid Engine v1.1 spread 버그 수정 + Short Engine 보강
 
 ### fix(strategy_engine): Mid Engine breadth 부호 반전 버그 수정 (v1.1)
