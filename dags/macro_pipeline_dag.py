@@ -23,8 +23,8 @@ DEFAULT_ARGS: Dict[str, Any] = {
     dag_id="macro_pipeline_dag",
     description="FRED Macro Bronze→Silver E2E 파이프라인 (매일, 누락 대비 롤링 재수집)",
     default_args=DEFAULT_ARGS,
-    start_date=pendulum.datetime(2010, 1, 1, tz="UTC"),
-    schedule_interval="0 9 * * *",  # 매일 09:00 UTC
+    start_date=pendulum.datetime(2010, 1, 1, tz="Asia/Seoul"),
+    schedule_interval="0 9 * * *",  # 매일 09:00 KST
     catchup=False,          # 과거 월들도 필요하면 backfill 가능
     max_active_runs=1,     # 한 번에 하나만 실행
     tags=["pretrend", "macro", "bronze", "silver"],

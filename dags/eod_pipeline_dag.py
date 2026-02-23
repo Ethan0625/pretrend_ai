@@ -72,8 +72,8 @@ DEFAULT_ARGS: Dict[str, Any] = {
     description="미국장 기준 마지막 완전 거래일 EOD Bronze→Silver→Gold E2E 파이프라인",
     default_args=DEFAULT_ARGS,
     # 매일 한 번 돌리되, 실제 대상 날짜는 get_last_us_trading_date()로 결정
-    start_date=pendulum.datetime(2010, 1, 1, tz="UTC"),
-    schedule_interval="0 8 * * *",  # 매일 08:00 (Airflow 타임존 기준)
+    start_date=pendulum.datetime(2010, 1, 1, tz="Asia/Seoul"),
+    schedule_interval="0 8 * * *",  # 매일 08:00 KST (미국 장 마감 후 2시간+)
     catchup=False,
     max_active_runs=1,
     tags=["pretrend", "eod", "bronze", "silver", "gold"],
