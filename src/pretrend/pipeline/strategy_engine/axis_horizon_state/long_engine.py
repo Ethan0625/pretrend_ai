@@ -19,6 +19,7 @@ v1 라벨 로직:
 """
 from __future__ import annotations
 
+import json
 import logging
 from typing import Optional
 
@@ -28,6 +29,12 @@ import pandas as pd
 from .schema import LONG_PHASE_ENUM, LONG_OUTPUT_COLUMNS
 
 logger = logging.getLogger(__name__)
+
+
+def _safe_float(val: Optional[float]) -> Optional[float]:
+    if val is None or pd.isna(val):
+        return None
+    return float(val)
 
 
 def _classify_long_phase(
@@ -133,19 +140,30 @@ def build_long_phase(
         mac["delta_6m_z"] = float("nan")
 
     # trade_date별로 regime 다수결 + z-score 평균 집계
-    agg = mac.groupby("trade_date").agg(
-        regime_mode=("regime", lambda x: x.mode().iloc[0] if not x.mode().empty else None),
-        delta_6m_z_mean=("delta_6m_z", "mean"),
-    ).reset_index()
-
     rows = []
-    for _, row in agg.iterrows():
-        phase = _classify_long_phase(row.get("regime_mode"), row.get("delta_6m_z_mean"), threshold=z_threshold)
+    for td, grp in mac.groupby("trade_date", sort=True):
+        regime_vals = grp["regime"].dropna() if "regime" in grp.columns else pd.Series(dtype=object)
+        regime_mode = regime_vals.mode().iloc[0] if not regime_vals.mode().empty else None
+        delta_6m_z_mean = grp["delta_6m_z"].mean() if "delta_6m_z" in grp.columns else None
+        phase = _classify_long_phase(regime_mode, delta_6m_z_mean, threshold=z_threshold)
         assert phase in LONG_PHASE_ENUM, f"Invalid phase: {phase}"
+
+        regime_votes = (
+            regime_vals.astype(str).str.lower().value_counts().to_dict()
+            if not regime_vals.empty else {}
+        )
+        detail = {
+            "regime_mode": None if regime_mode is None or pd.isna(regime_mode) else str(regime_mode).lower(),
+            "regime_votes": regime_votes,
+            "delta_6m_z_mean": _safe_float(delta_6m_z_mean),
+            "z_threshold": float(z_threshold),
+            "used_regime_only": delta_6m_z_mean is None or pd.isna(delta_6m_z_mean),
+        }
         rows.append({
-            "trade_date": row["trade_date"],
+            "trade_date": td,
             "long_phase": phase,
             "long_phase_confidence": None,
+            "long_detail_json": json.dumps(detail, sort_keys=True),
             "source_run_id": run_id,
         })
 

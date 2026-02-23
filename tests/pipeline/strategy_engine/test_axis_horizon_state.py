@@ -1,11 +1,12 @@
 """
-Axis × Horizon State 12-slot 통합 테스트.
+Axis × Horizon State (3-state + detail) 통합 테스트.
 
 SOT: docs/strategy_engine_design.md §A3, §F
-DoD: 12 슬롯 존재 검증, ENUM 유효성, 결측→UNKNOWN
+DoD: 상태/근거 컬럼 존재 검증, ENUM 유효성, 결측→UNKNOWN
 """
 from __future__ import annotations
 
+import json
 from datetime import date
 
 import pandas as pd
@@ -99,7 +100,7 @@ def full_bundle(gold_macro, gold_eod) -> AxisFeatureBundle:
     )
 
 
-class TestAxisHorizonState12Slot:
+class TestAxisHorizonState:
     def test_columns_present(self, full_bundle):
         result = build_axis_horizon_state(full_bundle, run_id="test_run")
         for col in AXIS_HORIZON_STATE_COLUMNS:
@@ -124,6 +125,15 @@ class TestAxisHorizonState12Slot:
         assert result["long_phase"].notna().all()
         assert result["mid_regime"].notna().all()
         assert result["short_signal"].notna().all()
+
+    def test_detail_json_columns_valid(self, full_bundle):
+        """detail_json 컬럼은 JSON 직렬화 가능한 dict 문자열이어야 한다."""
+        result = build_axis_horizon_state(full_bundle, run_id="test_run")
+        for col in ("long_detail_json", "mid_detail_json", "short_detail_json"):
+            assert col in result.columns
+            for raw in result[col].dropna():
+                parsed = json.loads(raw)
+                assert isinstance(parsed, dict)
 
     def test_run_id_propagated(self, full_bundle):
         result = build_axis_horizon_state(full_bundle, run_id="my_run_123")

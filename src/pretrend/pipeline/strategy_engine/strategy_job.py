@@ -110,7 +110,7 @@ class StrategyJobRunner:
             row_count=len(macro_policy) + len(price_vol) + len(flow) + len(sentiment),
         )
 
-        # 3) Build Axis×Horizon State (12-slot)
+        # 3) Build Axis×Horizon State (3-state 집약 + detail)
         df_ahs = build_axis_horizon_state(bundle, run_id=run_id, long_z_threshold=self.long_z_threshold)
         result.axis_horizon_state = StrategyStageResult(row_count=len(df_ahs))
         if not df_ahs.empty:

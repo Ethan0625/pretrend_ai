@@ -21,8 +21,9 @@ v1 라벨 로직:
 """
 from __future__ import annotations
 
+import json
 import logging
-from typing import Optional
+from typing import Any, Dict, Optional, Tuple
 
 import pandas as pd
 
@@ -130,6 +131,87 @@ def _classify_short_signal(
     return "STABLE"
 
 
+def _evaluate_short_signal(
+    spy_ret_1d: Optional[float],
+    spy_vol_20d: Optional[float],
+    volume_zscore: Optional[float] = None,
+    spy_intraday_range: Optional[float] = None,
+    tlt_ret_1d: Optional[float] = None,
+    iau_ret_1d: Optional[float] = None,
+    iwm_spy_vol_spread: Optional[float] = None,
+) -> Tuple[str, Dict[str, Any]]:
+    if spy_ret_1d is None or pd.isna(spy_ret_1d) or spy_vol_20d is None or pd.isna(spy_vol_20d):
+        detail = {
+            "primary_panic": False,
+            "primary_relief": False,
+            "secondary_panic_candidate": False,
+            "secondary_relief_candidate": False,
+            "secondary_confirm_count": 0,
+            "secondary_confirmations": [],
+            "risk_on_confirm": False,
+            "smallcap_stress": False,
+            "used_unknown_fallback": True,
+        }
+        return "UNKNOWN", detail
+
+    vol_spike = _is_valid(volume_zscore) and volume_zscore > _VOL_SPIKE_THRESHOLD
+    wide_intraday = _is_valid(spy_intraday_range) and spy_intraday_range > _INTRADAY_WIDE_THRESHOLD
+    flight_to_safety = (
+        _is_valid(tlt_ret_1d) and tlt_ret_1d > _FLIGHT_RET_THRESHOLD
+        and _is_valid(iau_ret_1d) and iau_ret_1d > _FLIGHT_RET_THRESHOLD
+    )
+    risk_on_confirm = (
+        _is_valid(tlt_ret_1d) and tlt_ret_1d < _RISK_ON_CONFIRM_THRESHOLD
+        and _is_valid(iau_ret_1d) and iau_ret_1d < _RISK_ON_CONFIRM_THRESHOLD
+    )
+    smallcap_stress = (
+        _is_valid(iwm_spy_vol_spread)
+        and iwm_spy_vol_spread > _IWM_SPY_VOL_SPREAD_THRESHOLD
+    )
+    confirmation_flags = {
+        "vol_spike": bool(vol_spike),
+        "wide_intraday": bool(wide_intraday),
+        "flight_to_safety": bool(flight_to_safety),
+        "smallcap_stress": bool(smallcap_stress),
+    }
+    confirmations = [k for k, v in confirmation_flags.items() if v]
+    confirm_count = len(confirmations)
+
+    primary_panic = spy_ret_1d < _PANIC_RET and spy_vol_20d > _PANIC_VOL
+    secondary_panic_candidate = (
+        spy_ret_1d < _SECONDARY_PANIC_RET and spy_vol_20d > _SECONDARY_PANIC_VOL
+    )
+    primary_relief = spy_ret_1d > _RELIEF_RET and spy_vol_20d < _RELIEF_VOL
+    secondary_relief_candidate = (
+        spy_ret_1d > _SECONDARY_RELIEF_RET and spy_vol_20d < _SECONDARY_RELIEF_VOL
+    )
+
+    signal = "STABLE"
+    if primary_panic:
+        signal = "PANIC"
+    elif secondary_panic_candidate and confirm_count >= 2:
+        signal = "PANIC"
+    elif primary_relief:
+        signal = "RELIEF"
+    elif secondary_relief_candidate and risk_on_confirm:
+        signal = "RELIEF"
+
+    detail = {
+        "spy_ret_1d": float(spy_ret_1d),
+        "spy_vol_20d": float(spy_vol_20d),
+        "primary_panic": bool(primary_panic),
+        "primary_relief": bool(primary_relief),
+        "secondary_panic_candidate": bool(secondary_panic_candidate),
+        "secondary_relief_candidate": bool(secondary_relief_candidate),
+        "secondary_confirm_count": int(confirm_count),
+        "secondary_confirmations": confirmations,
+        "risk_on_confirm": bool(risk_on_confirm),
+        "smallcap_stress": bool(smallcap_stress),
+        "used_unknown_fallback": False,
+    }
+    return signal, detail
+
+
 def build_short_signal(
     price_vol: pd.DataFrame,
     flow: pd.DataFrame,
@@ -174,6 +256,7 @@ def build_short_signal(
             "trade_date": sorted(trade_dates),
             "short_signal": "UNKNOWN",
             "short_signal_confidence": None,
+            "short_detail_json": None,
             "source_run_id": run_id,
         })[SHORT_OUTPUT_COLUMNS]
 
@@ -223,7 +306,7 @@ def build_short_signal(
         iau_ret = sent_iau.get(td)
         iwm_vol_spread = sent_iwm_vol_spread.get(td)
 
-        signal = _classify_short_signal(
+        signal, detail = _evaluate_short_signal(
             spy_ret_1d, spy_vol_20d,
             volume_zscore=vol_zscore,
             spy_intraday_range=spy_intraday,
@@ -237,6 +320,7 @@ def build_short_signal(
             "trade_date": td,
             "short_signal": signal,
             "short_signal_confidence": None,
+            "short_detail_json": json.dumps(detail, sort_keys=True),
             "source_run_id": run_id,
         })
 

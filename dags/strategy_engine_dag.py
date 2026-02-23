@@ -1,10 +1,10 @@
 """
-Strategy Engine DAG — 매일 10:00 UTC 실행.
+Strategy Engine DAG — 매일 10:00 KST 실행.
 
 의존성:
-  - macro_pipeline_dag  (09:00 UTC, ~09:10 완료)
-  - eod_pipeline_dag    (08:00 UTC, ~08:20 완료)
-  → 고정 시간(10:00 UTC)으로 의존성 감지 없이 순차 실행 보장.
+  - macro_pipeline_dag  (09:00 KST, ~09:10 완료)
+  - eod_pipeline_dag    (08:00 KST, ~08:20 완료)
+  → 고정 시간(10:00 KST)으로 의존성 감지 없이 순차 실행 보장.
 
 태스크:
   1. run_strategy_engine  — StrategyJobRunner 실행, XCom 반환
@@ -24,6 +24,12 @@ from typing import Any, Dict, List, Optional
 
 import pendulum
 from airflow.decorators import dag, task
+from pretrend.pipeline.strategy_engine.report_context import (
+    build_context_lines as _build_context_lines,
+    build_evidence_lines as _build_evidence_lines,
+    build_switch_lines as _build_switch_lines,
+    safe_json_dict as _safe_json_dict,
+)
 
 
 DEFAULT_ARGS: Dict[str, Any] = {
@@ -116,15 +122,41 @@ _V2_TARGET_MAP: dict = {
 _CORE_HOLD: frozenset = frozenset({"SPY", "SCHD", "IAU"})  # 항상 보유 — 매일 표시 생략
 _WEEKDAY_KO = ["월", "화", "수", "목", "금", "토", "일"]
 
+# asset_group 한국어 라벨 + 이모지
+_GROUP_LABEL: Dict[str, str] = {
+    "COUNTRY": "🌍 개별국가",
+    "COMMODITY": "⛽️ 원자재",
+    "BOND": "🏦 채권",
+    "SECTOR": "🏭 섹터",
+}
+
+# asset_name → 한국어 (eod_observability.py SOT 기준)
+_ASSET_NAME_KO: Dict[str, str] = {
+    # COUNTRY
+    "SOUTH_KOREA": "한국", "CHINA": "중국", "JAPAN": "일본", "INDIA": "인도",
+    # COMMODITY
+    "GOLD": "금", "GOLD_MINERS": "금광", "SILVER": "은", "CRUDE_OIL": "원유",
+    "OIL_PRODUCERS": "석유생산", "NATURAL_GAS": "천연가스", "AGRICULTURE": "농산물",
+    # BOND
+    "US_TREASURY_20Y": "미국채20Y", "HIGH_YIELD": "하이일드", "IG_CORPORATE": "투자등급",
+    "SHORT_TERM": "단기채", "TIPS": "물가연동",
+    # SECTOR
+    "HEALTH_CARE": "헬스케어", "ENERGY": "에너지", "SEMICONDUCTOR": "반도체",
+    "FINANCIALS": "금융", "REGIONAL_BANKS": "지방은행", "NUCLEAR": "원자력",
+    "INFORMATION_TECH": "IT", "MATERIALS": "소재", "CONSUMER_DISCRETIONARY": "경기소비재",
+    "CONSUMER_STAPLES": "필수소비재", "COMMUNICATION_SERVICES": "커뮤니케이션",
+    "REAL_ESTATE": "부동산", "UTILITIES": "유틸리티", "INDUSTRIALS": "산업재",
+}
+
 
 # ── DAG ──────────────────────────────────────────────────
 
 @dag(
     dag_id="strategy_engine_dag",
-    description="Strategy Engine 7단계 파이프라인 + Telegram 리포트 (매일 10:00 UTC)",
+    description="Strategy Engine 7단계 파이프라인 + Telegram 리포트 (매일 10:00 KST)",
     default_args=DEFAULT_ARGS,
-    start_date=pendulum.datetime(2026, 1, 1, tz="UTC"),
-    schedule_interval="0 10 * * *",  # EOD(08:00) + Macro(09:00) 완료 후
+    start_date=pendulum.datetime(2026, 1, 1, tz="Asia/Seoul"),
+    schedule_interval="0 10 * * *",  # EOD(08:00 KST) + Macro(09:00 KST) 완료 후
     catchup=False,
     max_active_runs=1,
     tags=["pretrend", "strategy", "telegram"],
@@ -133,7 +165,7 @@ def strategy_engine_pipeline():
     """
     Strategy Engine E2E + Telegram 리포트.
 
-    - EOD/Macro DAG 완료를 고정 스케줄(10:00 UTC)로 암묵적 보장.
+    - EOD/Macro DAG 완료를 고정 스케줄(10:00 KST)로 암묵적 보장.
     - current_invested_ratio: 최신 exposure 스냅샷에서 자동 로드.
     - Telegram 환경변수 미설정 시 알림 스킵 (파이프라인 성공 유지).
     """
@@ -185,6 +217,7 @@ def strategy_engine_pipeline():
         strategy_root = data_root / "strategy"
 
         # 스냅샷 로드
+        df_ahs = _load_snapshot(strategy_root, "axis_horizon_state", decision_date)
         df_mp = _load_snapshot(strategy_root, "market_position", decision_date)
         df_alloc = _load_snapshot(strategy_root, "exposure", decision_date)
         df_univ = _load_snapshot(strategy_root, "what_to_hold", decision_date)
@@ -200,6 +233,14 @@ def strategy_engine_pipeline():
             short_signal = row.get("short_signal", "UNKNOWN")
             run_universe = bool(row.get("run_universe", False))
             risk_gate = bool(row.get("risk_gate", False))
+        long_detail: Dict[str, Any] = {}
+        mid_detail: Dict[str, Any] = {}
+        short_detail: Dict[str, Any] = {}
+        if not df_ahs.empty:
+            row = df_ahs.iloc[-1]
+            long_detail = _safe_json_dict(row.get("long_detail_json"))
+            mid_detail = _safe_json_dict(row.get("mid_detail_json"))
+            short_detail = _safe_json_dict(row.get("short_detail_json"))
 
         # ── Allocation ──
         action = "HOLD"
@@ -211,8 +252,11 @@ def strategy_engine_pipeline():
             next_ratio = float(row.get("next_invested_ratio", next_ratio))
             delta = float(row.get("delta_ratio", 0.0))
 
-        # ── Universe — 전술 ETF + RS 점수 ──────────────────────
-        tactical_with_rs: List[str] = []
+        # ── Universe — 전술 ETF (asset_group별 그룹핑 + RS) ────
+        from pretrend.pipeline.config.eod_observability import LABEL_BY_SYMBOL_V1
+
+        # {asset_group: [(한국어이름, symbol, RS), ...]} — RS 내림차순
+        tactical_by_group: Dict[str, List[tuple]] = {}
         if not df_univ.empty:
             if "rebalance_date" in df_univ.columns:
                 latest = df_univ["rebalance_date"].max()
@@ -223,11 +267,14 @@ def strategy_engine_pipeline():
                 df_tac = df_univ[~df_univ["symbol"].isin(_CORE_HOLD)]
                 if "relative_strength" in df_tac.columns:
                     df_tac = df_tac.sort_values("relative_strength", ascending=False)
-                for _, r in df_tac.head(5).iterrows():
-                    rs = r.get("relative_strength", None)
+                for _, r in df_tac.iterrows():
                     sym = r["symbol"]
-                    entry = f"{sym} {float(rs):+.1%}" if rs is not None else sym
-                    tactical_with_rs.append(entry)
+                    rs = r.get("relative_strength", None)
+                    group = r.get("asset_group", "UNKNOWN")
+                    meta = LABEL_BY_SYMBOL_V1.get(sym, {})
+                    asset_name = meta.get("asset_name", sym)
+                    name_ko = _ASSET_NAME_KO.get(asset_name, asset_name)
+                    tactical_by_group.setdefault(group, []).append((name_ko, sym, rs))
 
         # ── Sell ─────────────────────────────────────────────
         sell_budget = 0.0
@@ -246,33 +293,11 @@ def strategy_engine_pipeline():
         )
 
         # ── 표시 텍스트 ───────────────────────────────────────
-        _LONG_LABEL = {
-            "EXPANSION": "확장기", "LATE_CYCLE": "후기사이클",
-            "SLOWDOWN": "둔화기", "RECESSION": "침체기",
-            "RECOVERY": "회복기", "UNKNOWN": "판단불가",
-        }
-        _MID_LABEL = {
-            "RISK_ON": "위험선호", "NEUTRAL": "중립",
-            "RISK_OFF": "위험회피", "UNKNOWN": "판단불가",
-        }
-        _SHORT_LABEL = {
-            "PANIC": "공황", "RELIEF": "안도",
-            "NEUTRAL": "중립", "UNKNOWN": "판단불가",
-        }
-        _LONG_SHORT = {
-            "EXPANSION": "확장", "LATE_CYCLE": "후기", "SLOWDOWN": "둔화",
-            "RECESSION": "침체", "RECOVERY": "회복", "UNKNOWN": "불가",
-        }
-        _MID_SHORT = {
-            "RISK_ON": "위험선호", "NEUTRAL": "중립",
-            "RISK_OFF": "위험회피", "UNKNOWN": "불가",
-        }
         _ACTION_KO = {"INCREASE": "비중확대", "DECREASE": "비중축소", "HOLD": "유지"}
 
         weekday = _WEEKDAY_KO[decision_date.weekday()]
         action_emoji = {"INCREASE": "📈", "DECREASE": "📉", "HOLD": "⏸"}.get(action, "❓")
         is_panic = (short_signal == "PANIC")
-        driver = f"{_LONG_SHORT.get(long_phase, long_phase)}+{_MID_SHORT.get(mid_regime, mid_regime)}"
         cur_pct = strategy_summary["current_invested_ratio"]
 
         # ── 메시지 조립 ───────────────────────────────────────
@@ -281,24 +306,49 @@ def strategy_engine_pipeline():
             "",
             (
                 f"{action_emoji} <b>{_ACTION_KO.get(action, action)}</b>  "
-                f"{cur_pct:.0%} → {next_ratio:.0%}  |  목표 <b>{v2_target:.0%}</b> ({driver})"
+                f"{cur_pct:.0%} → {next_ratio:.0%}  |  목표 {v2_target:.0%}"
             ),
         ]
 
         if is_panic:
-            lines += ["", "⚠️ 단기 공황 — 이번 주 매도 신호 동결 가능"]
+            lines += ["", "⚠️ 단기 공황 — 매도 동결"]
 
+        # ── 시장 컨텍스트 (3줄 + 설명) ──
         lines += [
             "",
-            (
-                f"시장: {_LONG_LABEL.get(long_phase, long_phase)}"
-                f" | {_MID_LABEL.get(mid_regime, mid_regime)}"
-                f" | {_SHORT_LABEL.get(short_signal, short_signal)}"
-            ),
+            "── 시장 컨텍스트 ──",
         ]
+        lines += _build_context_lines(long_phase, mid_regime, short_signal)
+        lines += _build_switch_lines(risk_gate=risk_gate, run_universe=run_universe)
 
-        if tactical_with_rs:
-            lines += ["", f"🎯 {' · '.join(tactical_with_rs)}"]
+        # ── 시장 근거 (4축) ──
+        lines += [
+            "",
+            "── 시장 근거 ──",
+        ]
+        lines += _build_evidence_lines(long_detail, mid_detail, short_detail)
+
+        # ── 전술 ETF (asset_group별 그룹핑) ──
+        if tactical_by_group:
+            lines += ["", "── 전술 ETF (SPY 대비 20일 상대강도) ──"]
+            # 표시 순서: COUNTRY → COMMODITY → BOND → SECTOR
+            first_group = True
+            for group in ["COUNTRY", "COMMODITY", "BOND", "SECTOR"]:
+                entries = tactical_by_group.get(group)
+                if not entries:
+                    continue
+                group_label = _GROUP_LABEL.get(group, group)
+                items = []
+                for name_ko, sym, rs in entries:
+                    if rs is not None:
+                        items.append(f"{name_ko} {sym} {float(rs):+.1%}")
+                    else:
+                        items.append(f"{name_ko} {sym}")
+                if not first_group:
+                    lines.append("")
+                lines.append(f"{group_label}")
+                lines.append(f"→ {' · '.join(items)}")
+                first_group = False
 
         if sell_budget > 0:
             sell_order = " → ".join(sell_list) if sell_list else "—"

@@ -19,9 +19,10 @@ v1 라벨 로직:
 """
 from __future__ import annotations
 
+import json
 import logging
 from collections import Counter
-from typing import Optional
+from typing import Any, Dict, Optional
 
 import pandas as pd
 
@@ -63,6 +64,16 @@ def _majority_vote(signals: list) -> str:
         if s in top_signals:
             return s
     return list(top_signals)[0]
+
+
+def _majority_source(signals: list, selected_signal: str) -> str:
+    if selected_signal == "UNKNOWN":
+        return "unknown"
+    labels = ["price", "macro", "breadth"]
+    for idx, sig in enumerate(signals):
+        if sig == selected_signal and idx < len(labels):
+            return labels[idx]
+    return "unknown"
 
 
 def _classify_price_signal(
@@ -133,6 +144,50 @@ def _classify_mid_regime(
     return _majority_vote([price_signal, macro_signal, breadth_signal])
 
 
+def _compute_mid_decision(
+    spy_ret_20d: Optional[float],
+    spy_vol_20d: Optional[float],
+    macro_regime: Optional[str] = None,
+    breadth_spread: Optional[float] = None,
+) -> Dict[str, Any]:
+    price_signal = _classify_price_signal(spy_ret_20d, spy_vol_20d)
+
+    macro_signal = "UNKNOWN"
+    macro_regime_norm: Optional[str] = None
+    if macro_regime is not None:
+        try:
+            if not pd.isna(macro_regime):
+                macro_regime_norm = str(macro_regime).lower()
+                macro_signal = _MACRO_TO_SIGNAL.get(macro_regime_norm, "UNKNOWN")
+        except (TypeError, ValueError):
+            pass
+
+    breadth_signal = "UNKNOWN"
+    if breadth_spread is not None:
+        try:
+            if not pd.isna(breadth_spread):
+                if breadth_spread > _BREADTH_SPREAD_HIGH:
+                    breadth_signal = "RISK_ON"
+                elif breadth_spread < _BREADTH_SPREAD_LOW:
+                    breadth_signal = "RISK_OFF"
+                else:
+                    breadth_signal = "NEUTRAL"
+        except (TypeError, ValueError):
+            pass
+
+    signals = [price_signal, macro_signal, breadth_signal]
+    selected = _majority_vote(signals)
+    return {
+        "selected_signal": selected,
+        "price_signal": price_signal,
+        "macro_signal": macro_signal,
+        "breadth_signal": breadth_signal,
+        "macro_regime": macro_regime_norm,
+        "breadth_spread": None if breadth_spread is None or pd.isna(breadth_spread) else float(breadth_spread),
+        "majority_source": _majority_source(signals, selected),
+    }
+
+
 def build_mid_regime(
     price_vol: pd.DataFrame,
     macro_policy: Optional[pd.DataFrame] = None,
@@ -174,6 +229,7 @@ def build_mid_regime(
             "trade_date": trade_dates,
             "mid_regime": "UNKNOWN",
             "mid_regime_confidence": None,
+            "mid_detail_json": None,
             "source_run_id": run_id,
         })[MID_OUTPUT_COLUMNS]
 
@@ -203,17 +259,19 @@ def build_mid_regime(
         macro_regime = macro_regime_by_date.get(td)
         breadth_spread = breadth_by_date.get(td)
 
-        regime = _classify_mid_regime(
+        decision = _compute_mid_decision(
             row.get("ret_20d"),
             row.get("vol_20d"),
             macro_regime=macro_regime,
             breadth_spread=breadth_spread,
         )
+        regime = decision["selected_signal"]
         assert regime in MID_REGIME_ENUM, f"Invalid regime: {regime}"
         rows.append({
             "trade_date": td,
             "mid_regime": regime,
             "mid_regime_confidence": None,
+            "mid_detail_json": json.dumps(decision, sort_keys=True),
             "source_run_id": run_id,
         })
 

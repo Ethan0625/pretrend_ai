@@ -47,6 +47,7 @@ LONG_OUTPUT_COLUMNS: List[str] = [
     "trade_date",
     "long_phase",
     "long_phase_confidence",
+    "long_detail_json",
     "source_run_id",
 ]
 
@@ -54,6 +55,7 @@ MID_OUTPUT_COLUMNS: List[str] = [
     "trade_date",
     "mid_regime",
     "mid_regime_confidence",
+    "mid_detail_json",
     "source_run_id",
 ]
 
@@ -61,18 +63,22 @@ SHORT_OUTPUT_COLUMNS: List[str] = [
     "trade_date",
     "short_signal",
     "short_signal_confidence",
+    "short_detail_json",
     "source_run_id",
 ]
 
-# ── 12-Slot Combined Output ──────────────────────────────
+# ── Combined Output (3-state + details) ──────────────────
 
 AXIS_HORIZON_STATE_COLUMNS: List[str] = [
     "trade_date",
     "long_phase",
     "long_phase_confidence",
+    "long_detail_json",
     "mid_regime",
     "mid_regime_confidence",
+    "mid_detail_json",
     "short_signal",
     "short_signal_confidence",
+    "short_detail_json",
     "source_run_id",
 ]

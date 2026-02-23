@@ -6,6 +6,7 @@ DoD: MM1 (컬럼/타입), MM2 (ENUM), MM3 (결측→UNKNOWN), MM4 (macro/flow �
 """
 from __future__ import annotations
 
+import json
 from datetime import date
 
 import pandas as pd
@@ -229,3 +230,19 @@ class TestMidRegimeMM5:
         }])
         result = build_mid_regime(price_vol_neutral, flow=flow_df)
         assert result.iloc[0]["mid_regime"] == "NEUTRAL"
+
+
+class TestMidRegimeDetail:
+    """detail JSON 출력 검증."""
+
+    def test_detail_contains_signal_sources(self, price_vol_neutral):
+        flow_df = pd.DataFrame([{
+            "trade_date": date(2024, 6, 3), "symbol": "IWM",
+            "asset_group": "INDEX", "breadth_iwm_spy_spread": 0.010,
+        }])
+        result = build_mid_regime(price_vol_neutral, flow=flow_df)
+        detail = json.loads(result.iloc[0]["mid_detail_json"])
+        assert "price_signal" in detail
+        assert "macro_signal" in detail
+        assert "breadth_signal" in detail
+        assert "majority_source" in detail

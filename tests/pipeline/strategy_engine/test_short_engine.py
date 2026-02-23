@@ -7,6 +7,7 @@ DoD: MSH1 (컬럼/타입), MSH2 (ENUM), MSH3 (결측→UNKNOWN), MSH4 (VIX 없�
 """
 from __future__ import annotations
 
+import json
 from datetime import date
 
 import pandas as pd
@@ -305,3 +306,14 @@ class TestShortSignalMSH7:
         result = build_short_signal(pv, flow, sentiment)
         # vol_spike(2.5>2.0)=1, smallcap_stress(0.003<0.005)=0 → total=1 < 2 → STABLE
         assert result.iloc[0]["short_signal"] == "STABLE"
+
+
+class TestShortSignalDetail:
+    """short detail JSON 출력 검증."""
+
+    def test_detail_contains_confirmation_fields(self, pv_sample, flow_sample, sentiment_sample):
+        result = build_short_signal(pv_sample, flow_sample, sentiment_sample)
+        detail = json.loads(result.iloc[0]["short_detail_json"])
+        assert "secondary_confirm_count" in detail
+        assert "secondary_confirmations" in detail
+        assert "smallcap_stress" in detail

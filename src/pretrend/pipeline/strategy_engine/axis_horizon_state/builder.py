@@ -1,11 +1,11 @@
 """
-Axis × Horizon State builder — 12-slot 통합 빌더.
+Axis × Horizon State builder — 3-state 집약 + 근거(detail) 통합 빌더.
 
-4 axes × 3 horizons = 12 slots를 단일 DataFrame으로 결합.
+4개 axis를 long/mid/short 3개 상태로 집약하고, horizon별 detail JSON을 함께 저장한다.
 Grain: (trade_date) — 1 row per business day.
 
 SOT: docs/strategy_engine_design.md §A3, §E
-Storage: data/strategy/axis_horizon_state/decision_date=YYYY-MM-DD/state_YYYYMMDD.parquet
+Storage: data/strategy/axis_horizon_state/decision_date=YYYY-MM-DD/axis_horizon_state_YYYYMMDD.parquet
 """
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ def build_axis_horizon_state(
     run_id: str = "",
     long_z_threshold: float = 0.0,
 ) -> pd.DataFrame:
-    """12-slot Axis×Horizon State를 구축한다.
+    """Axis×Horizon State(3-state + detail)를 구축한다.
 
     Parameters
     ----------
@@ -77,18 +77,20 @@ def build_axis_horizon_state(
     result = df_long.copy() if not df_long.empty else pd.DataFrame(columns=["trade_date"])
 
     if not df_mid.empty:
-        mid_cols = ["trade_date", "mid_regime", "mid_regime_confidence"]
+        mid_cols = ["trade_date", "mid_regime", "mid_regime_confidence", "mid_detail_json"]
         result = result.merge(df_mid[mid_cols], on="trade_date", how="outer")
     else:
         result["mid_regime"] = "UNKNOWN"
         result["mid_regime_confidence"] = None
+        result["mid_detail_json"] = None
 
     if not df_short.empty:
-        short_cols = ["trade_date", "short_signal", "short_signal_confidence"]
+        short_cols = ["trade_date", "short_signal", "short_signal_confidence", "short_detail_json"]
         result = result.merge(df_short[short_cols], on="trade_date", how="outer")
     else:
         result["short_signal"] = "UNKNOWN"
         result["short_signal_confidence"] = None
+        result["short_detail_json"] = None
 
     # 3) 결측 상태 → UNKNOWN 채움 (fail-open)
     for col in ("long_phase", "mid_regime", "short_signal"):
@@ -98,6 +100,9 @@ def build_axis_horizon_state(
             result[col] = "UNKNOWN"
 
     for col in ("long_phase_confidence", "mid_regime_confidence", "short_signal_confidence"):
+        if col not in result.columns:
+            result[col] = None
+    for col in ("long_detail_json", "mid_detail_json", "short_detail_json"):
         if col not in result.columns:
             result[col] = None
 
@@ -112,5 +117,5 @@ def build_axis_horizon_state(
 
     result = result[AXIS_HORIZON_STATE_COLUMNS].sort_values("trade_date").reset_index(drop=True)
 
-    logger.info("[AHS Builder] Built %d rows × 12 slots", len(result))
+    logger.info("[AHS Builder] Built %d rows × 3 states", len(result))
     return result
