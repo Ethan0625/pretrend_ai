@@ -5,6 +5,7 @@ SOT: docs/strategy_engine_design.md §C, §E
 """
 from __future__ import annotations
 
+from errno import EXDEV
 import uuid
 from datetime import date
 from pathlib import Path
@@ -129,3 +130,32 @@ class TestWriteSnapshotAtomic:
         write_snapshot_atomic(df, tmp_path, "s", date(2024, 1, 1), run_id)
         tmp_dirs = list(tmp_path.rglob("_tmp_run=*"))
         assert len(tmp_dirs) == 0
+
+    def test_cross_device_replace_fallback_move(self, tmp_path, monkeypatch):
+        df = pd.DataFrame({"x": [1]})
+
+        def _raise_exdev(self, target):
+            raise OSError(EXDEV, "Invalid cross-device link")
+
+        monkeypatch.setattr(Path, "replace", _raise_exdev)
+        result_path = write_snapshot_atomic(
+            df, tmp_path, "stage", date(2024, 1, 1), "exdev"
+        )
+        assert result_path.exists()
+        loaded = pd.read_parquet(result_path)
+        assert loaded.iloc[0]["x"] == 1
+
+    def test_cross_device_fallback_overwrites_existing(self, tmp_path, monkeypatch):
+        df1 = pd.DataFrame({"x": [1]})
+        df2 = pd.DataFrame({"x": [2]})
+        write_snapshot_atomic(df1, tmp_path, "stage", date(2024, 1, 2), "base")
+
+        def _raise_exdev(self, target):
+            raise OSError(EXDEV, "Invalid cross-device link")
+
+        monkeypatch.setattr(Path, "replace", _raise_exdev)
+        result_path = write_snapshot_atomic(
+            df2, tmp_path, "stage", date(2024, 1, 2), "exdev2"
+        )
+        loaded = pd.read_parquet(result_path)
+        assert loaded.iloc[0]["x"] == 2

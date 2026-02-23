@@ -6,6 +6,7 @@ SOT: docs/strategy_engine_design.md §C, §E
 from __future__ import annotations
 
 import logging
+from errno import EXDEV
 import shutil
 from datetime import date
 from pathlib import Path
@@ -113,7 +114,14 @@ def write_snapshot_atomic(
 
     if final_file.exists():
         final_file.unlink()
-    tmp_file.replace(final_file)
+    try:
+        tmp_file.replace(final_file)
+    except OSError as exc:
+        # 환경에 따라 atomic rename이 cross-device(EXDEV)로 실패할 수 있다.
+        # 이 경우 move로 fallback 하여 snapshot 저장 자체는 보장한다.
+        if exc.errno != EXDEV:
+            raise
+        shutil.move(str(tmp_file), str(final_file))
 
     if tmp_dir.exists():
         shutil.rmtree(tmp_dir)
