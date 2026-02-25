@@ -39,6 +39,8 @@ WALK_FORWARD_COLUMNS: List[str] = [
     "cagr", "total_return", "max_drawdown",
     "sharpe_ratio", "benchmark_cagr", "excess_cagr",
     "diag_12slot_coverage", "diag_unknown_ratio", "diag_axis_consistency",
+    "hazard_non_null_ratio",
+    "diag_calibration_error", "diag_hazard_bucket_monotonicity",
     "tier1_pass", "tier2_warning", "validation_status",
     "preset", "generated_at",
 ]
@@ -52,6 +54,8 @@ _MAX_MDD = -0.35
 _MIN_DIAG_COVERAGE = 0.20
 _MAX_UNKNOWN_RATIO = 0.80
 _MIN_AXIS_CONSISTENCY = 0.50
+_MAX_CALIBRATION_ERROR = 0.35
+_MIN_HAZARD_BUCKET_MONOTONICITY = 0.0
 
 
 @dataclass
@@ -90,7 +94,8 @@ class WalkForwardRunner:
         logger.info("[WalkForward] preset=%s, %d windows", config.preset, len(windows))
         generated_at = datetime.now().isoformat(timespec="seconds")
         rows = []
-        ahs_df = self._load_ahs_snapshot_for_diagnostics()
+        diag_df = self._load_diag_snapshot_for_diagnostics()
+        policy_df = self._load_policy_snapshot_for_diagnostics()
 
         for i, (ws, we) in enumerate(windows, 1):
             logger.info("[WalkForward] Window %d/%d: %s ~ %s", i, len(windows), ws, we)
@@ -102,7 +107,7 @@ class WalkForwardRunner:
             )
             result = BacktestRunner().run(bt_config)
             m = result.metrics
-            diag = self._compute_12slot_diagnostics(ahs_df, ws, we)
+            diag = self._compute_12slot_diagnostics(diag_df, policy_df, ws, we)
             tier1 = self._is_tier1_pass(m)
             tier2_warn = self._is_tier2_warning(diag)
             status = self._resolve_validation_status(tier1, tier2_warn)
@@ -119,6 +124,9 @@ class WalkForwardRunner:
                 "diag_12slot_coverage": diag["coverage"],
                 "diag_unknown_ratio": diag["unknown_ratio"],
                 "diag_axis_consistency": diag["axis_consistency"],
+                "hazard_non_null_ratio": diag["hazard_non_null_ratio"],
+                "diag_calibration_error": diag["calibration_error"],
+                "diag_hazard_bucket_monotonicity": diag["hazard_bucket_monotonicity"],
                 "tier1_pass": tier1,
                 "tier2_warning": tier2_warn,
                 "validation_status": status,
@@ -130,10 +138,34 @@ class WalkForwardRunner:
         logger.info("[WalkForward] Done — %d windows", len(df))
         return df
 
-    def _load_ahs_snapshot_for_diagnostics(self) -> Optional[pd.DataFrame]:
-        """전역 AHS snapshot를 로드한다. 없으면 None."""
+    def _load_diag_snapshot_for_diagnostics(self) -> Optional[pd.DataFrame]:
+        """진단용 snapshot 로드.
+
+        우선순위:
+          1) next_step_signal (diag 컬럼 포함)
+          2) axis_horizon_state (detail_json 재계산 fallback)
+        """
         try:
-            df = load_strategy_snapshot(Path("data/strategy"), "axis_horizon_state")
+            root = Path("data/strategy")
+            df = load_strategy_snapshot(root, "next_step_signal")
+            if df is not None and not df.empty and "diag_12slot_coverage" in df.columns:
+                if "trade_date" in df.columns:
+                    df["trade_date"] = pd.to_datetime(df["trade_date"]).dt.date
+                return df
+
+            df = load_strategy_snapshot(root, "axis_horizon_state")
+            if df is None or df.empty:
+                return None
+            if "trade_date" in df.columns:
+                df["trade_date"] = pd.to_datetime(df["trade_date"]).dt.date
+            return df
+        except Exception:
+            return None
+
+    def _load_policy_snapshot_for_diagnostics(self) -> Optional[pd.DataFrame]:
+        try:
+            root = Path("data/strategy")
+            df = load_strategy_snapshot(root, "policy_selection")
             if df is None or df.empty:
                 return None
             if "trade_date" in df.columns:
@@ -160,16 +192,53 @@ class WalkForwardRunner:
     def _compute_12slot_diagnostics(
         self,
         ahs_df: Optional[pd.DataFrame],
+        policy_df: Optional[pd.DataFrame],
         window_start: date,
         window_end: date,
     ) -> Dict[str, float]:
         """4축×3horizon(12셀) 진단 KPI를 계산한다."""
         if ahs_df is None or ahs_df.empty:
-            return {"coverage": float("nan"), "unknown_ratio": float("nan"), "axis_consistency": float("nan")}
+            return {
+                "coverage": float("nan"),
+                "unknown_ratio": float("nan"),
+                "axis_consistency": float("nan"),
+                "hazard_non_null_ratio": float("nan"),
+                "calibration_error": float("nan"),
+                "hazard_bucket_monotonicity": float("nan"),
+            }
 
         wdf = ahs_df[(ahs_df["trade_date"] >= window_start) & (ahs_df["trade_date"] <= window_end)]
         if wdf.empty:
-            return {"coverage": float("nan"), "unknown_ratio": float("nan"), "axis_consistency": float("nan")}
+            return {
+                "coverage": float("nan"),
+                "unknown_ratio": float("nan"),
+                "axis_consistency": float("nan"),
+                "hazard_non_null_ratio": float("nan"),
+                "calibration_error": float("nan"),
+                "hazard_bucket_monotonicity": float("nan"),
+            }
+
+        # next_step_signal에 이미 진단 컬럼이 있으면 우선 사용
+        if "diag_12slot_coverage" in wdf.columns:
+            cov = float(wdf["diag_12slot_coverage"].mean())
+            if "evidence_unknown_ratio" in wdf.columns:
+                un = float(wdf["evidence_unknown_ratio"].mean())
+            else:
+                un = 1.0 - cov
+            if "transition_hazard_10d" in wdf.columns:
+                hazard_non_null_ratio = float(wdf["transition_hazard_10d"].notna().mean())
+            else:
+                hazard_non_null_ratio = float("nan")
+            cal, mono = self._compute_hazard_quality(wdf, policy_df)
+            # axis_consistency는 next_step 스냅샷에 없으므로 fallback 상수
+            return {
+                "coverage": cov,
+                "unknown_ratio": un,
+                "axis_consistency": 0.5,
+                "hazard_non_null_ratio": hazard_non_null_ratio,
+                "calibration_error": cal,
+                "hazard_bucket_monotonicity": mono,
+            }
 
         known = 0
         total = 12 * len(wdf)
@@ -243,7 +312,74 @@ class WalkForwardRunner:
             "coverage": coverage,
             "unknown_ratio": unknown_ratio,
             "axis_consistency": axis_consistency,
+            "hazard_non_null_ratio": float("nan"),
+            "calibration_error": float("nan"),
+            "hazard_bucket_monotonicity": float("nan"),
         }
+
+    def _compute_hazard_quality(
+        self,
+        next_step_df: pd.DataFrame,
+        policy_df: Optional[pd.DataFrame],
+    ) -> Tuple[float, float]:
+        """Compute simplified hazard diagnostics for Tier-2."""
+        if (
+            policy_df is None
+            or policy_df.empty
+            or "transition_hazard_10d" not in next_step_df.columns
+        ):
+            return float("nan"), float("nan")
+
+        pol = policy_df.sort_values("trade_date").drop_duplicates("trade_date")
+        pol = pol[["trade_date", "long_phase", "mid_regime", "short_signal"]].reset_index(drop=True)
+        if pol.empty:
+            return float("nan"), float("nan")
+
+        state_map = {
+            r.trade_date: (r.long_phase, r.mid_regime, r.short_signal)
+            for r in pol.itertuples(index=False)
+        }
+        dates = pol["trade_date"].tolist()
+        idx_map = {d: i for i, d in enumerate(dates)}
+
+        x = next_step_df[["trade_date", "transition_hazard_10d"]].dropna()
+        if x.empty:
+            return float("nan"), float("nan")
+
+        obs_rows = []
+        for r in x.itertuples(index=False):
+            td = r.trade_date
+            hz = float(r.transition_hazard_10d)
+            i = idx_map.get(td)
+            if i is None:
+                continue
+            cur_state = state_map.get(td)
+            if cur_state is None:
+                continue
+            outcome = 0
+            for j in range(i + 1, min(i + 11, len(dates))):
+                d2 = dates[j]
+                if state_map.get(d2) != cur_state:
+                    outcome = 1
+                    break
+            obs_rows.append((hz, outcome))
+
+        if not obs_rows:
+            return float("nan"), float("nan")
+
+        hz_vals = [h for h, _ in obs_rows]
+        y_vals = [y for _, y in obs_rows]
+        brier = sum((h - y) ** 2 for h, y in obs_rows) / len(obs_rows)
+
+        q1 = pd.Series(hz_vals).quantile(0.33)
+        q2 = pd.Series(hz_vals).quantile(0.66)
+        low = [y for h, y in obs_rows if h <= q1]
+        high = [y for h, y in obs_rows if h >= q2]
+        if not low or not high:
+            mono = float("nan")
+        else:
+            mono = (sum(high) / len(high)) - (sum(low) / len(low))
+        return float(brier), float(mono)
 
     def _is_tier1_pass(self, metrics: Dict[str, float]) -> bool:
         cagr = float(metrics.get("cagr", 0.0))
@@ -255,10 +391,18 @@ class WalkForwardRunner:
         cov = diag.get("coverage")
         un = diag.get("unknown_ratio")
         cons = diag.get("axis_consistency")
+        cal = diag.get("calibration_error")
+        mono = diag.get("hazard_bucket_monotonicity")
         # 진단 데이터가 없으면 경고 강제하지 않고 fallback 처리
         if pd.isna(cov) or pd.isna(un) or pd.isna(cons):
             return False
-        return cov < _MIN_DIAG_COVERAGE or un > _MAX_UNKNOWN_RATIO or cons < _MIN_AXIS_CONSISTENCY
+        warn_core = cov < _MIN_DIAG_COVERAGE or un > _MAX_UNKNOWN_RATIO or cons < _MIN_AXIS_CONSISTENCY
+        warn_hazard = False
+        if not pd.isna(cal) and cal > _MAX_CALIBRATION_ERROR:
+            warn_hazard = True
+        if not pd.isna(mono) and mono < _MIN_HAZARD_BUCKET_MONOTONICITY:
+            warn_hazard = True
+        return warn_core or warn_hazard
 
     @staticmethod
     def _resolve_validation_status(tier1_pass: bool, tier2_warning: bool) -> str:
@@ -301,7 +445,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="Walk-Forward 기간별 성과 분석 (운영 안정화 검증)"
     )
-    parser.add_argument("--preset", default="v2", choices=["v0", "v1", "v2"],
+    parser.add_argument("--preset", default="v2", choices=["v0", "v1", "v2", "v3", "v3.1", "v3.2", "v3.3"],
                         help="백테스트 preset (default: v2)")
     parser.add_argument("--window-years", type=int, default=4,
                         help="자동 생성 시 창 크기(년, default: 4)")

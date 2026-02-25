@@ -149,7 +149,14 @@ class TestWalkForwardRunnerRun:
             with patch.object(
                 runner,
                 "_compute_12slot_diagnostics",
-                return_value={"coverage": 0.10, "unknown_ratio": 0.90, "axis_consistency": 0.40},
+                return_value={
+                    "coverage": 0.10,
+                    "unknown_ratio": 0.90,
+                    "axis_consistency": 0.40,
+                    "hazard_non_null_ratio": 0.20,
+                    "calibration_error": 0.40,
+                    "hazard_bucket_monotonicity": -0.10,
+                },
             ):
                 df = runner.run(
                     WalkForwardConfig(
@@ -180,7 +187,14 @@ class TestWalkForwardRunnerRun:
             with patch.object(
                 runner,
                 "_compute_12slot_diagnostics",
-                return_value={"coverage": 0.80, "unknown_ratio": 0.20, "axis_consistency": 0.90},
+                return_value={
+                    "coverage": 0.80,
+                    "unknown_ratio": 0.20,
+                    "axis_consistency": 0.90,
+                    "hazard_non_null_ratio": 0.80,
+                    "calibration_error": 0.05,
+                    "hazard_bucket_monotonicity": 0.20,
+                },
             ):
                 df = runner.run(
                     WalkForwardConfig(
@@ -196,9 +210,28 @@ class TestWalkForwardRunnerRun:
         """진단 지표 결측(NaN)이면 Tier-2 경고를 강제하지 않는다."""
         runner = WalkForwardRunner()
         warn = runner._is_tier2_warning(
-            {"coverage": float("nan"), "unknown_ratio": float("nan"), "axis_consistency": float("nan")}
+            {
+                "coverage": float("nan"),
+                "unknown_ratio": float("nan"),
+                "axis_consistency": float("nan"),
+                "calibration_error": float("nan"),
+                "hazard_bucket_monotonicity": float("nan"),
+            }
         )
         assert warn is False
+
+    def test_tier2_warning_when_hazard_quality_bad(self):
+        runner = WalkForwardRunner()
+        warn = runner._is_tier2_warning(
+            {
+                "coverage": 0.50,
+                "unknown_ratio": 0.50,
+                "axis_consistency": 0.70,
+                "calibration_error": 0.50,
+                "hazard_bucket_monotonicity": -0.10,
+            }
+        )
+        assert warn is True
 
 
 # ── save_walk_forward 저장 검증 ────────────────────────────────
@@ -219,6 +252,9 @@ class TestSaveWalkForward:
                 "diag_12slot_coverage": 0.40,
                 "diag_unknown_ratio": 0.60,
                 "diag_axis_consistency": 0.66,
+                "hazard_non_null_ratio": 0.55,
+                "diag_calibration_error": 0.12,
+                "diag_hazard_bucket_monotonicity": 0.08,
                 "tier1_pass": True,
                 "tier2_warning": True,
                 "validation_status": "PASS_WITH_WARNING",

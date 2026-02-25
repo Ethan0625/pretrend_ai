@@ -29,6 +29,8 @@ class BacktestPreset:
     tactical_groups: Tuple[str, ...] = ("SECTOR",)
     # v2: 2D lookup (long_phase, mid_regime) → target ratio
     target_ratio_map_v2: Optional[Dict[Tuple[str, str], float]] = None
+    # v3: 3D lookup 입력은 (long_phase, mid_regime) 기본 + next_step_bias 보정
+    target_ratio_map_v3: Optional[Dict[Tuple[str, str], float]] = None
     # DCA: 매월 자금 추가액
     monthly_addition: float = 300.0
 
@@ -77,10 +79,50 @@ PRESET_V2 = BacktestPreset(
     tactical_groups=_ALL_TACTICAL_GROUPS,
 )
 
+PRESET_V3 = BacktestPreset(
+    name="v3",
+    description="3D allocation: f(long_phase, mid_regime, next_step_bias)",
+    target_ratio_map=None,
+    target_ratio_map_v2=None,
+    target_ratio_map_v3=dict(PRESET_V2.target_ratio_map_v2 or {}),
+    tactical_groups=_ALL_TACTICAL_GROUPS,
+)
+
+PRESET_V3_1 = BacktestPreset(
+    name="v3.1",
+    description="v3 + monthly bias lock (1M bias fixed per month)",
+    target_ratio_map=None,
+    target_ratio_map_v2=None,
+    target_ratio_map_v3=dict(PRESET_V2.target_ratio_map_v2 or {}),
+    tactical_groups=_ALL_TACTICAL_GROUPS,
+)
+
+PRESET_V3_2 = BacktestPreset(
+    name="v3.2",
+    description="v3.1 + shock override (PANIC/RISK_OFF streak + cooldown)",
+    target_ratio_map=None,
+    target_ratio_map_v2=None,
+    target_ratio_map_v3=dict(PRESET_V2.target_ratio_map_v2 or {}),
+    tactical_groups=_ALL_TACTICAL_GROUPS,
+)
+
+PRESET_V3_3 = BacktestPreset(
+    name="v3.3",
+    description="v3.2 + hazard-aware override (10d transition hazard gate)",
+    target_ratio_map=None,
+    target_ratio_map_v2=None,
+    target_ratio_map_v3=dict(PRESET_V2.target_ratio_map_v2 or {}),
+    tactical_groups=_ALL_TACTICAL_GROUPS,
+)
+
 PRESET_REGISTRY: Dict[str, BacktestPreset] = {
     "v0": PRESET_V0,
     "v1": PRESET_V1,
     "v2": PRESET_V2,
+    "v3": PRESET_V3,
+    "v3.1": PRESET_V3_1,
+    "v3.2": PRESET_V3_2,
+    "v3.3": PRESET_V3_3,
 }
 
 # 호환용 alias
@@ -129,6 +171,8 @@ class BacktestConfig:
     target_ratio_map: Optional[Dict[str, float]] = None
     # Allocation v2: 2D lookup (long_phase, mid_regime) → target ratio
     target_ratio_map_v2: Optional[Dict[Tuple[str, str], float]] = None
+    # Allocation v3: v2 base map + next_step_bias adjustment
+    target_ratio_map_v3: Optional[Dict[Tuple[str, str], float]] = None
     allocation_adjustment_limit: float = 0.10
     allocation_step_size: float = 0.05
 
@@ -170,6 +214,16 @@ class BacktestConfig:
                     raise ValueError(
                         f"target_ratio_map_v2[({lp!r}, {mr!r})] must be in [0, 1], got {ratio}"
                     )
+        if self.target_ratio_map_v3 is not None:
+            for (lp, mr), ratio in self.target_ratio_map_v3.items():
+                if not isinstance(lp, str) or not isinstance(mr, str):
+                    raise ValueError(
+                        f"target_ratio_map_v3 key must be Tuple[str, str], got ({lp!r}, {mr!r})"
+                    )
+                if not (0.0 <= ratio <= 1.0):
+                    raise ValueError(
+                        f"target_ratio_map_v3[({lp!r}, {mr!r})] must be in [0, 1], got {ratio}"
+                    )
         for grp in self.tactical_groups:
             if grp not in VALID_TACTICAL_GROUPS:
                 raise ValueError(f"Unknown tactical group: {grp!r}")
@@ -187,6 +241,7 @@ class BacktestConfig:
         defaults = {
             "target_ratio_map": preset.target_ratio_map,
             "target_ratio_map_v2": preset.target_ratio_map_v2,
+            "target_ratio_map_v3": preset.target_ratio_map_v3,
             "allocation_adjustment_limit": preset.allocation_adjustment_limit,
             "allocation_step_size": preset.allocation_step_size,
             "tactical_groups": list(preset.tactical_groups),

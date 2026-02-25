@@ -1,0 +1,167 @@
+# Paper Execution Ledger — Contract (SOT)
+
+## Document Status
+| Item | Value |
+| --- | --- |
+| Status | Active |
+| Structure Policy | 구조는 고정, 기능은 확장 |
+| Effective Date | 2026-02-25 |
+| Change Tracking | docs/changelog.md |
+
+## Capability Matrix
+| Capability | Status | Notes |
+| --- | --- | --- |
+| Core scope | Active | 본 문서의 계약/설계 범위 |
+| Extension ports | Reserved | 체결 모델 고도화 포트만 정의 |
+| Numeric scoring/tuning | Not supported | 본 문서 범위에서 금지 |
+
+## TOC
+- [1. 문서 목적](#1-문서-목적)
+- [2. Scope & Non-Goals](#2-scope--non-goals)
+- [3. Inputs](#3-inputs)
+- [4. Output Tables](#4-output-tables)
+- [5. Grain / Key](#5-grain--key)
+- [6. Execution Rules](#6-execution-rules)
+- [7. Valuation / PnL Rules](#7-valuation--pnl-rules)
+- [8. Invariants](#8-invariants)
+- [9. DoD](#9-dod)
+
+참조:
+- `docs/architecture/paper_trading_alert_contract.md`
+- `docs/architecture/allocation_engine_contract.md`
+- `docs/architecture/next_step_signal_contract.md`
+- `docs/strategy_engine_design.md`
+
+## 1. 문서 목적
+### 책임
+- EOD 기준 가상 체결 레이어의 입력/출력/계산식을 고정한다.
+- NAV 기반 `daily_pnl`, `cumulative_pnl` 산출 규칙을 고정한다.
+- 종목별 포지션 상세(평단/현재가/수량/평가금액/손익률) 인터페이스를 고정한다.
+
+### Non-goals
+- 실거래 주문 집행
+- 인트라데이 체결 모델
+
+## 2. Scope & Non-Goals
+### Scope
+- strategy `exposure` 신호 기반 EOD 가상 체결
+- `execution_ledger`, `positions_daily`, `portfolio_daily` 산출
+- 운영 조건(초기자금/DCA/요일 규칙/SCHD 매도 금지) 적용
+
+### Non-goals
+- 브로커 API 연동
+- 체결 슬리피지/수수료 모델 최적화
+
+## 3. Inputs
+| 컬럼 | 타입 | 필수 | 설명 |
+| --- | --- | --- | --- |
+| trade_date | DATE | Y | 의사결정/실행 기준일 |
+| action | TEXT | Y | `INCREASE` / `DECREASE` / `HOLD` |
+| next_invested_ratio | FLOAT | Y | 목표 투자 비율 |
+| delta_ratio | FLOAT | Y | 비중 변화량 |
+| adj_close | FLOAT | Y | EOD 평가 가격 (`gold/eod/eod_features`) |
+| bias_1m (next_step) | TEXT | N | 전이예측 1M bias (`RISK_ON_BIAS`/`NEUTRAL_BIAS`/`RISK_OFF_BIAS`/`UNKNOWN`) |
+
+운영 파라미터 (기본값):
+- `initial_capital = 1,000,000원`
+- `monthly_addition = 300,000원`
+- `sell_tranches = [0.50, 0.30, 0.20]`
+- `schd_sell_locked = true`
+
+## 4. Output Tables
+### 4.1 execution_ledger
+| 컬럼 | 타입 | 설명 |
+| --- | --- | --- |
+| trade_date | DATE | 체결일 |
+| symbol | TEXT | 종목 |
+| action | TEXT | `BUY`/`SELL` |
+| shares | FLOAT | 체결 수량 |
+| price_eod | FLOAT | 체결 가격(EOD) |
+| amount | FLOAT | 체결 금액 |
+| sequence_id | INT | 동일일 체결 순서 |
+| source_job | TEXT | 생성 Job |
+| message_type | TEXT | `PAPER_RESULT` |
+| decision_date | DATE | 기준 decision_date |
+| simulation_date | DATE | 시뮬레이션 생성일 |
+
+### 4.2 positions_daily
+| 컬럼 | 타입 | 설명 |
+| --- | --- | --- |
+| trade_date | DATE | 기준일 |
+| symbol | TEXT | 종목 |
+| shares | FLOAT | 보유 수량 |
+| avg_cost | FLOAT | 평단가 |
+| eod_price | FLOAT | EOD 가격 |
+| market_value | FLOAT | 평가금액 |
+| gain_pct | FLOAT | 손익률 |
+| weight | FLOAT | 투자자산 내 비중 |
+
+### 4.3 portfolio_daily
+| 컬럼 | 타입 | 설명 |
+| --- | --- | --- |
+| trade_date | DATE | 기준일 |
+| cash | FLOAT | 현금 |
+| invested_value | FLOAT | 투자자산 합계 |
+| nav | FLOAT | 총자산 |
+| total_invested_capital | FLOAT | 누적 투입원금 |
+| daily_pnl | FLOAT | 일간 손익률 |
+| cumulative_pnl | FLOAT | 누적 손익률 |
+
+## 5. Grain / Key
+- `execution_ledger` Grain: `(trade_date, symbol, action, sequence_id)`
+- `positions_daily` Grain: `(trade_date, symbol)`
+- `portfolio_daily` Grain: `(trade_date)`
+
+## 6. Execution Rules
+- 월요일: 전 거래일(T-1) 기준 신호 평가(체결 없음)
+- 화요일: `INCREASE` 실행(현금 배포 매수)
+- 금요일: `DECREASE` 단계 매도(`50% -> 30% -> 20%`)
+- 월 첫 거래일: `monthly_addition` 자금 추가(DCA)
+- `SCHD`는 매도 금지 (`schd_sell_locked=true`)
+- phase는 `next_invested_ratio`를 통해 매수 강도에 반영
+- tactical universe는 `policy_selection + what_to_hold(is_candidate, relative_strength)` 기준으로 반영
+- `next_step` 입력은 저장본 우선(snapshot + history 결합)으로 로드한다.
+- 런타임 재계산은 기본 금지하고 결측 시 fail-open을 적용한다.
+- 전이예측 soft gate는 tactical 강도만 조절한다:
+  - `RISK_ON_BIAS`: 기본 강도 유지
+  - `NEUTRAL_BIAS`: 완화
+  - `RISK_OFF_BIAS`: 축소/코어 우선
+  - `UNKNOWN`: `NEUTRAL_BIAS`와 동일 fail-open
+- 우선순위:
+  1. 하드 게이트(`run_universe`, `risk_gate`)
+  2. 전이예측 soft gate
+  3. 기본 리밸런싱 규칙
+
+## 7. Valuation / PnL Rules
+- `market_value = shares * eod_price`
+- `invested_value = Σ market_value`
+- `nav = cash + invested_value`
+- `daily_pnl = nav_t / nav_{t-1} - 1`
+- `cumulative_pnl = (nav_t - total_invested_capital) / total_invested_capital`
+- `total_invested_capital = initial_capital + cumulative_monthly_addition`
+
+## 8. Invariants
+- 가격 소스는 `Gold EOD adj_close`로 고정한다.
+- `SCHD` 매도 체결은 생성되지 않아야 한다.
+- `daily_pnl`, `cumulative_pnl`는 NAV 기준으로 계산된다.
+- 누적 투입원금(`total_invested_capital`)은 DCA 반영 시점에 증가한다.
+- 결측 가격은 fail-open으로 처리(체결 스킵 + 경고 로그).
+- 전이예측은 하드 게이트를 우회하지 못한다(soft-only).
+
+## 9. DoD
+- **PEL1**: 3개 출력 테이블 컬럼/타입 검증
+- **PEL2**: NAV/PnL 계산식 검증
+- **PEL3**: 월초 DCA 반영 검증
+- **PEL4**: 화요일 INCREASE/금요일 DECREASE 실행 규칙 검증
+- **PEL5**: SCHD 매도 금지 규칙 검증
+- **PEL6**: 결측 가격 fail-open 검증
+- **PEL7**: next_step bias soft gate(강도 조절) 검증
+- **PEL8**: 하드 게이트 우선 적용(`run_universe=false` 등) 검증
+
+---
+
+## Change History
+| Date | Summary | References |
+| --- | --- | --- |
+| 2026-02-25 | next_step_signal soft gate 입력 추가(하드 게이트 우선/강도 조절 규칙 명시) | docs/changelog.md |
+| 2026-02-25 | EOD 가상체결 레이어 계약 신규 추가 (NAV/PnL/포지션 상세) | docs/changelog.md |

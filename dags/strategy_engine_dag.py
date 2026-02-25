@@ -24,6 +24,7 @@ from typing import Any, Dict, List, Optional
 
 import pendulum
 from airflow.decorators import dag, task
+from pretrend.pipeline.notify.telegram_sender import send_telegram_fail_open
 from pretrend.pipeline.strategy_engine.report_context import (
     build_context_lines as _build_context_lines,
     build_diagnostic_lines as _build_diagnostic_lines,
@@ -76,19 +77,6 @@ def _load_last_invested_ratio(strategy_root: Path) -> float:
         except Exception:
             continue
     return 0.0
-
-
-# ── 헬퍼: Telegram 메시지 발송 ────────────────────────────
-
-def _send_telegram(token: str, chat_id: str, text: str) -> None:
-    import requests
-    url = f"https://api.telegram.org/bot{token}/sendMessage"
-    resp = requests.post(
-        url,
-        json={"chat_id": chat_id, "text": text, "parse_mode": "HTML"},
-        timeout=10,
-    )
-    resp.raise_for_status()
 
 
 # ── 헬퍼: 스냅샷 로드 ────────────────────────────────────
@@ -205,16 +193,14 @@ def strategy_engine_pipeline():
 
     @task(task_id="send_telegram_report")
     def send_telegram_report_task(strategy_summary: Dict[str, Any]) -> None:
+        import logging
+
+        logger = logging.getLogger(__name__)
         token = os.getenv("TELEGRAM_BOT_TOKEN", "")
         chat_id = os.getenv("TELEGRAM_CHAT_ID", "")
-        if not token or not chat_id:
-            import logging
-            logging.getLogger(__name__).warning(
-                "TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID 미설정 — 알림 스킵"
-            )
-            return
 
         decision_date = date.fromisoformat(strategy_summary["decision_date"])
+        simulation_date = pendulum.now("Asia/Seoul").date().isoformat()
         data_root = Path(os.getenv("PRETREND_DATA_ROOT", "data"))
         strategy_root = data_root / "strategy"
 
@@ -224,6 +210,7 @@ def strategy_engine_pipeline():
         df_alloc = _load_snapshot(strategy_root, "exposure", decision_date)
         df_univ = _load_snapshot(strategy_root, "what_to_hold", decision_date)
         df_sell = _load_snapshot(strategy_root, "sell_advice", decision_date)
+        df_next = _load_snapshot(strategy_root, "next_step_signal", decision_date)
 
         # ── Market Position ──
         long_phase = mid_regime = short_signal = "UNKNOWN"
@@ -305,6 +292,8 @@ def strategy_engine_pipeline():
         # ── 메시지 조립 ───────────────────────────────────────
         lines = [
             f"📊 <b>Pretrend</b> · {decision_date.isoformat()} ({weekday})",
+            "<code>message_type=SIGNAL | source_job=strategy_engine_dag</code>",
+            f"<code>decision_date={decision_date.isoformat()} | simulation_date={simulation_date}</code>",
             "",
             (
                 f"{action_emoji} <b>{_ACTION_KO.get(action, action)}</b>  "
@@ -328,7 +317,14 @@ def strategy_engine_pipeline():
             "",
             "── 다음 스텝 가설 ──",
         ]
-        lines += _build_next_step_lines(long_phase, mid_regime, short_signal)
+        if not df_next.empty:
+            nrow = df_next.iloc[-1]
+            lines += [
+                f"🧭 1M: {str(nrow.get('bias_1m', 'UNKNOWN'))} ({float(nrow.get('confidence_1m', 0.5)):.0%})",
+                f"🧭 3M: {str(nrow.get('bias_3m', 'UNKNOWN'))} ({float(nrow.get('confidence_3m', 0.5)):.0%})",
+            ]
+        else:
+            lines += _build_next_step_lines(long_phase, mid_regime, short_signal)
 
         # ── 시장 근거 (4축) ──
         lines += [
@@ -342,7 +338,18 @@ def strategy_engine_pipeline():
             "",
             "── 진단 요약 ──",
         ]
-        lines += _build_diagnostic_lines(long_detail, mid_detail, short_detail)
+        if not df_next.empty:
+            nrow = df_next.iloc[-1]
+            lines += [
+                f"🧪 12셀 품질: {str(nrow.get('diag_12slot_quality', '경고'))}",
+                (
+                    "→ coverage="
+                    f"{float(nrow.get('diag_12slot_coverage', 0.0)):.1%}, "
+                    f"unknown={float(nrow.get('evidence_unknown_ratio', 1.0)):.1%}"
+                ),
+            ]
+        else:
+            lines += _build_diagnostic_lines(long_detail, mid_detail, short_detail)
 
         # ── 전술 ETF (asset_group별 그룹핑) ──
         if tactical_by_group:
@@ -372,9 +379,52 @@ def strategy_engine_pipeline():
 
         lines += ["", f"<code>─ {strategy_summary['run_id']}</code>"]
 
-        _send_telegram(token, chat_id, "\n".join(lines))
+        send_telegram_fail_open(
+            token=token,
+            chat_id=chat_id,
+            text="\n".join(lines),
+            source_job="strategy_engine_dag",
+            logger=logger,
+        )
+
+    @task(task_id="build_next_step_history_incremental")
+    def build_next_step_history_incremental_task(strategy_summary: Dict[str, Any]) -> Dict[str, Any]:
+        import logging
+        import pandas as pd
+        from pretrend.pipeline.strategy_engine.next_step.history_io import (
+            save_next_step_history_incremental,
+        )
+
+        logger = logging.getLogger(__name__)
+        data_root = Path(os.getenv("PRETREND_DATA_ROOT", "data"))
+        strategy_root = data_root / "strategy"
+        dd = date.fromisoformat(strategy_summary["decision_date"])
+        run_id = strategy_summary.get("run_id", "unknown")
+
+        try:
+            df_next = _load_snapshot(strategy_root, "next_step_signal", dd)
+            if df_next.empty:
+                logger.warning("[next_step_history] next_step snapshot empty: %s", dd)
+                strategy_summary["next_step_history_rows"] = 0
+                return strategy_summary
+            df_next = df_next.copy()
+            if "trade_date" in df_next.columns:
+                df_next["trade_date"] = pd.to_datetime(df_next["trade_date"]).dt.date
+            saved = save_next_step_history_incremental(
+                df_next,
+                strategy_root,
+                decision_date_ref=dd,
+                run_id=run_id,
+            )
+            strategy_summary["next_step_history_rows"] = int(saved)
+        except Exception as exc:
+            # fail-open: report 전송 유지
+            logger.warning("[next_step_history] fail-open: %s", exc)
+            strategy_summary["next_step_history_rows"] = 0
+        return strategy_summary
 
     strategy_summary = run_strategy_engine_task()
+    strategy_summary = build_next_step_history_incremental_task(strategy_summary)
     send_telegram_report_task(strategy_summary)
 
 

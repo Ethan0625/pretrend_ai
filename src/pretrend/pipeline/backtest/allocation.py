@@ -183,12 +183,68 @@ def compute_allocation_v2(current: float, policy_row: pd.Series, config) -> dict
     )
 
 
+def compute_allocation_v3(current: float, policy_row: pd.Series, config) -> dict:
+    """v3: f(long_phase, mid_regime, next_step_bias) target-seeking.
+
+    base_target는 v2와 동일한 2D lookup을 사용하고,
+    next_step_bias_1m으로 soft adjustment를 적용한다.
+    """
+    long_phase = str(policy_row.get("long_phase", "UNKNOWN"))
+    mid_regime = str(policy_row.get("mid_regime", "UNKNOWN"))
+    next_bias = str(
+        policy_row.get(
+            "next_step_bias_effective",
+            policy_row.get("next_step_bias_1m", "UNKNOWN"),
+        )
+    )
+    risk_gate = bool(policy_row.get("risk_gate", True))
+    run_universe = bool(policy_row.get("run_universe", True))
+
+    m = config.target_ratio_map_v3 or config.target_ratio_map_v2 or {}
+    target = None
+    for key in [
+        (long_phase, mid_regime),
+        (long_phase, "UNKNOWN"),
+        ("UNKNOWN", mid_regime),
+        ("UNKNOWN", "UNKNOWN"),
+    ]:
+        val = m.get(key, _SENTINEL)
+        if val is not _SENTINEL:
+            target = val
+            break
+
+    if target is None:
+        target = 0.40
+
+    bias_adj = {
+        "RISK_ON_BIAS": +0.05,
+        "NEUTRAL_BIAS": 0.00,
+        "RISK_OFF_BIAS": -0.05,
+        "UNKNOWN": 0.00,
+    }.get(next_bias, 0.00)
+    target = max(0.0, min(1.0, float(target) + bias_adj))
+
+    return _apply_delta(
+        current=current,
+        target=target,
+        adj_limit=config.allocation_adjustment_limit,
+        step_size=config.allocation_step_size,
+        risk_gate=risk_gate,
+        run_universe=run_universe,
+        notes_prefix=f"phase:{long_phase},mid:{mid_regime},next:{next_bias},",
+    )
+
+
 # ── Registry ──────────────────────────────────────────────────────────────────
 
 ALLOCATION_REGISTRY: Dict[str, Callable] = {
     "v0": compute_allocation_v0,
     "v1": compute_allocation_v1,
     "v2": compute_allocation_v2,
+    "v3": compute_allocation_v3,
+    "v3.1": compute_allocation_v3,
+    "v3.2": compute_allocation_v3,
+    "v3.3": compute_allocation_v3,
 }
 
 

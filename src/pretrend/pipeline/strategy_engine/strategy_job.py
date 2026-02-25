@@ -34,6 +34,7 @@ from .policy_selector.engine import build_policy_selection
 from .universe.engine import build_universe
 from .allocation.engine import build_allocation
 from .sell_advisor.engine import build_sell_advice
+from .next_step.engine import build_next_step_signal
 
 logger = logging.getLogger(__name__)
 if not logger.handlers:
@@ -62,6 +63,7 @@ class StrategyJobResult:
     universe: StrategyStageResult = field(default_factory=StrategyStageResult)
     allocation: StrategyStageResult = field(default_factory=StrategyStageResult)
     sell_advice: StrategyStageResult = field(default_factory=StrategyStageResult)
+    next_step_signal: StrategyStageResult = field(default_factory=StrategyStageResult)
 
 
 class StrategyJobRunner:
@@ -166,7 +168,16 @@ class StrategyJobRunner:
                 "sell_advice", decision_date, run_id,
             )
 
-        # 9) Meta log
+        # 9) Build Next Step Signal (운용 게이트 입력)
+        df_next = build_next_step_signal(df_ahs, df_mp, run_id=run_id)
+        result.next_step_signal = StrategyStageResult(row_count=len(df_next))
+        if not df_next.empty:
+            write_snapshot_atomic(
+                df_next, self.config.strategy_output_root,
+                "next_step_signal", decision_date, run_id,
+            )
+
+        # 10) Meta log
         self._write_meta_log(result)
 
         logger.info("[StrategyJob] Completed run_id=%s", run_id)
@@ -186,6 +197,7 @@ class StrategyJobRunner:
             "universe_rows": result.universe.row_count,
             "allocation_rows": result.allocation.row_count,
             "sell_advice_rows": result.sell_advice.row_count,
+            "next_step_rows": result.next_step_signal.row_count,
             "completed_at": pd.Timestamp.now("UTC"),
         }])
 
@@ -229,7 +241,8 @@ def main() -> None:
           f"AHS={result.axis_horizon_state.row_count}, "
           f"Universe={result.universe.row_count}, "
           f"Allocation={result.allocation.row_count}, "
-          f"SellAdvice={result.sell_advice.row_count}")
+          f"SellAdvice={result.sell_advice.row_count}, "
+          f"NextStep={result.next_step_signal.row_count}")
 
 
 if __name__ == "__main__":

@@ -5,7 +5,7 @@
 | --- | --- |
 | Status | Active |
 | Structure Policy | 구조는 고정, 기능은 확장 |
-| Effective Date | 2026-02-23 |
+| Effective Date | 2026-02-25 |
 | Change Tracking | docs/changelog.md |
 
 ## Capability Matrix
@@ -33,10 +33,11 @@
 - `docs/architecture/gold_design_contract.md`
 - `docs/architecture/calendar_design_contract.md`
 - `docs/architecture/eod_observability_contract.md`
+- `docs/architecture/next_step_signal_contract.md`
 
 ## 1. 문서 목적
 ### 책임
-- Allocation Engine(v0/v1/v2)의 입력/출력/불변식을 고정한다.
+- Allocation Engine(v0/v1/v2/v3/v3.1/v3.2/v3.3)의 입력/출력/불변식을 고정한다.
 - 총 투자 비율 조절(`invested_ratio`)을 계약 형태로 명확히 한다.
 
 ### Non-goals
@@ -52,6 +53,7 @@
 ### Non-goals
 - 즉시 올인/올아웃 실행
 - v3+ 고도화(`volatility-aware`, `regime-weighted`) 구현
+  - 단, v3 인터페이스 포트(`next_step_bias`)는 본 계약에 정의
 
 ## 3. Inputs
 ### 책임
@@ -119,6 +121,25 @@ current_invested_ratio: 0.62
 - v1(target-seeking), v2(2D target-seeking):
   - 상태 기반 목표 비율 추적(target-seeking)
   - `risk_gate=false`여도 `INCREASE` 허용(저점매수)
+- v3(target-seeking + next_step soft adjustment):
+  - `v3 = f(long_phase, mid_regime, next_step_bias_1m)` 형태를 따른다.
+  - `next_step_bias_1m`은 `next_step` 저장본(snapshot + history) 우선 소비를 원칙으로 한다.
+  - 저장본 결측 시 fail-open(`UNKNOWN -> NEUTRAL_BIAS`) fallback을 허용한다.
+  - bias는 목표 비율 강도 조절용이며, 하드 게이트를 대체하지 않는다.
+- v3.1(target-seeking + monthly lock):
+  - v3 규칙을 유지하되 `bias_1m`을 월 단위로 lock해 사용한다.
+  - 월중에는 동일 lock bias를 유지한다.
+- v3.2(monthly lock + shock override, Hypothesis):
+  - 기본은 v3.1과 동일한 월간 lock을 사용한다.
+  - 단, shock streak 충족 시 `next_step_bias_effective`로 override를 허용한다.
+    - `short_signal=PANIC` 2거래일 연속 → `RISK_OFF_BIAS`
+    - `mid_regime=RISK_OFF` 3거래일 연속 → `NEUTRAL_BIAS`
+  - override 발생 후 5거래일 cooldown 동안 재전환 금지.
+  - override는 강도 조절만 수행하며 하드 게이트를 대체하지 않는다.
+- v3.3(hazard-aware override, Hypothesis):
+  - v3.2 규칙을 유지한다.
+  - 단, `transition_hazard_10d`가 임계치 미만이면 override를 완화/무시하고 lock bias를 유지한다.
+  - hazard 결측 시 fail-open으로 v3.2 경로를 유지한다.
 
 ## 5. Outputs
 ### 책임
@@ -159,6 +180,9 @@ current_invested_ratio: 0.62
 - `risk_gate` 처리:
   - v0: `risk_gate=false`이면 `action != INCREASE`
   - v1/v2: `risk_gate=false`여도 `INCREASE` 허용
+  - v3: v1/v2와 동일 (`risk_gate=false`여도 INCREASE 허용), 단 `run_universe=false`면 INCREASE 금지
+  - v3.1/v3.2: v3와 동일한 하드 게이트 규칙 유지
+- 하드 게이트(`run_universe`, `risk_gate`)가 soft gate(next_step bias)보다 우선한다.
 - 즉시 올인/올아웃 금지(단일 주기에서 극단 이동 금지)
 - `step_size > 0`이면 `delta_ratio`는 `step_size` 단위로 양자화된다(rounding_policy 적용)
 - Allocation은 Composer 출력만 의존하며, Policy Config를 직접 참조하지 않는다.
@@ -175,11 +199,18 @@ current_invested_ratio: 0.62
 - **AE-v0**: `risk_gate=false` 시 `INCREASE` 차단 검증
 - **AE-v1**: `risk_gate=false` 시 `INCREASE` 허용 검증
 - **AE-v2**: `risk_gate=false` 시 `INCREASE` 허용 + `run_universe=false` 시 `INCREASE` 차단 검증
+- **AE-v3**: `next_step_bias_1m` 반영 강도 조절 + snapshot 입력 소비 검증
+- **AE-v3.1**: monthly lock(동일 월 bias 유지, 월 변경 시 갱신) 검증
+- **AE-v3.2**: shock override + cooldown + 하드 게이트 우선 검증
+- **AE-v3.3-hypothesis**: hazard 조건부 override 적용/완화 + 결측 fail-open 검증
 
 ---
 
 ## Change History
 | Date | Summary | References |
 | --- | --- | --- |
+| 2026-02-25 | v3.3(Hypothesis) hazard-aware override 규칙 추가 (`transition_hazard_10d` 게이트) | docs/changelog.md |
+| 2026-02-25 | v3.1 monthly lock 정식화 + v3.2(Hypothesis) shock override/cooldown 규칙 추가 | docs/changelog.md |
+| 2026-02-25 | v3 예약 포트 확정: `f(long_phase, mid_regime, next_step_bias_1m)` + snapshot 소비 원칙 명시 | docs/changelog.md |
 | 2026-02-23 | v0/v1/v2 공존 계약으로 확장: mode별 risk_gate 규칙과 DoD 분리 명시 | docs/changelog.md |
 | 2026-02-13 | 파일명 버전 제거 및 문서 표준 블록(Document Status/Capability Matrix) 적용 | docs/changelog.md |

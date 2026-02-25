@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
@@ -39,6 +40,162 @@ if not logger.handlers:
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(name)s - %(message)s",
+    )
+
+
+def _lookup_next_step_bias(
+    next_step_df: Optional[pd.DataFrame],
+    td: date,
+) -> str:
+    """td 기준 latest next_step bias 조회. 없으면 UNKNOWN."""
+    if next_step_df is None or next_step_df.empty or "trade_date" not in next_step_df.columns:
+        return "UNKNOWN"
+
+    x = next_step_df
+    if not hasattr(x["trade_date"].iloc[0], "year"):
+        x = x.copy()
+        x["trade_date"] = pd.to_datetime(x["trade_date"]).dt.date
+
+    mask = x["trade_date"] <= td
+    if not mask.any():
+        return "UNKNOWN"
+    latest = x.loc[mask, "trade_date"].max()
+    row = x[x["trade_date"] == latest]
+    if row.empty:
+        return "UNKNOWN"
+    return str(row.iloc[-1].get("bias_1m", "UNKNOWN"))
+
+
+def _lookup_next_step_hazard10(
+    next_step_df: Optional[pd.DataFrame],
+    td: date,
+) -> Tuple[Optional[float], str]:
+    """td 기준 latest transition_hazard_10d 조회."""
+    if next_step_df is None or next_step_df.empty or "trade_date" not in next_step_df.columns:
+        return None, "MISSING"
+
+    x = next_step_df
+    if not hasattr(x["trade_date"].iloc[0], "year"):
+        x = x.copy()
+        x["trade_date"] = pd.to_datetime(x["trade_date"]).dt.date
+
+    mask = x["trade_date"] <= td
+    if not mask.any():
+        return None, "MISSING"
+    latest = x.loc[mask, "trade_date"].max()
+    row = x[x["trade_date"] == latest]
+    if row.empty:
+        return None, "MISSING"
+    v = row.iloc[-1].get("transition_hazard_10d", None)
+    if v is None or pd.isna(v):
+        return None, "MISSING"
+    return float(v), "SNAPSHOT"
+
+
+def _get_hazard_threshold_10d() -> float:
+    """v3.3 hazard gate threshold.
+
+    Env override:
+      PRETREND_HAZARD_THRESHOLD_10D (default: 0.95)
+    """
+    raw = os.getenv("PRETREND_HAZARD_THRESHOLD_10D", "0.95")
+    try:
+        return float(raw)
+    except Exception:
+        return 0.95
+
+
+def resolve_monthly_locked_bias(
+    next_step_df: Optional[pd.DataFrame],
+    td: date,
+    locked_month: Optional[Tuple[int, int]],
+    locked_bias: str,
+) -> Tuple[Tuple[int, int], str]:
+    """월단위 bias lock 상태 갱신.
+
+    동일 월에는 기존 lock 유지, 월 변경 시점에 td 기준 bias를 새로 lock한다.
+    """
+    cur_month = (td.year, td.month)
+    if locked_month == cur_month:
+        return cur_month, locked_bias
+    new_bias = _lookup_next_step_bias(next_step_df, td)
+    return cur_month, new_bias
+
+
+def _normalize_v32_bias(bias: str) -> str:
+    b = str(bias or "UNKNOWN")
+    if b in {"RISK_ON_BIAS", "NEUTRAL_BIAS", "RISK_OFF_BIAS"}:
+        return b
+    return "NEUTRAL_BIAS"
+
+
+def resolve_effective_bias_v32(
+    *,
+    locked_bias: str,
+    short_signal: str,
+    mid_regime: str,
+    panic_streak: int,
+    risk_off_streak: int,
+    override_days_left: int,
+    override_bias: str,
+    override_reason: str,
+) -> Tuple[str, str, str, int, int, int, str, str]:
+    """v3.2 effective bias resolver.
+
+    Returns
+    -------
+    (effective_bias, bias_source, bias_reason, panic_streak, risk_off_streak,
+     override_days_left, override_bias, override_reason)
+    """
+    panic_streak = panic_streak + 1 if short_signal == "PANIC" else 0
+    risk_off_streak = risk_off_streak + 1 if mid_regime == "RISK_OFF" else 0
+
+    if override_days_left > 0:
+        return (
+            override_bias,
+            "OVERRIDE",
+            override_reason,
+            panic_streak,
+            risk_off_streak,
+            override_days_left - 1,
+            override_bias,
+            override_reason,
+        )
+
+    if panic_streak >= 2:
+        return (
+            "RISK_OFF_BIAS",
+            "OVERRIDE",
+            "PANIC",
+            panic_streak,
+            risk_off_streak,
+            5,
+            "RISK_OFF_BIAS",
+            "PANIC",
+        )
+
+    if risk_off_streak >= 3:
+        return (
+            "NEUTRAL_BIAS",
+            "OVERRIDE",
+            "RISK_OFF",
+            panic_streak,
+            risk_off_streak,
+            5,
+            "NEUTRAL_BIAS",
+            "RISK_OFF",
+        )
+
+    locked = _normalize_v32_bias(locked_bias)
+    return (
+        locked,
+        "LOCKED",
+        "NONE",
+        panic_streak,
+        risk_off_streak,
+        0,
+        override_bias,
+        override_reason,
     )
 
 
@@ -105,6 +262,7 @@ class BacktestRunner:
 
         # 2) Strategy snapshot + Gold EOD features 로드
         policy_df = self._load_snapshot(config, "policy_selection")
+        next_step_df = self._load_snapshot(config, "next_step_signal")
         gold_eod_features_df = self._load_gold_eod_features(config)
 
         # 3) 포트폴리오 + 벤치마크 초기화
@@ -131,12 +289,95 @@ class BacktestRunner:
         trade_log: List[Trade] = []
         initialized: bool = False
         prev_date: Optional[date] = None
+        preset_name = (config.preset_name or "").lower()
+        use_monthly_bias_lock = preset_name in {"v3.1", "v3.2", "v3.3"}
+        use_shock_override_v32 = preset_name in {"v3.2", "v3.3"}
+        use_hazard_gate_v33 = preset_name == "v3.3"
+        hazard_threshold_10d = _get_hazard_threshold_10d()
+        locked_month: Optional[Tuple[int, int]] = None
+        locked_bias: str = "UNKNOWN"
+        effective_bias: str = "UNKNOWN"
+        effective_bias_source: str = "LOCKED"
+        effective_bias_reason: str = "NONE"
+        hazard_source: str = "MISSING"
+        hazard_value_10d: Optional[float] = None
+        override_applied: bool = False
+        panic_streak: int = 0
+        risk_off_streak: int = 0
+        override_days_left: int = 0
+        override_bias: str = "UNKNOWN"
+        override_reason: str = "NONE"
 
         # 5) 일별 루프
         for td in trade_dates:
             day_prices = self._get_day_prices(prices_df, td)
             if not day_prices:
                 continue
+
+            if use_monthly_bias_lock:
+                prev_locked_month = locked_month
+                locked_month, locked_bias = resolve_monthly_locked_bias(
+                    next_step_df, td, locked_month, locked_bias
+                )
+                if use_shock_override_v32 and prev_locked_month != locked_month:
+                    # 월 전환 시점에는 월간 lock 기준으로 상태 초기화
+                    if locked_bias == "UNKNOWN":
+                        locked_bias = "NEUTRAL_BIAS"
+                    effective_bias = _normalize_v32_bias(locked_bias)
+                    effective_bias_source = "LOCKED"
+                    effective_bias_reason = "NONE"
+                    panic_streak = 0
+                    risk_off_streak = 0
+                    override_days_left = 0
+                    override_bias = effective_bias
+                    override_reason = "NONE"
+
+            if use_shock_override_v32:
+                policy_today = self._get_signal_row(policy_df, td, "trade_date")
+                short_sig = (
+                    str(policy_today.get("short_signal", "UNKNOWN"))
+                    if policy_today is not None
+                    else "UNKNOWN"
+                )
+                mid_reg = (
+                    str(policy_today.get("mid_regime", "UNKNOWN"))
+                    if policy_today is not None
+                    else "UNKNOWN"
+                )
+                (
+                    effective_bias,
+                    effective_bias_source,
+                    effective_bias_reason,
+                    panic_streak,
+                    risk_off_streak,
+                    override_days_left,
+                    override_bias,
+                    override_reason,
+                ) = resolve_effective_bias_v32(
+                    locked_bias=locked_bias,
+                    short_signal=short_sig,
+                    mid_regime=mid_reg,
+                    panic_streak=panic_streak,
+                    risk_off_streak=risk_off_streak,
+                    override_days_left=override_days_left,
+                    override_bias=override_bias,
+                    override_reason=override_reason,
+                )
+
+                override_applied = effective_bias_source == "OVERRIDE"
+                if use_hazard_gate_v33 and override_applied:
+                    hazard_value_10d, hazard_source = _lookup_next_step_hazard10(next_step_df, td)
+                    if hazard_value_10d is not None and hazard_value_10d < hazard_threshold_10d:
+                        effective_bias = _normalize_v32_bias(locked_bias)
+                        effective_bias_source = "LOCKED"
+                        effective_bias_reason = "HAZARD_LOW"
+                        override_applied = False
+                    elif hazard_value_10d is None:
+                        # fail-open: hazard 결측이면 v3.2 override를 유지한다.
+                        hazard_source = "MISSING"
+                else:
+                    hazard_source = "MISSING"
+                    hazard_value_10d = None
 
             # [1] 초기 매수 (첫 날)
             if not initialized:
@@ -216,6 +457,40 @@ class BacktestRunner:
                     # prev_date = 금요일(마지막 거래일) 종가 기준 신호 (T-1 close, look-ahead 부분 수정)
                     signal_date = prev_date if prev_date is not None else td
                     policy_row = self._get_signal_row(policy_df, signal_date, "trade_date")
+                    policy_row = self._attach_next_step_bias(
+                        policy_row,
+                        next_step_df,
+                        signal_date,
+                        override_bias=(
+                            effective_bias if use_shock_override_v32
+                            else locked_bias if use_monthly_bias_lock
+                            else None
+                        ),
+                        override_source=(
+                            effective_bias_source if use_shock_override_v32 else "LOCKED"
+                        ),
+                        override_reason=(
+                            effective_bias_reason if use_shock_override_v32 else "NONE"
+                        ),
+                        hazard_source=hazard_source if use_hazard_gate_v33 else "MISSING",
+                        hazard_value_10d=hazard_value_10d if use_hazard_gate_v33 else None,
+                        override_applied=override_applied if use_hazard_gate_v33 else None,
+                    )
+                    if use_shock_override_v32:
+                        logger.debug(
+                            "[Backtest-%s] %s bias=%s source=%s reason=%s panic_streak=%d riskoff_streak=%d cooldown=%d hazard10=%s hazard_source=%s applied=%s",
+                            preset_name,
+                            signal_date,
+                            effective_bias,
+                            effective_bias_source,
+                            effective_bias_reason,
+                            panic_streak,
+                            risk_off_streak,
+                            override_days_left,
+                            hazard_value_10d,
+                            hazard_source,
+                            override_applied,
+                        )
                     alloc_row = self._compute_dynamic_allocation(
                         portfolio, day_prices, policy_row, config
                     )
@@ -755,6 +1030,62 @@ class BacktestRunner:
             row = row.sort_values("source_run_id", ascending=False)
 
         return row.iloc[0]
+
+    def _attach_next_step_bias(
+        self,
+        policy_row: Optional[pd.Series],
+        next_step_df: Optional[pd.DataFrame],
+        td: date,
+        override_bias: Optional[str] = None,
+        override_source: str = "LOCKED",
+        override_reason: str = "NONE",
+        hazard_source: str = "MISSING",
+        hazard_value_10d: Optional[float] = None,
+        override_applied: Optional[bool] = None,
+    ) -> Optional[pd.Series]:
+        """v3 입력용 next_step_bias를 policy_row에 부착한다.
+
+        next_step snapshot이 없으면 UNKNOWN fail-open.
+        """
+        if policy_row is None:
+            return None
+
+        out = policy_row.copy()
+        out["next_step_bias_1m"] = override_bias if override_bias is not None else "UNKNOWN"
+        out["next_step_bias_effective"] = out["next_step_bias_1m"]
+        out["next_step_bias_source"] = override_source
+        out["next_step_bias_reason"] = override_reason
+        out["hazard_source"] = hazard_source
+        out["hazard_value_10d"] = hazard_value_10d
+        out["override_applied"] = override_applied
+        if override_bias is not None:
+            return out
+
+        if next_step_df is None or next_step_df.empty or "trade_date" not in next_step_df.columns:
+            return out
+
+        if not hasattr(next_step_df["trade_date"].iloc[0], "year"):
+            tmp = next_step_df.copy()
+            tmp["trade_date"] = pd.to_datetime(tmp["trade_date"]).dt.date
+            next_step_df = tmp
+
+        mask = next_step_df["trade_date"] <= td
+        if not mask.any():
+            return out
+
+        latest = next_step_df.loc[mask, "trade_date"].max()
+        row = next_step_df[next_step_df["trade_date"] == latest]
+        if row.empty:
+            return out
+
+        out["next_step_bias_1m"] = str(row.iloc[-1].get("bias_1m", "UNKNOWN"))
+        out["next_step_bias_effective"] = out["next_step_bias_1m"]
+        out["next_step_bias_source"] = "SNAPSHOT"
+        out["next_step_bias_reason"] = "NONE"
+        out["hazard_source"] = "SNAPSHOT" if "transition_hazard_10d" in row.columns else "MISSING"
+        out["hazard_value_10d"] = row.iloc[-1].get("transition_hazard_10d", None)
+        out["override_applied"] = False
+        return out
 
     def _initial_buy(
         self,

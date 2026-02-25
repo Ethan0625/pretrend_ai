@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import hashlib
 from datetime import datetime, date
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -13,6 +14,7 @@ from typing import Dict, List, Optional, Tuple
 import pandas as pd
 
 from .metrics import compute_metrics, compute_xirr, compute_period_metrics, compute_phase_distribution
+from pretrend.pipeline.utils.result_registry import append_registry_entry
 
 logger = logging.getLogger(__name__)
 
@@ -340,6 +342,10 @@ def save_walk_forward(
         "mean_total_return": round(df["total_return"].mean(), 6) if not df.empty else None,
         "mean_max_drawdown": round(df["max_drawdown"].mean(), 6) if not df.empty else None,
         "mean_sharpe": round(df["sharpe_ratio"].mean(), 6) if not df.empty else None,
+        "mean_hazard_non_null_ratio": (
+            round(df["hazard_non_null_ratio"].mean(), 6)
+            if (not df.empty and "hazard_non_null_ratio" in df.columns) else None
+        ),
         "generated_at": ts,
         "caveat": _WF_CAVEAT,
         "validation_status_counts": (
@@ -353,6 +359,21 @@ def save_walk_forward(
         encoding="utf-8",
     )
 
+    registry_root = _default_result_dir() / "registry"
+    created_at = datetime.now().isoformat(timespec="seconds")
+    entry = {
+        "pipeline": "walk_forward",
+        "artifact_path": str(parquet_path),
+        "preset": preset,
+        "start_date": str(df["window_start"].min()) if not df.empty else None,
+        "end_date": str(df["window_end"].max()) if not df.empty else None,
+        "decision_date_ref": None,
+        "code_version": os.getenv("PRETREND_CODE_VERSION", "unknown"),
+        "data_version": os.getenv("PRETREND_DATA_VERSION", "unknown"),
+        "metrics_hash": hashlib.md5(json.dumps(summary, sort_keys=True).encode("utf-8")).hexdigest(),
+        "created_at": created_at,
+    }
+    append_registry_entry(registry_root, entry)
     logger.info("[save_walk_forward] 저장 완료 → %s", base_dir)
     return base_dir
 
@@ -441,11 +462,17 @@ def save_result(
     out_dir = resolved_dir / version
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    # daily_log (인덱스 포함)
+    # daily log (legacy)
     daily_path = out_dir / f"{stem}.parquet"
     result.daily_log.to_parquet(daily_path)
 
+    # standard artifacts
+    daily_nav_path = out_dir / f"{stem}_daily_nav.parquet"
+    nav_df = result.daily_log.reset_index().rename(columns={"index": "trade_date"})
+    nav_df.to_parquet(daily_nav_path, index=False)
+
     # trade_log
+    trades_path = None
     if result.trade_log:
         trades_df = pd.DataFrame([
             {
@@ -468,7 +495,7 @@ def save_result(
         encoding="utf-8",
     )
 
-    # metrics JSON (total_return 포함)
+    # metrics JSON (legacy)
     if result.metrics:
         metrics_path = out_dir / f"{stem}_metrics.json"
         metrics_path.write_text(
@@ -476,8 +503,65 @@ def save_result(
             encoding="utf-8",
         )
 
+    summary_metrics = dict(result.metrics or {})
+    summary_metrics.update(
+        {
+            "preset": version,
+            "start_date": cfg.start_date.isoformat(),
+            "end_date": cfg.end_date.isoformat(),
+            "run_id": stem,
+            "code_version": os.getenv("PRETREND_CODE_VERSION", "unknown"),
+            "data_version": os.getenv("PRETREND_DATA_VERSION", "unknown"),
+            "decision_date_ref": os.getenv("PRETREND_DECISION_DATE_REF", "unknown"),
+            "created_at": datetime.now().isoformat(timespec="seconds"),
+        }
+    )
+    metrics_df = pd.DataFrame([summary_metrics])
+    summary_metrics_parquet = out_dir / f"{stem}_summary_metrics.parquet"
+    summary_metrics_json = out_dir / f"{stem}_summary_metrics.json"
+    metrics_df.to_parquet(summary_metrics_parquet, index=False)
+    summary_metrics_json.write_text(json.dumps(summary_metrics, indent=2, ensure_ascii=False), encoding="utf-8")
+
+    diagnostics_path = out_dir / f"{stem}_diagnostics.parquet"
+    diag_cols = [c for c in ("trade_date", "action", "nav", "benchmark_nav") if c in nav_df.columns]
+    if not diag_cols:
+        diag_cols = list(nav_df.columns)
+    nav_df[diag_cols].to_parquet(diagnostics_path, index=False)
+
+    final_positions_path = out_dir / f"{stem}_final_positions.parquet"
+    pos_rows = []
+    for sym, v in getattr(result, "final_positions", {}).items():
+        row = {"symbol": sym}
+        if isinstance(v, dict):
+            row.update(v)
+        pos_rows.append(row)
+    pd.DataFrame(pos_rows).to_parquet(final_positions_path, index=False)
+
+    registry_root = _default_result_dir() / "registry"
+    created_at = datetime.now().isoformat(timespec="seconds")
+    entry = {
+        "pipeline": "backtest",
+        "artifact_path": str(summary_metrics_parquet),
+        "preset": version,
+        "start_date": cfg.start_date.isoformat(),
+        "end_date": cfg.end_date.isoformat(),
+        "decision_date_ref": os.getenv("PRETREND_DECISION_DATE_REF", "unknown"),
+        "code_version": os.getenv("PRETREND_CODE_VERSION", "unknown"),
+        "data_version": os.getenv("PRETREND_DATA_VERSION", "unknown"),
+        "metrics_hash": hashlib.md5(
+            json.dumps(result.metrics or {}, sort_keys=True).encode("utf-8")
+        ).hexdigest(),
+        "run_id": stem,
+        "daily_nav_path": str(daily_nav_path),
+        "trades_path": str(trades_path) if trades_path else None,
+        "diagnostics_path": str(diagnostics_path),
+        "final_positions_path": str(final_positions_path),
+        "created_at": created_at,
+    }
+    append_registry_entry(registry_root, entry)
+
     logger.info(
-        "[save_result] 저장 완료 → %s  (%s, %s_trades, %s_config.json, %s_metrics.json)",
-        out_dir, stem, stem, stem, stem,
+        "[save_result] 저장 완료 → %s  (%s + standard artifacts + registry)",
+        out_dir, stem,
     )
     return out_dir
