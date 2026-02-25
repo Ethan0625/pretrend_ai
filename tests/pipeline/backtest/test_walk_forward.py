@@ -138,6 +138,68 @@ class TestWalkForwardRunnerRun:
         df = WalkForwardRunner().run(config)
         assert df.empty
 
+    def test_run_status_pass_with_warning(self):
+        """Tier-1 통과 + Tier-2 경고 -> PASS_WITH_WARNING."""
+        fake_result = MagicMock()
+        fake_result.metrics = self._fake_metrics(cagr=0.05)
+
+        with patch("pretrend.pipeline.backtest.walk_forward.BacktestRunner") as MockRunner:
+            MockRunner.return_value.run.return_value = fake_result
+            runner = WalkForwardRunner()
+            with patch.object(
+                runner,
+                "_compute_12slot_diagnostics",
+                return_value={"coverage": 0.10, "unknown_ratio": 0.90, "axis_consistency": 0.40},
+            ):
+                df = runner.run(
+                    WalkForwardConfig(
+                        preset="v2",
+                        windows=[(date(2010, 1, 3), date(2014, 1, 3))],
+                    )
+                )
+
+        assert bool(df["tier1_pass"].iloc[0]) is True
+        assert bool(df["tier2_warning"].iloc[0]) is True
+        assert df["validation_status"].iloc[0] == "PASS_WITH_WARNING"
+
+    def test_run_status_fail_when_tier1_fails(self):
+        """Tier-1 실패면 Tier-2와 무관하게 FAIL."""
+        fake_result = MagicMock()
+        fake_result.metrics = {
+            "cagr": -0.01,
+            "total_return": -0.05,
+            "max_drawdown": -0.50,
+            "sharpe_ratio": -0.10,
+            "benchmark_cagr": 0.08,
+            "excess_cagr": -0.09,
+        }
+
+        with patch("pretrend.pipeline.backtest.walk_forward.BacktestRunner") as MockRunner:
+            MockRunner.return_value.run.return_value = fake_result
+            runner = WalkForwardRunner()
+            with patch.object(
+                runner,
+                "_compute_12slot_diagnostics",
+                return_value={"coverage": 0.80, "unknown_ratio": 0.20, "axis_consistency": 0.90},
+            ):
+                df = runner.run(
+                    WalkForwardConfig(
+                        preset="v2",
+                        windows=[(date(2010, 1, 3), date(2014, 1, 3))],
+                    )
+                )
+
+        assert bool(df["tier1_pass"].iloc[0]) is False
+        assert df["validation_status"].iloc[0] == "FAIL"
+
+    def test_tier2_warning_fallback_when_diag_missing(self):
+        """진단 지표 결측(NaN)이면 Tier-2 경고를 강제하지 않는다."""
+        runner = WalkForwardRunner()
+        warn = runner._is_tier2_warning(
+            {"coverage": float("nan"), "unknown_ratio": float("nan"), "axis_consistency": float("nan")}
+        )
+        assert warn is False
+
 
 # ── save_walk_forward 저장 검증 ────────────────────────────────
 
@@ -154,6 +216,12 @@ class TestSaveWalkForward:
                 "sharpe_ratio": 0.75,
                 "benchmark_cagr": 0.08,
                 "excess_cagr": -0.04,
+                "diag_12slot_coverage": 0.40,
+                "diag_unknown_ratio": 0.60,
+                "diag_axis_consistency": 0.66,
+                "tier1_pass": True,
+                "tier2_warning": True,
+                "validation_status": "PASS_WITH_WARNING",
                 "preset": "v2",
                 "generated_at": "2026-02-21T00:00:00",
             }

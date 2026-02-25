@@ -18,10 +18,11 @@ import logging
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import pandas as pd
 
+from ._utils import load_strategy_snapshot
 from .config import BacktestConfig
 from .runner import BacktestRunner
 
@@ -37,8 +38,20 @@ WALK_FORWARD_COLUMNS: List[str] = [
     "window_start", "window_end",
     "cagr", "total_return", "max_drawdown",
     "sharpe_ratio", "benchmark_cagr", "excess_cagr",
+    "diag_12slot_coverage", "diag_unknown_ratio", "diag_axis_consistency",
+    "tier1_pass", "tier2_warning", "validation_status",
     "preset", "generated_at",
 ]
+
+# Tier-1 성과 기준(1차 게이트)
+_MIN_CAGR = 0.0
+_MIN_SHARPE = 0.0
+_MAX_MDD = -0.35
+
+# Tier-2 진단 기준(2차 진단 KPI)
+_MIN_DIAG_COVERAGE = 0.20
+_MAX_UNKNOWN_RATIO = 0.80
+_MIN_AXIS_CONSISTENCY = 0.50
 
 
 @dataclass
@@ -77,6 +90,7 @@ class WalkForwardRunner:
         logger.info("[WalkForward] preset=%s, %d windows", config.preset, len(windows))
         generated_at = datetime.now().isoformat(timespec="seconds")
         rows = []
+        ahs_df = self._load_ahs_snapshot_for_diagnostics()
 
         for i, (ws, we) in enumerate(windows, 1):
             logger.info("[WalkForward] Window %d/%d: %s ~ %s", i, len(windows), ws, we)
@@ -88,6 +102,10 @@ class WalkForwardRunner:
             )
             result = BacktestRunner().run(bt_config)
             m = result.metrics
+            diag = self._compute_12slot_diagnostics(ahs_df, ws, we)
+            tier1 = self._is_tier1_pass(m)
+            tier2_warn = self._is_tier2_warning(diag)
+            status = self._resolve_validation_status(tier1, tier2_warn)
 
             rows.append({
                 "window_start": ws,
@@ -98,6 +116,12 @@ class WalkForwardRunner:
                 "sharpe_ratio": m.get("sharpe_ratio", 0.0),
                 "benchmark_cagr": m.get("benchmark_cagr", 0.0),
                 "excess_cagr": m.get("excess_cagr", 0.0),
+                "diag_12slot_coverage": diag["coverage"],
+                "diag_unknown_ratio": diag["unknown_ratio"],
+                "diag_axis_consistency": diag["axis_consistency"],
+                "tier1_pass": tier1,
+                "tier2_warning": tier2_warn,
+                "validation_status": status,
                 "preset": config.preset,
                 "generated_at": generated_at,
             })
@@ -105,6 +129,144 @@ class WalkForwardRunner:
         df = pd.DataFrame(rows, columns=WALK_FORWARD_COLUMNS)
         logger.info("[WalkForward] Done — %d windows", len(df))
         return df
+
+    def _load_ahs_snapshot_for_diagnostics(self) -> Optional[pd.DataFrame]:
+        """전역 AHS snapshot를 로드한다. 없으면 None."""
+        try:
+            df = load_strategy_snapshot(Path("data/strategy"), "axis_horizon_state")
+            if df is None or df.empty:
+                return None
+            if "trade_date" in df.columns:
+                df["trade_date"] = pd.to_datetime(df["trade_date"]).dt.date
+            return df
+        except Exception:
+            return None
+
+    @staticmethod
+    def _safe_json(raw) -> Dict:
+        import json
+        if raw is None:
+            return {}
+        if isinstance(raw, dict):
+            return raw
+        if isinstance(raw, str):
+            try:
+                parsed = json.loads(raw)
+                return parsed if isinstance(parsed, dict) else {}
+            except Exception:
+                return {}
+        return {}
+
+    def _compute_12slot_diagnostics(
+        self,
+        ahs_df: Optional[pd.DataFrame],
+        window_start: date,
+        window_end: date,
+    ) -> Dict[str, float]:
+        """4축×3horizon(12셀) 진단 KPI를 계산한다."""
+        if ahs_df is None or ahs_df.empty:
+            return {"coverage": float("nan"), "unknown_ratio": float("nan"), "axis_consistency": float("nan")}
+
+        wdf = ahs_df[(ahs_df["trade_date"] >= window_start) & (ahs_df["trade_date"] <= window_end)]
+        if wdf.empty:
+            return {"coverage": float("nan"), "unknown_ratio": float("nan"), "axis_consistency": float("nan")}
+
+        known = 0
+        total = 12 * len(wdf)
+        bias_scores: List[float] = []
+
+        for _, row in wdf.iterrows():
+            ld = self._safe_json(row.get("long_detail_json"))
+            md = self._safe_json(row.get("mid_detail_json"))
+            sd = self._safe_json(row.get("short_detail_json"))
+
+            # macro cells
+            if ld.get("regime_mode") is not None or ld.get("delta_6m_z_mean") is not None:
+                known += 1
+            if md.get("macro_signal") is not None:
+                known += 1
+
+            # price cells
+            if md.get("price_signal") is not None:
+                known += 1
+            if sd.get("primary_panic") is not None or sd.get("primary_relief") is not None:
+                known += 1
+
+            # flow cells
+            if md.get("breadth_signal") is not None:
+                known += 1
+            if (
+                sd.get("secondary_confirm_count") is not None
+                or sd.get("smallcap_stress") is not None
+                or sd.get("secondary_confirmations") is not None
+            ):
+                known += 1
+
+            # sentiment cell (short only in current impl)
+            if sd.get("risk_on_confirm") is not None:
+                known += 1
+
+            # 축별 일관성 근사값 계산
+            axis_votes: List[int] = []
+            macro_sig = md.get("macro_signal")
+            if macro_sig == "RISK_ON":
+                axis_votes.append(1)
+            elif macro_sig == "RISK_OFF":
+                axis_votes.append(-1)
+
+            price_sig = md.get("price_signal")
+            if price_sig == "RISK_ON":
+                axis_votes.append(1)
+            elif price_sig == "RISK_OFF":
+                axis_votes.append(-1)
+
+            breadth_sig = md.get("breadth_signal")
+            if breadth_sig == "RISK_ON":
+                axis_votes.append(1)
+            elif breadth_sig == "RISK_OFF":
+                axis_votes.append(-1)
+
+            roc = sd.get("risk_on_confirm")
+            if roc is True:
+                axis_votes.append(1)
+
+            if axis_votes:
+                pos = sum(1 for v in axis_votes if v > 0)
+                neg = sum(1 for v in axis_votes if v < 0)
+                bias_scores.append(max(pos, neg) / len(axis_votes))
+
+        coverage = known / total if total > 0 else float("nan")
+        unknown_ratio = 1.0 - coverage if total > 0 else float("nan")
+        axis_consistency = sum(bias_scores) / len(bias_scores) if bias_scores else float("nan")
+
+        return {
+            "coverage": coverage,
+            "unknown_ratio": unknown_ratio,
+            "axis_consistency": axis_consistency,
+        }
+
+    def _is_tier1_pass(self, metrics: Dict[str, float]) -> bool:
+        cagr = float(metrics.get("cagr", 0.0))
+        sharpe = float(metrics.get("sharpe_ratio", 0.0))
+        mdd = float(metrics.get("max_drawdown", 0.0))
+        return cagr >= _MIN_CAGR and sharpe >= _MIN_SHARPE and mdd >= _MAX_MDD
+
+    def _is_tier2_warning(self, diag: Dict[str, float]) -> bool:
+        cov = diag.get("coverage")
+        un = diag.get("unknown_ratio")
+        cons = diag.get("axis_consistency")
+        # 진단 데이터가 없으면 경고 강제하지 않고 fallback 처리
+        if pd.isna(cov) or pd.isna(un) or pd.isna(cons):
+            return False
+        return cov < _MIN_DIAG_COVERAGE or un > _MAX_UNKNOWN_RATIO or cons < _MIN_AXIS_CONSISTENCY
+
+    @staticmethod
+    def _resolve_validation_status(tier1_pass: bool, tier2_warning: bool) -> str:
+        if not tier1_pass:
+            return "FAIL"
+        if tier2_warning:
+            return "PASS_WITH_WARNING"
+        return "PASS"
 
     def _generate_windows(
         self, config: WalkForwardConfig

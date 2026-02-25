@@ -247,22 +247,41 @@ def print_walk_forward_summary(
         print(f"  ※ {_WF_CAVEAT}")
     print(f"  Preset: {df['preset'].iloc[0] if 'preset' in df.columns else 'N/A'}")
     print(f"{'='*70}")
-    print(
-        f"  {'Window':<24} {'CAGR':>7} {'Total':>7} {'MDD':>7} {'Sharpe':>7} {'Exc.CAGR':>9}"
-    )
-    print(f"  {'-'*24} {'-------':>7} {'-------':>7} {'-------':>7} {'-------':>7} {'---------':>9}")
+    has_validation = "validation_status" in df.columns
+    if has_validation:
+        print(
+            f"  {'Window':<24} {'CAGR':>7} {'Total':>7} {'MDD':>7} {'Sharpe':>7} {'Exc.CAGR':>9} {'Status':>17}"
+        )
+        print(f"  {'-'*24} {'-------':>7} {'-------':>7} {'-------':>7} {'-------':>7} {'---------':>9} {'-'*17:>17}")
+    else:
+        print(
+            f"  {'Window':<24} {'CAGR':>7} {'Total':>7} {'MDD':>7} {'Sharpe':>7} {'Exc.CAGR':>9}"
+        )
+        print(f"  {'-'*24} {'-------':>7} {'-------':>7} {'-------':>7} {'-------':>7} {'---------':>9}")
     for _, row in df.iterrows():
         ws = str(row["window_start"])[:7] if pd.notna(row["window_start"]) else "?"
         we = str(row["window_end"])[:7] if pd.notna(row["window_end"]) else "?"
         window_label = f"{ws} ~ {we}"
-        print(
-            f"  {window_label:<24}"
-            f" {row['cagr']:>+7.2%}"
-            f" {row['total_return']:>+7.1%}"
-            f" {row['max_drawdown']:>7.2%}"
-            f" {row['sharpe_ratio']:>7.2f}"
-            f" {row['excess_cagr']:>+9.2%}"
-        )
+        if has_validation:
+            status = row.get("validation_status", "N/A")
+            print(
+                f"  {window_label:<24}"
+                f" {row['cagr']:>+7.2%}"
+                f" {row['total_return']:>+7.1%}"
+                f" {row['max_drawdown']:>7.2%}"
+                f" {row['sharpe_ratio']:>7.2f}"
+                f" {row['excess_cagr']:>+9.2%}"
+                f" {str(status):>17}"
+            )
+        else:
+            print(
+                f"  {window_label:<24}"
+                f" {row['cagr']:>+7.2%}"
+                f" {row['total_return']:>+7.1%}"
+                f" {row['max_drawdown']:>7.2%}"
+                f" {row['sharpe_ratio']:>7.2f}"
+                f" {row['excess_cagr']:>+9.2%}"
+            )
     print(f"{'─'*70}")
     print(
         f"  {'Mean':<24}"
@@ -273,6 +292,14 @@ def print_walk_forward_summary(
         f" {df['excess_cagr'].mean():>+9.2%}"
     )
     print(f"{'='*70}\n")
+    if has_validation:
+        status_counts = (
+            df["validation_status"].value_counts(dropna=False).to_dict()
+            if "validation_status" in df.columns else {}
+        )
+        print(f"  Validation Status Count: {status_counts}")
+        print(f"  (Tier-1 성과 + Tier-2 진단 결합 결과)")
+        print("")
 
 
 def save_walk_forward(
@@ -315,6 +342,10 @@ def save_walk_forward(
         "mean_sharpe": round(df["sharpe_ratio"].mean(), 6) if not df.empty else None,
         "generated_at": ts,
         "caveat": _WF_CAVEAT,
+        "validation_status_counts": (
+            df["validation_status"].value_counts(dropna=False).to_dict()
+            if "validation_status" in df.columns else {}
+        ),
     }
     summary_path = base_dir / f"{stem}_summary.json"
     summary_path.write_text(

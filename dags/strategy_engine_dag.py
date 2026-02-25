@@ -26,7 +26,9 @@ import pendulum
 from airflow.decorators import dag, task
 from pretrend.pipeline.strategy_engine.report_context import (
     build_context_lines as _build_context_lines,
+    build_diagnostic_lines as _build_diagnostic_lines,
     build_evidence_lines as _build_evidence_lines,
+    build_next_step_lines as _build_next_step_lines,
     build_switch_lines as _build_switch_lines,
     safe_json_dict as _safe_json_dict,
 )
@@ -321,12 +323,26 @@ def strategy_engine_pipeline():
         lines += _build_context_lines(long_phase, mid_regime, short_signal)
         lines += _build_switch_lines(risk_gate=risk_gate, run_universe=run_universe)
 
+        # ── 다음 스텝 가설 (1m/3m) ──
+        lines += [
+            "",
+            "── 다음 스텝 가설 ──",
+        ]
+        lines += _build_next_step_lines(long_phase, mid_regime, short_signal)
+
         # ── 시장 근거 (4축) ──
         lines += [
             "",
             "── 시장 근거 ──",
         ]
         lines += _build_evidence_lines(long_detail, mid_detail, short_detail)
+
+        # ── 진단 요약 (12셀 품질) ──
+        lines += [
+            "",
+            "── 진단 요약 ──",
+        ]
+        lines += _build_diagnostic_lines(long_detail, mid_detail, short_detail)
 
         # ── 전술 ETF (asset_group별 그룹핑) ──
         if tactical_by_group:

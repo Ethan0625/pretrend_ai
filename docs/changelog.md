@@ -7,6 +7,44 @@
 
 > 참고: changelog 과거 섹션은 작성 시점 원문을 보존한다.
 
+## v2026.02.24 — 전이예측 계약 보강 (Tier-1 성과 + Tier-2 12셀 진단)
+
+### docs(architecture): 전이예측/검증 계약 신규 추가
+- `docs/architecture/next_step_signal_contract.md` 신규 추가
+  - 3-state(long/mid/short) 기반 다음 스텝 가설(1m/3m) 출력 계약 정의
+  - 4축 근거 서술 필드(`매크로/가격/수급/심리`) 고정
+  - 12셀(4x3)을 실행 신호가 아닌 **진단 KPI 계층**으로 명시
+- `docs/architecture/walk_forward_validation_contract.md` 신규 추가
+  - Tier-1(성과 KPI) + Tier-2(진단 KPI) 이중 검증 구조 정의
+  - 상태 전이 규칙 고정:
+    - Tier-1 통과 + Tier-2 경고 없음 → `PASS`
+    - Tier-1 통과 + Tier-2 경고 있음 → `PASS_WITH_WARNING`
+    - Tier-1 실패 → `FAIL`
+
+### feat(strategy_engine): Telegram 보고에 다음 스텝/진단 섹션 추가
+- `report_context.py`
+  - `build_next_step_lines()` 추가 (1M/3M 결정론 가설)
+  - `build_diagnostic_lines()` 추가 (12셀 품질/coverage 요약)
+- `dags/strategy_engine_dag.py`
+  - 기존 `시장 컨텍스트` + `시장 근거` 유지
+  - `다음 스텝 가설`, `진단 요약` 섹션 추가
+
+### feat(backtest): Walk-forward 이중 검증 출력 확장
+- `walk_forward.py`
+  - 진단 컬럼 추가: `diag_12slot_coverage`, `diag_unknown_ratio`, `diag_axis_consistency`
+  - 상태 컬럼 추가: `tier1_pass`, `tier2_warning`, `validation_status`
+  - 진단 결측 시 fail-open (`tier2_warning=False`) 처리
+- `report.py`
+  - `validation_status` 존재 시 요약 테이블/카운트 출력
+
+### test: 계약/전이 규칙 회귀 테스트 추가
+- `tests/pipeline/strategy_engine/test_next_step_signal.py` 신규
+  - 4축 근거 문구 생성/결측 fail-open/next-step bias 검증
+- `tests/pipeline/strategy_engine/test_strategy_engine_dag_report.py` 확장
+  - 1M/3M 가설 라인, 12셀 진단 라인 출력 검증
+- `tests/pipeline/backtest/test_walk_forward.py` 확장
+  - `PASS_WITH_WARNING`, `FAIL`, 진단 결측 fallback 검증
+
 ## v2026.02.23 — Telegram 보고 포맷 고도화 (컨텍스트 3줄 + 근거 4축)
 
 ### feat(strategy_engine): AHS detail_json 저장 추가

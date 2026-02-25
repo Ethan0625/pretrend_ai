@@ -1,8 +1,8 @@
-"""Telegram 시장 컨텍스트/근거 렌더링 헬퍼."""
+"""Telegram 시장 컨텍스트/근거/다음 스텝 렌더링 헬퍼."""
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
 
 def safe_json_dict(raw: Any) -> Dict[str, Any]:
@@ -161,4 +161,134 @@ def build_evidence_lines(
         "",
         "💕심리",
         f"→ {senti_line.replace('심리: ', '')}",
+    ]
+
+
+def _bias_to_label(bias: str) -> str:
+    return {
+        "RISK_ON_BIAS": "위험선호 우세",
+        "RISK_OFF_BIAS": "위험회피 우세",
+        "NEUTRAL_BIAS": "중립",
+        "UNKNOWN": "판단불가",
+    }.get(bias, "판단불가")
+
+
+def _infer_bias_1m(
+    long_phase: str,
+    mid_regime: str,
+    short_signal: str,
+) -> Tuple[str, float]:
+    """1개월 가설: mid/short 비중을 높게 둔 간단한 결정론 규칙."""
+    score = 0
+    if mid_regime == "RISK_ON":
+        score += 2
+    elif mid_regime == "RISK_OFF":
+        score -= 2
+
+    if short_signal == "RELIEF":
+        score += 2
+    elif short_signal == "PANIC":
+        score -= 2
+
+    if long_phase in {"EXPANSION", "RECOVERY"}:
+        score += 1
+    elif long_phase in {"SLOWDOWN", "RECESSION"}:
+        score -= 1
+
+    if score >= 2:
+        return "RISK_ON_BIAS", min(0.85, 0.55 + 0.10 * score)
+    if score <= -2:
+        return "RISK_OFF_BIAS", min(0.85, 0.55 + 0.10 * abs(score))
+    return "NEUTRAL_BIAS", 0.50
+
+
+def _infer_bias_3m(
+    long_phase: str,
+    mid_regime: str,
+    short_signal: str,
+) -> Tuple[str, float]:
+    """3개월 가설: long/mid 비중을 높게 둔 간단한 결정론 규칙."""
+    score = 0
+    if long_phase in {"EXPANSION", "RECOVERY", "LATE_CYCLE"}:
+        score += 2
+    elif long_phase in {"SLOWDOWN", "RECESSION"}:
+        score -= 2
+
+    if mid_regime == "RISK_ON":
+        score += 2
+    elif mid_regime == "RISK_OFF":
+        score -= 2
+
+    if short_signal == "PANIC":
+        score -= 1
+    elif short_signal == "RELIEF":
+        score += 1
+
+    if score >= 2:
+        return "RISK_ON_BIAS", min(0.85, 0.55 + 0.08 * score)
+    if score <= -2:
+        return "RISK_OFF_BIAS", min(0.85, 0.55 + 0.08 * abs(score))
+    return "NEUTRAL_BIAS", 0.50
+
+
+def build_next_step_lines(
+    long_phase: str,
+    mid_regime: str,
+    short_signal: str,
+) -> List[str]:
+    """다음 스텝 가설(1m/3m)을 생성한다."""
+    b1, c1 = _infer_bias_1m(long_phase, mid_regime, short_signal)
+    b3, c3 = _infer_bias_3m(long_phase, mid_regime, short_signal)
+    return [
+        f"🧭 1M: {_bias_to_label(b1)} ({b1}, {c1:.0%})",
+        f"🧭 3M: {_bias_to_label(b3)} ({b3}, {c3:.0%})",
+    ]
+
+
+def build_diagnostic_lines(
+    long_detail: Dict[str, Any],
+    mid_detail: Dict[str, Any],
+    short_detail: Dict[str, Any],
+) -> List[str]:
+    """12셀 진단 KPI를 품질 상태로 압축 출력한다."""
+    known = 0
+    total = 12
+
+    # macro
+    if long_detail.get("regime_mode") is not None or long_detail.get("delta_6m_z_mean") is not None:
+        known += 1  # macro-long
+    if mid_detail.get("macro_signal") is not None:
+        known += 1  # macro-mid
+    # macro-short (v0/v1 현재 없음)
+
+    # price
+    if mid_detail.get("price_signal") is not None:
+        known += 1  # price-mid
+    if short_detail.get("primary_panic") is not None or short_detail.get("primary_relief") is not None:
+        known += 1  # price-short
+    # price-long (현재 없음)
+
+    # flow
+    if mid_detail.get("breadth_signal") is not None:
+        known += 1  # flow-mid
+    if (
+        short_detail.get("secondary_confirm_count") is not None
+        or short_detail.get("smallcap_stress") is not None
+        or short_detail.get("secondary_confirmations") is not None
+    ):
+        known += 1  # flow-short
+    # flow-long (현재 없음)
+
+    # sentiment
+    if short_detail.get("risk_on_confirm") is not None:
+        known += 1  # sentiment-short
+    # sentiment-long/mid (현재 없음)
+
+    coverage = known / total
+    unknown_ratio = 1.0 - coverage
+    quality = "양호" if coverage >= 0.50 else "경고"
+
+    return [
+        f"🧪 12셀 품질: {quality}",
+        f"→ coverage={coverage:.1%}, unknown={unknown_ratio:.1%}",
     ]
