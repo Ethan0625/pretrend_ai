@@ -86,6 +86,17 @@ Strategy Engine은 **정책·전략 상태에 따라 변경 가능한 계산 결
   * Preset v2(`long_phase × mid_regime` 2D lookup) 지원
   * Walk-Forward 분석 CLI(`window-years`, `step-years`) 및 parquet/json 저장 지원
   * 결과 지표 JSON(`*_metrics.json`) 저장 지원
+  * v3 확장: `next_step_signal snapshot` 기반 soft gate allocation 지원
+  * v3.1: monthly bias lock 운영
+  * v3.2: monthly lock + shock override(PANIC/RISK_OFF streak, cooldown) 운영
+  * v3.3: v3.2 + hazard-aware override gate(`transition_hazard_10d`) 운영
+* 🧾 **Paper Engine (stateful EOD simulation)**
+  * `src/pretrend/pipeline/paper/` 모듈에서 운용 시뮬레이션 실행
+  * `next_step_signal` 기반 tactical 강도 조절(soft gate) + 하드게이트 우선 적용
+* ♻️ **재현성 저장 체계 (Feature Snapshot + Result Registry)**
+  * `next_step_history`(year/month partition, key=`trade_date+decision_date_ref`)로 전이예측 feature 선저장
+  * backtest/walk-forward/paper 결과를 표준 아티팩트 + registry(parquet partition)로 저장
+  * 동일 조건 비교를 “재실행 없이 조회” 가능하도록 운영
 * 🧮 **거시 지표 기반 Macro Feature 생성**
 
   * FRED 연동
@@ -267,6 +278,10 @@ conda run -n pytest-pretrend pytest tests/ -v
 
 ### 4.4 Backtest / Walk-Forward 실행
 
+규칙 기반 전이예측(MVP):
+- `5/10/20 거래일` 지평으로 `sojourn_prob`(지속확률) / `transition_hazard`(전환위험도) 산출
+- ML 없이 snapshot 확장 필드(nullable)로 제공
+
 ```bash
 # Backtest preset v2
 PYTHONPATH=src python -m pretrend.pipeline.backtest.runner --start 2006-01-03 --end 2024-06-03 --preset v2
@@ -274,9 +289,36 @@ PYTHONPATH=src python -m pretrend.pipeline.backtest.runner --start 2006-01-03 --
 # Walk-Forward (4년 창, 2년 슬라이드)
 PYTHONPATH=src python -m pretrend.pipeline.backtest.walk_forward --preset v2 --window-years 4 --step-years 2
 
+# Backtest preset v3 (next_step soft gate)
+PYTHONPATH=src python -m pretrend.pipeline.backtest.runner --start 2006-01-03 --end 2024-06-03 --preset v3
+
+# Backtest preset v3.1 (v3 + monthly bias lock)
+PYTHONPATH=src python -m pretrend.pipeline.backtest.runner --start 2006-01-03 --end 2024-06-03 --preset v3.1
+
+# Backtest preset v3.2 (v3.1 + shock override/cooldown)
+PYTHONPATH=src python -m pretrend.pipeline.backtest.runner --start 2006-01-03 --end 2024-06-03 --preset v3.2
+
+# Backtest preset v3.3 (v3.2 + hazard-aware override)
+PYTHONPATH=src python -m pretrend.pipeline.backtest.runner --start 2006-01-03 --end 2024-06-03 --preset v3.3
+
 # Walk-Forward 저장 (parquet + summary json)
 PYTHONPATH=src python -m pretrend.pipeline.backtest.walk_forward --preset v2 --window-years 4 --step-years 2 --save
+
+# Walk-Forward v3.3 (duration/transition diagnostics)
+PYTHONPATH=src python -m pretrend.pipeline.backtest.walk_forward --preset v3.3 --window-years 4 --step-years 2
 ```
+
+결과 저장/비교 원칙:
+- `BacktestRunner().run()`만 호출하면 파일이 저장되지 않는다.
+- 비교/재현성 용도는 `save_result()`를 포함한 실행으로 아티팩트를 저장해야 한다.
+- 권장 경로: `result/backtest_compare/<window>_<YYYYMMDD-YYYYMMDD>/<preset>/`
+- 표준 산출물:
+  - `*_daily_nav.parquet`, `*_trades.parquet`, `*_summary_metrics.parquet/json`
+  - `*_diagnostics.parquet`, `*_final_positions.parquet`, `*_config.json`
+  - legacy: `*.parquet`, `*_metrics.json`
+- registry:
+  - `result/backtest/registry/pipeline=backtest/run_date=YYYY-MM-DD/registry.parquet`
+  - `artifact_path`, `run_id`, 기간/버전 메타로 재실행 없이 비교 조회 가능
 
 v2 preset 성과 비교(2006-01 ~ 2024-06, DCA $300/월):
 
@@ -332,12 +374,16 @@ PYTHONPATH=src python -m pretrend.pipeline.eod_job \
 
   * `macro_pipeline_dag.py`
   * `eod_pipeline_dag.py`
+  * `strategy_engine_dag.py` (Telegram `SIGNAL`)
+  * `paper_trading_dag.py` (Telegram `PAPER_RESULT`, EOD 1회)
 
 * 특징:
 
   * 매 실행 시 **직전월 1일 ~ 전일 롤링 재처리**
   * 파티션 overwrite 기반 멱등성
   * Airflow는 대규모 운영 목적이 아니라, **배치 재현성과 파이프라인 경계 명확화**를 위해 사용
+  * Telegram은 동일 채널에서 `SIGNAL`/`PAPER_RESULT`를 `message_type`으로 구분
+  * Telegram 전송 실패는 fail-open (경고 로그 후 DAG 성공 유지)
 
 ---
 
@@ -365,6 +411,8 @@ PYTHONPATH=src python -m pretrend.pipeline.eod_job \
   * `/docs/architecture/market_structure_composer_contract.md`
   * `/docs/architecture/universe_contract.md`
   * `/docs/architecture/allocation_engine_contract.md`
+  * `/docs/architecture/paper_execution_ledger_contract.md`
+  * `/docs/architecture/paper_trading_alert_contract.md`
   * `/docs/market_structure_data_inventory.md`
 * 변경 이력: `/docs/changelog.md`
 

@@ -45,6 +45,12 @@
 - 스냅샷 저장 기준:
   - `decision_date` 파티션
   - overwrite + atomic write
+  - `next_step_history` 증분 저장(`trade_date, decision_date_ref` key)
+
+## 재현성 저장 원칙 (Compute once, store, compare many)
+- 계산 가능한 전이예측 feature(`state_age/sojourn/hazard`)는 snapshot/history로 선저장한다.
+- 소비자는 저장본을 우선 사용하고 결측 시에만 fail-open fallback을 사용한다.
+- 결과 비교는 registry + summary artifact로 재실행 없이 조회 가능해야 한다.
 
 ## 통합 테스트 실행
 - 전체 테스트:
@@ -73,16 +79,96 @@
   - `PYTHONPATH=src python -m pretrend.pipeline.backtest.runner --start 2006-01-03 --end 2024-06-03 --preset v1`
 - v2(2D target-seeking: long_phase × mid_regime) 실행:
   - `PYTHONPATH=src python -m pretrend.pipeline.backtest.runner --start 2006-01-03 --end 2024-06-03 --preset v2`
+- v3(2D + next_step soft gate) 실행:
+  - `PYTHONPATH=src python -m pretrend.pipeline.backtest.runner --start 2006-01-03 --end 2024-06-03 --preset v3`
+- v3.1(v3 + monthly bias lock) 실행:
+  - `PYTHONPATH=src python -m pretrend.pipeline.backtest.runner --start 2006-01-03 --end 2024-06-03 --preset v3.1`
+- v3.2(v3.1 + shock override/cooldown) 실행:
+  - `PYTHONPATH=src python -m pretrend.pipeline.backtest.runner --start 2006-01-03 --end 2024-06-03 --preset v3.2`
+- v3.3(v3.2 + hazard-aware override gate) 실행:
+  - `PYTHONPATH=src python -m pretrend.pipeline.backtest.runner --start 2006-01-03 --end 2024-06-03 --preset v3.3`
+- 결과 저장 원칙:
+  - `save_result()`를 호출한 실행만 아티팩트/registry에 저장된다.
+  - 단순 `BacktestRunner().run()` 호출은 콘솔 결과만 생성하고 파일은 남기지 않는다.
+- 권장 저장 경로(기간 포함):
+  - `result/backtest_compare/<window>_<YYYYMMDD-YYYYMMDD>/<preset>/`
+  - 예: `result/backtest_compare/long_20060103-20240603/v3.3/`
+- 표준 저장 아티팩트(`save_result`):
+  - `{stem}.parquet` (legacy daily log)
+  - `{stem}_daily_nav.parquet`
+  - `{stem}_trades.parquet`
+  - `{stem}_config.json`
+  - `{stem}_metrics.json` (legacy)
+  - `{stem}_summary_metrics.parquet`
+  - `{stem}_summary_metrics.json`
+  - `{stem}_diagnostics.parquet`
+  - `{stem}_final_positions.parquet`
+- registry 저장:
+  - `result/backtest/registry/pipeline=backtest/run_date=YYYY-MM-DD/registry.parquet`
+  - `artifact_path`/`run_id`/기간/버전 메타로 재실행 없이 비교 조회 가능
+- 결과 저장 후 비교(실행 직후 + 저장본 재조회):
+  - `PYTHONPATH=src python -m pretrend.pipeline.backtest.runner --start 2006-01-03 --end 2024-06-03 --preset v2`
+  - `PYTHONPATH=src python -m pretrend.pipeline.backtest.runner --start 2006-01-03 --end 2024-06-03 --preset v3.1`
+  - `PYTHONPATH=src python -m pretrend.pipeline.backtest.runner --start 2006-01-03 --end 2024-06-03 --preset v3.2`
+  - `PYTHONPATH=src python -m pretrend.pipeline.backtest.runner --start 2006-01-03 --end 2024-06-03 --preset v3.3`
 - v2 + DCA 월 적립금 지정 실행:
   - `PYTHONPATH=src python -m pretrend.pipeline.backtest.runner --start 2006-01-03 --end 2024-06-03 --preset v2 --monthly-addition 300`
 - v1 + tactical override 실행:
   - `PYTHONPATH=src python -m pretrend.pipeline.backtest.runner --start 2006-01-03 --end 2024-06-03 --preset v1 --tactical SECTOR COMMODITY`
 
+아티팩트 누락 점검/재생성:
+```bash
+# 1) 저장 파일 확인
+find result/backtest_compare -maxdepth 3 -type d | sort
+
+# 2) 특정 preset 파일 확인
+find result/backtest_compare/long_20060103-20240603/v3.3 -maxdepth 1 -type f | sort
+
+# 3) registry 확인
+python - << 'PY'
+import pandas as pd
+p='result/backtest/registry/pipeline=backtest/run_date=2026-02-25/registry.parquet'
+df=pd.read_parquet(p)
+print(df[['pipeline','preset','start_date','end_date','artifact_path','run_id']].tail(20).to_string(index=False))
+PY
+```
+
+Backtest/Walk-forward 해석 키:
+- `sojourn_prob_*`: 현재 상태가 해당 기간(5/10/20일) 더 유지될 확률
+- `transition_hazard_*`: 해당 기간 내 상태 전환 위험도 (`1 - sojourn_prob`)
+- `PRETREND_HAZARD_THRESHOLD_10D`:
+  - v3.3 hazard-aware override 게이트 임계치 (기본 `0.95`)
+  - `transition_hazard_10d < threshold`일 때 override 억제
+
+## Paper Trading 기본 조건
+- 초기 자금: `1,000,000원`
+- 월 첫 거래일 DCA: `300,000원`
+- 실행 규칙:
+  - 월요일: 전 거래일(T-1) 기준 신호 평가
+  - 화요일: `INCREASE` 실행(현금 배포 매수)
+  - 금요일: `DECREASE` 분할 매도(`50% -> 30% -> 20%`)
+- 코어 제약:
+  - `SCHD` 매도 금지
+  - phase별 매수 강도만 조절(`next_invested_ratio`)
+- 입력 범위 제어:
+  - `PAPER_START_DATE` 환경변수(기본 `2026-01-01`) 이후 구간만 누적 계산
+- 계약 참조:
+  - `docs/architecture/paper_execution_ledger_contract.md`
+  - `docs/architecture/paper_trading_alert_contract.md`
+  - `docs/architecture/next_step_signal_contract.md`
+  - `docs/architecture/walk_forward_validation_contract.md`
+
 ## Walk-Forward 실행
 - v2 4년 창 / 2년 슬라이드 실행:
   - `PYTHONPATH=src python -m pretrend.pipeline.backtest.walk_forward --preset v2 --window-years 4 --step-years 2`
+- v3.3 4년 창 / 2년 슬라이드 실행:
+  - `PYTHONPATH=src python -m pretrend.pipeline.backtest.walk_forward --preset v3.3 --window-years 4 --step-years 2`
 - 결과 저장(`parquet` + `summary.json`):
   - `PYTHONPATH=src python -m pretrend.pipeline.backtest.walk_forward --preset v2 --window-years 4 --step-years 2 --save`
+
+## 결과 레지스트리 조회
+- 저장 경로: `PRETREND_RESULT_ROOT/backtest/registry/pipeline=*/run_date=*/registry.parquet`
+- 권장: 같은 구간(v2/v3.1/v3.2/v3.3) 실행 후 registry 기반 비교표를 재생성해 실행결과와 일치성 확인
 
 ## Backtest 테스트 실행
 - Backtest 테스트:
@@ -161,8 +247,9 @@ cat /proc/$(systemctl show airflow-scheduler -p MainPID --value)/environ | tr '\
 | `eod_pipeline_dag` | 매일 08:00 KST | EOD Bronze→Silver→Gold (미국 장 마감 후 2시간+) |
 | `macro_pipeline_dag` | 매일 09:00 KST | FRED Macro Bronze→Silver→Gold |
 | `strategy_engine_dag` | 매일 10:00 KST | Strategy Engine 7단계 + Telegram 리포트 |
+| `paper_trading_dag` | 매일 10:30 KST | Paper Trading 일일 요약 + Telegram(PAPER_RESULT) |
 
-실행 순서: EOD(08:00) → Macro(09:00) → Strategy(10:00), 고정 시간으로 의존성 보장.
+실행 순서: EOD(08:00) → Macro(09:00) → Strategy(10:00) → Paper(10:30), 고정 시간으로 의존성 보장.
 모든 DAG의 `start_date`는 `tz="Asia/Seoul"` 기준이며, `default_timezone=Asia/Seoul`로 설정됨.
 
 ### Telegram 알림 설정
@@ -179,3 +266,8 @@ Telegram 표기 기준(혼동 방지):
   - `예` = 단기 PANIC
   - `아니오` = 단기 정상
 - `전술 실행`: `run_universe` 스위치 표시 (`허용/제한`)
+- `message_type`:
+  - `SIGNAL` = `strategy_engine_dag` 메시지
+  - `PAPER_RESULT` = `paper_trading_dag` 메시지
+- 실패 정책:
+  - Telegram 전송 오류/토큰 미설정 시 fail-open (경고 로그만 남기고 DAG 성공 유지)

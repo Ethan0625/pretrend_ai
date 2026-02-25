@@ -7,6 +7,200 @@
 
 > 참고: changelog 과거 섹션은 작성 시점 원문을 보존한다.
 
+## v2026.02.25b — 재현성 저장 체계 고도화 (Feature Snapshot + Result Registry)
+
+### feat(strategy): next_step_history 저장 계층 추가
+- `next_step_history` 증분/전체 저장 I/O 추가
+  - 경로: `data/strategy/next_step_history/year=YYYY/month=MM/*.parquet`
+  - key: `(trade_date, decision_date_ref)`
+- Strategy DAG에 `build_next_step_history_incremental` 태스크 추가
+  - history 저장 실패는 fail-open(경고 로그, SIGNAL 전송 유지)
+
+### feat(backtest/paper): 결과 아티팩트 표준화 + registry(parquet partition) 추가
+- `save_result()` 표준 산출물 확장:
+  - `*_daily_nav.parquet`, `*_summary_metrics.{parquet,json}`, `*_diagnostics.parquet`, `*_final_positions.parquet`
+  - 기존 `*_metrics.json` 유지(하위호환)
+- `save_walk_forward()` 및 paper payload 저장 시 registry entry를 append
+  - 저장 경로: `PRETREND_RESULT_ROOT/backtest/registry/pipeline=*/run_date=*/registry.parquet`
+  - 중복키 방지: `(pipeline, preset, start_date, end_date, decision_date_ref, code_version)`
+
+### feat(paper): next_step 조회를 snapshot+history 결합 로더로 통일
+- `paper_trading_dag`에서 `next_step_signal` 단독 로드 대신 runtime 결합 로더 사용
+- 결측 시 fail-open 경로 유지(기존 soft gate fallback)
+
+### docs(sync)
+- 계약/운영 문서에 저장본 우선 소비 + fallback 규칙 명시
+- walk-forward 계약에 `hazard_non_null_ratio` 및 저장 비교 검증 항목 추가
+
+### tune(v3.3): hazard threshold 기본값 상향
+- `PRETREND_HAZARD_THRESHOLD_10D` 기본값을 `0.35 -> 0.95`로 상향
+- 의도: hazard 포화 구간에서 v3.3 억제 게이트가 실제로 작동하도록 운영 기본값 보정
+- 환경변수로 즉시 override 가능(`PRETREND_HAZARD_THRESHOLD_10D=<value>`)
+
+### docs(sync): 백테스트 아티팩트 저장/검증 절차 명시
+- `BacktestRunner().run()` 단독 호출은 저장 아티팩트를 생성하지 않음을 운영 가이드에 명시
+- `save_result()` 표준 산출물(9종)과 registry 경로를 고정 문서화
+- 기간 포함 권장 저장 경로 추가:
+  - `result/backtest_compare/<window>_<YYYYMMDD-YYYYMMDD>/<preset>/`
+
+## v2026.02.25 — Paper Trading Telegram 분리 전송 (SIGNAL/PAPER_RESULT)
+
+### feat(strategy/backtest/paper): 전이예측 운용 게이트 승격 + v3 연계
+- `next_step_signal`를 운용 게이트 입력으로 승격
+  - `strategy_job.py`에 `next_step_signal` snapshot 저장 단계 추가
+  - 저장 경로: `data/strategy/next_step_signal/decision_date=...`
+- `paper` 모듈 분리:
+  - `src/pretrend/pipeline/paper/execution.py`
+  - `src/pretrend/pipeline/paper/report.py`
+  - `src/pretrend/pipeline/paper/io.py`
+  - 기존 `backtest/paper_*` 경로는 backward-compat shim으로 유지
+- `paper_trading_dag.py`가 `next_step_signal`을 입력으로 받아 soft gate 적용
+  - `RISK_ON_BIAS`: tactical 기본 강도
+  - `NEUTRAL_BIAS`: tactical 완화
+  - `RISK_OFF_BIAS`: tactical 축소/코어 우선
+  - 하드 게이트(`run_universe`, `risk_gate`) 우선
+- `Backtest Allocation v3` 추가
+  - `PRESET_V3` 등록
+  - `compute_allocation_v3()` 구현 (`f(long_phase, mid_regime, next_step_bias_1m)`)
+  - `runner.py`가 `next_step_signal snapshot`을 policy row에 부착해 v3 입력으로 사용
+- `walk_forward.py`가 v3에서 `next_step_signal` 진단 컬럼을 우선 사용하도록 확장
+
+### docs(contracts): 전이예측 기능축 SOT 고정
+- `next_step_signal_contract.md`: 운용 게이트 입력 지위 + soft gate 규칙 명시
+- `paper_execution_ledger_contract.md`: next_step 입력/우선순위(하드게이트 우선) 명시
+- `allocation_engine_contract.md`: v3 포트(`f(long, mid, next_step_bias_1m)`) 추가
+- `walk_forward_validation_contract.md`: v3 입력 소스 `next_step_signal snapshot` 고정
+
+### docs(architecture): Paper Trading 계약 분리 (Alert / Execution Ledger)
+- `docs/architecture/paper_trading_alert_contract.md` 신규 추가
+  - 동일 Telegram 채널에서 `SIGNAL`/`PAPER_RESULT`를 `message_type`으로 분리
+  - `paper_trading_dag`는 일 1회 EOD 전송으로 고정
+  - Telegram 전송 실패 정책을 fail-open으로 고정
+- `docs/architecture/paper_execution_ledger_contract.md` 신규 추가
+  - EOD 가상 체결 원장(`execution_ledger`) + 포지션(`positions_daily`) + NAV(`portfolio_daily`) 계약 정의
+  - 운영 조건 고정: 초기자금 1,000,000원, 월 DCA 300,000원, 화요일 매수/금요일 분할매도, SCHD 매도 금지
+
+### feat(dag): `paper_trading_dag` 신규 추가 + `strategy_engine_dag` 메타필드 보강
+- `dags/paper_trading_dag.py` 신규
+  - `build_paper_result_payload` → `send_paper_result_telegram` 2-task 구조
+  - payload 공통 필드 고정: `message_type`, `source_job`, `decision_date`, `simulation_date`
+  - PAPER_RESULT 섹션 고정: 가상 체결 요약 / PnL 요약 / 포지션 변화 / 리스크 경고(있을 때만)
+- `dags/strategy_engine_dag.py`
+  - SIGNAL 메시지에도 공통 메타필드(`message_type=SIGNAL`, `source_job`, 날짜 필드) 추가
+  - Telegram 전송 경로를 fail-open 공통 유틸로 전환
+  - `paper_trading_dag` 입력 정리: 최신 decision_date 기준 dedupe + `PAPER_START_DATE`(기본 2026-01-01) 이후 구간만 누적 실행
+
+### feat(notify/paper): 공통 전송 유틸 + PAPER_RESULT 렌더러/실행 레이어 추가
+- `src/pretrend/pipeline/notify/telegram_sender.py` 추가
+  - `send_telegram_fail_open()` 공통 유틸 제공
+- `src/pretrend/pipeline/paper/report.py` 추가
+  - PAPER_RESULT payload 생성/검증/메시지 포맷팅 함수 제공 (NAV/상위보유 포함)
+- `src/pretrend/pipeline/paper/execution.py` 추가
+  - EOD 가상 체결 시뮬레이션, NAV/PNL 계산, 포지션 상세 산출
+  - tactical universe 반영(`policy_selection` + `what_to_hold`) 및 `SCHD` 매도 금지 적용
+- `src/pretrend/pipeline/paper/io.py` 추가
+  - strategy snapshot dedupe 로드 + paper 파티션 저장 공통화
+- 호환성:
+  - `src/pretrend/pipeline/backtest/paper_execution.py`, `paper_trading_report.py`는 shim으로 유지
+
+### test: PAPER_RESULT 포맷/전송 정책 테스트 추가
+- `tests/pipeline/backtest/test_paper_trading_report.py` 신규
+  - 필수 필드 검증, 포맷 섹션/결측 fallback 검증
+- `tests/pipeline/backtest/test_paper_execution_nav.py` 신규
+- `tests/pipeline/backtest/test_paper_execution_ledger.py` 신규
+- `tests/pipeline/backtest/test_paper_execution_positions.py` 신규
+- `tests/dags/test_telegram_send_policy.py` 신규
+  - 토큰 미설정/전송 예외 시 fail-open 검증
+- `tests/dags/test_paper_trading_dag.py` 신규
+
+### docs(operation/readme): 운영 가이드 동기화
+- `docs/operation_guide.md` DAG 스케줄 표에 `paper_trading_dag` 추가
+- Telegram `message_type` 구분 및 fail-open 정책 명시
+- `README.md` Airflow DAG 목록/특징 섹션 업데이트
+
+### feat(backtest): v3.1 정식화 + v3.2(shock override) 추가
+- `v3.1`:
+  - v3 규칙 + monthly bias lock(동일 월 고정, 월 변경 시 갱신)
+- `v3.2`:
+  - v3.1 기본을 유지하면서 shock override 추가
+  - 트리거:
+    - `short_signal=PANIC` 2거래일 연속 → `RISK_OFF_BIAS`
+    - `mid_regime=RISK_OFF` 3거래일 연속 → `NEUTRAL_BIAS`
+  - cooldown: override 발동 후 5거래일 재전환 금지
+  - 하드 게이트 우선(`run_universe`, `risk_gate`) 원칙 유지
+
+### docs(contracts): v3.1/v3.2 반영
+- `docs/architecture/allocation_engine_contract.md`
+  - mode 규칙에 v3.1/v3.2 추가
+  - DoD 확장: `AE-v3.1`, `AE-v3.2`
+- `docs/architecture/next_step_signal_contract.md`
+  - `Hypothesis (v3.2 Extension)` 섹션 추가
+  - 확장 필드(nullable): `bias_effective`, `bias_override_flag`, `bias_override_reason`
+
+### backtest 비교 결과 (실측, DCA $300/월)
+
+#### 장기 구간 (2006-01-03 ~ 2024-06-03)
+| preset | NAV | CAGR | MDD | Sharpe | XIRR | Trades |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| v2 | 138,532.13 | 0.307059 | -0.156492 | 1.677539 | 0.072464 | 5028 |
+| v3 | 151,934.26 | 0.313630 | -0.149914 | 1.743245 | 0.081184 | 5216 |
+| v3.1 | 146,203.78 | 0.310890 | -0.128940 | 1.718228 | 0.077565 | 5427 |
+| v3.2 | 141,938.90 | 0.308784 | -0.145575 | 1.684377 | 0.074767 | 5317 |
+
+#### 최근 구간 (2025-01-01 ~ 2026-01-01)
+| preset | NAV | CAGR | MDD | Sharpe | XIRR | Trades |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| v2 | 4,854.81 | 3.902588 | -0.063001 | 3.345189 | 0.215203 | 276 |
+| v3 | 4,782.57 | 3.829188 | -0.081856 | 3.280359 | 0.186665 | 291 |
+| v3.1 | 4,788.91 | 3.835629 | -0.081859 | 3.291050 | 0.189163 | 282 |
+| v3.2 | 4,852.43 | 3.900169 | -0.062999 | 3.344024 | 0.214260 | 282 |
+
+### 진단 지표 (최근 구간)
+- `RISK_OFF_BIAS` 이후 SPY 평균 선행수익:
+  - +5d: `+1.0764%` (n=60)
+  - +10d: `+1.9300%` (n=60)
+  - +20d: `+2.4388%` (n=60)
+- v3.2 override 빈도(2025-01-01~2026-01-01):
+  - override days: `17 / 250`
+  - reason 분해: `PANIC=0`, `RISK_OFF=17`
+- v3.2 일수익률(override vs non-override):
+  - override days mean: `0.4454%` (n=17)
+  - non-override days mean: `0.6972%` (n=233)
+
+### feat(strategy/backtest): v3.3 Duration/Transition MVP (규칙 기반, 5/10/20d)
+- `next_step_signal` 확장 필드 추가(nullable):
+  - `state_age_days`
+  - `sojourn_prob_5d/10d/20d`
+  - `transition_hazard_5d/10d/20d`
+  - `transition_expected`
+- `v3.3` preset 추가:
+  - v3.2 shock override 유지
+  - `transition_hazard_10d` 임계치 기반 hazard-aware override 게이트 추가
+  - hazard 결측 시 fail-open으로 v3.2 경로 유지
+- `walk_forward` Tier-2 진단 확장:
+  - `diag_calibration_error` (간이 Brier)
+  - `diag_hazard_bucket_monotonicity` (high-low 단조성)
+
+### docs(contracts): v3.3 가설 확장
+- `next_step_signal_contract.md`
+  - `Hypothesis (v3.3 Duration/Transition MVP)` 섹션 추가
+  - duration/transition 확장 포트 및 fail-open 원칙 명시
+- `allocation_engine_contract.md`
+  - v3.3 hazard-aware override 가설 규칙 추가
+  - `AE-v3.3-hypothesis` DoD 추가
+- `walk_forward_validation_contract.md`
+  - Tier-2 hazard 품질 KPI 추가
+
+### v3.3 성과 비교 (실측, DCA $300/월)
+| Window | v3.2 NAV | v3.3 NAV | v3.2 CAGR | v3.3 CAGR | v3.2 MDD | v3.3 MDD | v3.2 Sharpe | v3.3 Sharpe |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 2006-01-03 ~ 2024-06-03 | 141,938.90 | 141,938.90 | 0.308784 | 0.308784 | -0.145575 | -0.145575 | 1.684377 | 1.684377 |
+| 2025-01-01 ~ 2026-01-01 | 4,852.43 | 4,852.43 | 3.900169 | 3.900169 | -0.062999 | -0.062999 | 3.344024 | 3.344024 |
+
+판단:
+- 현재 snapshot에서 `transition_hazard_10d` 결측 구간이 많아 v3.3이 fail-open(v3.2 동일 경로)으로 동작했다.
+- 운영 채택은 유지(`v3.2`), `v3.3`은 shadow/진단 모드로 축적 후 재평가한다.
+
 ## v2026.02.24 — 전이예측 계약 보강 (Tier-1 성과 + Tier-2 12셀 진단)
 
 ### docs(architecture): 전이예측/검증 계약 신규 추가
