@@ -15,7 +15,7 @@ def test_v3_applies_next_step_bias_adjustment() -> None:
         {
             "long_phase": "EXPANSION",
             "mid_regime": "RISK_ON",
-            "next_step_bias_1m": "RISK_ON_BIAS",
+            "next_step_bias_20d": "RISK_ON_BIAS",
             "risk_gate": True,
             "run_universe": True,
         }
@@ -24,7 +24,7 @@ def test_v3_applies_next_step_bias_adjustment() -> None:
         {
             "long_phase": "EXPANSION",
             "mid_regime": "RISK_ON",
-            "next_step_bias_1m": "RISK_OFF_BIAS",
+            "next_step_bias_20d": "RISK_OFF_BIAS",
             "risk_gate": True,
             "run_universe": True,
         }
@@ -44,7 +44,7 @@ def test_v3_registry_and_dispatch_work() -> None:
         {
             "long_phase": "RECESSION",
             "mid_regime": "RISK_OFF",
-            "next_step_bias_1m": "RISK_OFF_BIAS",
+            "next_step_bias_20d": "RISK_OFF_BIAS",
             "risk_gate": True,
             "run_universe": True,
         }
@@ -61,7 +61,7 @@ def test_v31_dispatch_uses_v3_logic() -> None:
         {
             "long_phase": "EXPANSION",
             "mid_regime": "RISK_ON",
-            "next_step_bias_1m": "RISK_ON_BIAS",
+            "next_step_bias_20d": "RISK_ON_BIAS",
             "risk_gate": True,
             "run_universe": True,
         }
@@ -94,11 +94,45 @@ def test_v33_dispatch_uses_effective_bias() -> None:
         {
             "long_phase": "EXPANSION",
             "mid_regime": "RISK_ON",
-            "next_step_bias_1m": "RISK_ON_BIAS",
+            "next_step_bias_20d": "RISK_ON_BIAS",
             "next_step_bias_effective": "RISK_OFF_BIAS",
             "risk_gate": True,
             "run_universe": True,
         }
     )
     result = dispatch_allocation("v3.3", 0.78, row, cfg)
+    assert result["action"] == "HOLD"
+
+
+def test_v34_dispatch_uses_v3_logic_with_effective_bias() -> None:
+    assert "v3.4" in PRESET_REGISTRY
+    cfg = BacktestConfig.from_preset("v3.4", start_date=date(2012, 1, 3), end_date=date(2024, 6, 3))
+    row = pd.Series(
+        {
+            "long_phase": "EXPANSION",
+            "mid_regime": "RISK_ON",
+            "next_step_bias_20d": "RISK_ON_BIAS",
+            "next_step_bias_effective": "RISK_OFF_BIAS",
+            "risk_gate": True,
+            "run_universe": True,
+        }
+    )
+    result = dispatch_allocation("v3.4", 0.78, row, cfg)
+    assert result["action"] == "HOLD"
+
+
+def test_v341_dispatch_uses_v3_logic_with_effective_bias() -> None:
+    assert "v3.4.1" in PRESET_REGISTRY
+    cfg = BacktestConfig.from_preset("v3.4.1", start_date=date(2012, 1, 3), end_date=date(2024, 6, 3))
+    row = pd.Series(
+        {
+            "long_phase": "EXPANSION",
+            "mid_regime": "RISK_ON",
+            "next_step_bias_20d": "RISK_ON_BIAS",
+            "next_step_bias_effective": "RISK_OFF_BIAS",
+            "risk_gate": True,
+            "run_universe": True,
+        }
+    )
+    result = dispatch_allocation("v3.4.1", 0.78, row, cfg)
     assert result["action"] == "HOLD"

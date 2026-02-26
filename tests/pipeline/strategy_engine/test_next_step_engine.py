@@ -27,14 +27,23 @@ def test_build_next_step_signal_outputs_required_columns() -> None:
 
     assert not out.empty
     assert {
-        "bias_1m",
-        "bias_3m",
+        "bias_5d",
+        "bias_10d",
+        "bias_20d",
+        "bias_60d",
+        "bias_120d",
         "diag_12slot_coverage",
         "evidence_axis_macro",
         "state_age_days",
         "sojourn_prob_10d",
+        "sojourn_prob_60d",
+        "sojourn_prob_120d",
         "transition_hazard_10d",
-        "transition_expected",
+        "transition_hazard_60d",
+        "transition_hazard_120d",
+        "transition_expected_10d",
+        "transition_expected_60d",
+        "transition_expected_120d",
     }.issubset(set(out.columns))
     assert out.iloc[0]["source_run_id"] == "r1"
 
@@ -95,7 +104,10 @@ def test_build_next_step_signal_hazard_probabilities_within_bounds() -> None:
     assert "state_age_days" in out.columns
     assert out["state_age_days"].notna().any()
     # None(초기 fail-open) 또는 [0,1] 범위를 만족해야 한다.
-    for col in ["sojourn_prob_5d", "sojourn_prob_10d", "sojourn_prob_20d",
-                "transition_hazard_5d", "transition_hazard_10d", "transition_hazard_20d"]:
+    for col in [
+        "sojourn_prob_5d", "sojourn_prob_10d", "sojourn_prob_20d", "sojourn_prob_60d", "sojourn_prob_120d",
+        "transition_hazard_5d", "transition_hazard_10d", "transition_hazard_20d",
+        "transition_hazard_60d", "transition_hazard_120d",
+    ]:
         vals = out[col].dropna()
         assert ((vals >= 0.0) & (vals <= 1.0)).all()

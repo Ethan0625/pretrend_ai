@@ -5,17 +5,20 @@ from datetime import date
 import pandas as pd
 
 from pretrend.pipeline.backtest.runner import (
+    _apply_group_transition_gate_v341,
     _get_hazard_threshold_10d,
+    _resolve_v3_mode_flags,
     resolve_effective_bias_v32,
     resolve_monthly_locked_bias,
 )
+from pretrend.pipeline.backtest.config import BacktestConfig
 
 
 def test_monthly_bias_lock_keeps_same_month_value() -> None:
     next_step_df = pd.DataFrame(
         [
-            {"trade_date": date(2025, 1, 6), "bias_1m": "RISK_ON_BIAS"},
-            {"trade_date": date(2025, 1, 20), "bias_1m": "RISK_OFF_BIAS"},
+            {"trade_date": date(2025, 1, 6), "bias_20d": "RISK_ON_BIAS"},
+            {"trade_date": date(2025, 1, 20), "bias_20d": "RISK_OFF_BIAS"},
         ]
     )
     locked_month = (2025, 1)
@@ -35,8 +38,8 @@ def test_monthly_bias_lock_keeps_same_month_value() -> None:
 def test_monthly_bias_lock_refreshes_on_month_change() -> None:
     next_step_df = pd.DataFrame(
         [
-            {"trade_date": date(2025, 1, 20), "bias_1m": "RISK_OFF_BIAS"},
-            {"trade_date": date(2025, 2, 3), "bias_1m": "RISK_ON_BIAS"},
+            {"trade_date": date(2025, 1, 20), "bias_20d": "RISK_OFF_BIAS"},
+            {"trade_date": date(2025, 2, 3), "bias_20d": "RISK_ON_BIAS"},
         ]
     )
 
@@ -160,3 +163,65 @@ def test_hazard_threshold_env_override(monkeypatch) -> None:
 def test_hazard_threshold_env_invalid_fallback(monkeypatch) -> None:
     monkeypatch.setenv("PRETREND_HAZARD_THRESHOLD_10D", "abc")
     assert _get_hazard_threshold_10d() == 0.95
+
+
+def test_v34_mode_flags_include_v31_v32_v33_features() -> None:
+    flags = _resolve_v3_mode_flags("v3.4")
+    assert flags == (True, True, True, True, False)
+
+
+def test_v33_mode_flags_exclude_group_transition_only() -> None:
+    flags = _resolve_v3_mode_flags("v3.3")
+    assert flags == (True, True, True, False, False)
+
+
+def test_v341_mode_flags_enable_reentry_variant() -> None:
+    flags = _resolve_v3_mode_flags("v3.4.1")
+    assert flags == (True, True, True, True, True)
+
+
+def test_v341_group_gate_triggers_on_weak_count_ge_2() -> None:
+    cfg = BacktestConfig.from_preset("v3.4.1", start_date=date(2025, 1, 1), end_date=date(2025, 2, 1))
+    group_df = pd.DataFrame(
+        [
+            {"trade_date": date(2025, 1, 6), "asset_group": "SECTOR", "group_state_now": "WEAK"},
+            {"trade_date": date(2025, 1, 6), "asset_group": "BOND", "group_state_now": "WEAK"},
+            {"trade_date": date(2025, 1, 6), "asset_group": "COUNTRY", "group_state_now": "STRONG"},
+        ]
+    )
+    new_cfg, meta, _, active = _apply_group_transition_gate_v341(
+        cfg,
+        group_df,
+        date(2025, 1, 6),
+        short_signal="STABLE",
+        mid_regime="NEUTRAL",
+        relief_streak=0,
+        group_gate_active=False,
+    )
+    assert active is True
+    assert meta["group_gate_applied"] is True
+    assert meta["weak_group_count"] == 2
+    assert new_cfg.max_tactical_slots == max(0, cfg.max_tactical_slots - 1)
+
+
+def test_v341_group_gate_reentry_by_relief_streak() -> None:
+    cfg = BacktestConfig.from_preset("v3.4.1", start_date=date(2025, 1, 1), end_date=date(2025, 2, 1))
+    group_df = pd.DataFrame(
+        [
+            {"trade_date": date(2025, 1, 7), "asset_group": "SECTOR", "group_state_now": "WEAK"},
+            {"trade_date": date(2025, 1, 7), "asset_group": "BOND", "group_state_now": "WEAK"},
+        ]
+    )
+    new_cfg, meta, _, active = _apply_group_transition_gate_v341(
+        cfg,
+        group_df,
+        date(2025, 1, 7),
+        short_signal="RELIEF",
+        mid_regime="NEUTRAL",
+        relief_streak=2,
+        group_gate_active=True,
+    )
+    assert active is False
+    assert meta["group_gate_applied"] is False
+    assert meta["reentry_trigger"] == "RELIEF_STREAK"
+    assert new_cfg.max_tactical_slots == cfg.max_tactical_slots

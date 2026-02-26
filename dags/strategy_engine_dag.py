@@ -29,7 +29,8 @@ from pretrend.pipeline.strategy_engine.report_context import (
     build_context_lines as _build_context_lines,
     build_diagnostic_lines as _build_diagnostic_lines,
     build_evidence_lines as _build_evidence_lines,
-    build_next_step_lines as _build_next_step_lines,
+    format_next_step_hazard_lines as _format_next_step_hazard_lines,
+    format_group_transition_lines as _format_group_transition_lines,
     build_switch_lines as _build_switch_lines,
     safe_json_dict as _safe_json_dict,
 )
@@ -194,6 +195,7 @@ def strategy_engine_pipeline():
     @task(task_id="send_telegram_report")
     def send_telegram_report_task(strategy_summary: Dict[str, Any]) -> None:
         import logging
+        import pandas as pd
 
         logger = logging.getLogger(__name__)
         token = os.getenv("TELEGRAM_BOT_TOKEN", "")
@@ -211,6 +213,7 @@ def strategy_engine_pipeline():
         df_univ = _load_snapshot(strategy_root, "what_to_hold", decision_date)
         df_sell = _load_snapshot(strategy_root, "sell_advice", decision_date)
         df_next = _load_snapshot(strategy_root, "next_step_signal", decision_date)
+        df_group = _load_snapshot(strategy_root, "group_transition_signal", decision_date)
 
         # ── Market Position ──
         long_phase = mid_regime = short_signal = "UNKNOWN"
@@ -312,19 +315,21 @@ def strategy_engine_pipeline():
         lines += _build_context_lines(long_phase, mid_regime, short_signal)
         lines += _build_switch_lines(risk_gate=risk_gate, run_universe=run_universe)
 
-        # ── 다음 스텝 가설 (1m/3m) ──
+        # ── 다음 스텝 가설 (5/10/20/60/120D bias+hazard+expected) ──
         lines += [
             "",
             "── 다음 스텝 가설 ──",
         ]
-        if not df_next.empty:
-            nrow = df_next.iloc[-1]
-            lines += [
-                f"🧭 1M: {str(nrow.get('bias_1m', 'UNKNOWN'))} ({float(nrow.get('confidence_1m', 0.5)):.0%})",
-                f"🧭 3M: {str(nrow.get('bias_3m', 'UNKNOWN'))} ({float(nrow.get('confidence_3m', 0.5)):.0%})",
-            ]
+        if df_next.empty:
+            logger.warning(
+                "[SIGNAL] next_step_signal snapshot missing for decision_date=%s; using UNKNOWN/N/A fail-open rendering",
+                decision_date.isoformat(),
+            )
+            nrow: Dict[str, Any] = {}
         else:
-            lines += _build_next_step_lines(long_phase, mid_regime, short_signal)
+            nrow = df_next.iloc[-1]
+
+        lines += _format_next_step_hazard_lines(nrow if isinstance(nrow, dict) else dict(nrow))
 
         # ── 시장 근거 (4축) ──
         lines += [
@@ -350,6 +355,42 @@ def strategy_engine_pipeline():
             ]
         else:
             lines += _build_diagnostic_lines(long_detail, mid_detail, short_detail)
+
+        # ── 전술 그룹 다음 스텝 ──
+        lines += [
+            "",
+            "── 전술 그룹 다음 스텝 ──",
+        ]
+        if df_group.empty:
+            lines += _format_group_transition_lines(None)
+        else:
+            if "trade_date" in df_group.columns:
+                gtmp = df_group.copy()
+                gtmp["trade_date"] = pd.to_datetime(gtmp["trade_date"]).dt.date
+                gtmp = gtmp[gtmp["trade_date"] <= decision_date]
+                if not gtmp.empty:
+                    latest_gd = gtmp["trade_date"].max()
+                    gtmp = gtmp[gtmp["trade_date"] == latest_gd]
+                # asset_group별 최신 1행만 사용 (히스토리 전체 출력 방지)
+                if "asset_group" in gtmp.columns and not gtmp.empty:
+                    gtmp = gtmp.sort_values(["asset_group", "trade_date"])
+                    gtmp = gtmp.drop_duplicates(subset=["asset_group"], keep="last")
+            else:
+                gtmp = df_group
+
+            grows = []
+            for _, r in gtmp.iterrows():
+                grows.append(
+                    {
+                        "asset_group": r.get("asset_group"),
+                        "group_state_now": r.get("group_state_now"),
+                        "group_expected_5d": r.get("group_expected_5d"),
+                        "group_expected_10d": r.get("group_expected_10d"),
+                        "group_transition_hazard_5d": r.get("group_transition_hazard_5d"),
+                        "group_transition_hazard_10d": r.get("group_transition_hazard_10d"),
+                    }
+                )
+            lines += _format_group_transition_lines(grows)
 
         # ── 전술 ETF (asset_group별 그룹핑) ──
         if tactical_by_group:

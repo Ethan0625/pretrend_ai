@@ -45,6 +45,19 @@ def build_paper_result_payload(
     nav: Optional[float] = None,
     total_invested_capital: Optional[float] = None,
     top_positions: Optional[List[Dict[str, Any]]] = None,
+    effective_bias: Optional[str] = None,
+    bias_source: Optional[str] = None,
+    override_reason: Optional[str] = None,
+    hard_gate_run_universe: Optional[bool] = None,
+    hard_gate_risk_gate: Optional[bool] = None,
+    effective_max_tactical_slots: Optional[int] = None,
+    effective_tactical_weight: Optional[float] = None,
+    hazard_10d: Optional[float] = None,
+    group_gate_applied_groups: Optional[List[str]] = None,
+    group_gate_reduced_groups: Optional[List[str]] = None,
+    group_gate_source: Optional[str] = None,
+    fx_usdkrw: Optional[float] = None,
+    paper_start_date: Optional[str] = None,
     initial_capital: float = 1_000_000.0,
     monthly_addition: float = 300_000.0,
     buy_day_rule: str = "화요일 INCREASE 실행",
@@ -74,6 +87,23 @@ def build_paper_result_payload(
         "nav": None if nav is None else float(nav),
         "total_invested_capital": None if total_invested_capital is None else float(total_invested_capital),
         "top_positions": list(top_positions or []),
+        "effective_bias": effective_bias,
+        "bias_source": bias_source,
+        "override_reason": override_reason,
+        "hard_gate_run_universe": hard_gate_run_universe,
+        "hard_gate_risk_gate": hard_gate_risk_gate,
+        "effective_max_tactical_slots": (
+            None if effective_max_tactical_slots is None else int(effective_max_tactical_slots)
+        ),
+        "effective_tactical_weight": (
+            None if effective_tactical_weight is None else float(effective_tactical_weight)
+        ),
+        "hazard_10d": None if hazard_10d is None else float(hazard_10d),
+        "group_gate_applied_groups": list(group_gate_applied_groups or []),
+        "group_gate_reduced_groups": list(group_gate_reduced_groups or []),
+        "group_gate_source": group_gate_source,
+        "fx_usdkrw": None if fx_usdkrw is None else float(fx_usdkrw),
+        "paper_start_date": paper_start_date,
     }
     return payload
 
@@ -114,11 +144,19 @@ def format_paper_result_message(payload: Dict[str, Any]) -> str:
     ]
     tranches = payload.get("sell_tranches", [0.50, 0.30, 0.20])
     tranche_txt = " → ".join([f"{int(float(x) * 100)}%" for x in tranches])
+    fx_usdkrw = payload.get("fx_usdkrw", 1300)
+    if fx_usdkrw is None:
+        fx_usdkrw = 1300
+    paper_start_date = payload.get("paper_start_date")
+    if not paper_start_date:
+        paper_start_date = "N/A"
     lines += [
         "",
         "📐 <b>운영 조건</b>",
+        f"- Paper 시작일: {paper_start_date}",
         f"- 초기자금: {payload.get('initial_capital', 0):,.0f}원",
         f"- 월 첫 거래일 DCA: {payload.get('monthly_addition', 0):,.0f}원",
+        f"- 환산환율: 1 USD = {float(fx_usdkrw):,.0f} KRW",
         f"- 매수 규칙: {payload.get('buy_day_rule', 'N/A')}",
         f"- 매도 규칙: {payload.get('sell_day_rule', 'N/A')} ({tranche_txt})",
         f"- SCHD 매도: {'금지' if payload.get('schd_sell_locked', True) else '허용'}",
@@ -126,6 +164,52 @@ def format_paper_result_message(payload: Dict[str, Any]) -> str:
 
     fills = payload.get("virtual_fills") or ["가상 체결 데이터 없음"]
     lines += [f"- {item}" for item in fills]
+
+    effective_bias = payload.get("effective_bias")
+    bias_source = payload.get("bias_source")
+    override_reason = payload.get("override_reason")
+    hard_gate_run_universe = payload.get("hard_gate_run_universe")
+    hard_gate_risk_gate = payload.get("hard_gate_risk_gate")
+    eff_slots = payload.get("effective_max_tactical_slots")
+    eff_weight = payload.get("effective_tactical_weight")
+    hazard_10d = payload.get("hazard_10d")
+
+    def _yn_or_unknown(v: Any) -> str:
+        if v is None:
+            return "UNKNOWN"
+        return "허용" if bool(v) else "제한"
+
+    lines += ["", "🎛️ <b>게이트/강도</b>"]
+    lines.append(
+        f"- 적용 Bias: {effective_bias if effective_bias is not None else 'UNKNOWN'} "
+        f"(source={bias_source if bias_source is not None else 'UNKNOWN'})"
+    )
+    if override_reason:
+        lines.append(f"- Override 사유: {override_reason}")
+    lines.append(
+        f"- Hard Gate: run_universe={_yn_or_unknown(hard_gate_run_universe)}, "
+        f"risk_gate={_yn_or_unknown(hard_gate_risk_gate)}"
+    )
+    lines.append(
+        f"- 전술 강도: slots={eff_slots if eff_slots is not None else 'N/A'}, "
+        f"weight={f'{float(eff_weight):.2f}x' if eff_weight is not None else 'N/A'}"
+    )
+    lines.append(
+        f"- 10D 전환위험: {_fmt_pct(float(hazard_10d)) if hazard_10d is not None else 'N/A'}"
+    )
+    applied_groups = payload.get("group_gate_applied_groups") or []
+    reduced_groups = payload.get("group_gate_reduced_groups") or []
+    gate_source = payload.get("group_gate_source")
+    lines += ["", "🧭 <b>전술 적용 근거</b>"]
+    lines.append(
+        f"- 적용 그룹: {', '.join(applied_groups) if applied_groups else 'N/A'}"
+    )
+    lines.append(
+        f"- 축소 그룹: {', '.join(reduced_groups) if reduced_groups else '없음'}"
+    )
+    lines.append(
+        f"- 그룹 게이트 소스: {gate_source if gate_source else 'UNKNOWN'}"
+    )
 
     lines += ["", "💰 <b>PnL 요약</b>"]
     daily_pnl = payload.get("daily_pnl")

@@ -16,13 +16,13 @@ def _sample_df() -> pd.DataFrame:
         [
             {
                 "trade_date": date(2026, 2, 20),
-                "bias_1m": "RISK_ON_BIAS",
+                "bias_20d": "RISK_ON_BIAS",
                 "transition_hazard_10d": 0.25,
                 "source_run_id": "run_a",
             },
             {
                 "trade_date": date(2026, 2, 21),
-                "bias_1m": "NEUTRAL_BIAS",
+                "bias_20d": "NEUTRAL_BIAS",
                 "transition_hazard_10d": 0.35,
                 "source_run_id": "run_a",
             },
@@ -68,7 +68,7 @@ def test_full_refresh_replaces_previous(tmp_path):
         [
             {
                 "trade_date": date(2026, 3, 1),
-                "bias_1m": "RISK_OFF_BIAS",
+                "bias_20d": "RISK_OFF_BIAS",
                 "source_run_id": "run_b",
             }
         ]

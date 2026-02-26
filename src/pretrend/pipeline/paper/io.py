@@ -9,6 +9,7 @@ import pandas as pd
 
 from pretrend.pipeline.backtest._utils import load_strategy_snapshot
 from pretrend.pipeline.strategy_engine.next_step.io import load_next_step_for_runtime
+from pretrend.pipeline.strategy_engine.group_transition.io import load_group_transition_for_runtime
 
 
 def load_prices(data_root: Path) -> pd.DataFrame:
@@ -79,6 +80,21 @@ def load_next_step_runtime_stage(
     """Load runtime next-step table (snapshot + history merged)."""
     strategy_root = data_root / "strategy"
     return load_next_step_for_runtime(
+        strategy_root,
+        start_date=start_date,
+        end_date=end_date,
+    )
+
+
+def load_group_transition_runtime_stage(
+    data_root: Path,
+    *,
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+) -> pd.DataFrame:
+    """Load runtime group-transition table (snapshot + history merged)."""
+    strategy_root = data_root / "strategy"
+    return load_group_transition_for_runtime(
         strategy_root,
         start_date=start_date,
         end_date=end_date,

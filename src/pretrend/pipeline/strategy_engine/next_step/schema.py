@@ -9,6 +9,18 @@ NEXT_STEP_BIAS_ENUM: FrozenSet[str] = frozenset(
 
 NEXT_STEP_SIGNAL_COLUMNS: List[str] = [
     "trade_date",
+    # v3.5: trading-day horizons (5/10/20/60/120D)
+    "bias_5d",
+    "confidence_5d",
+    "bias_10d",
+    "confidence_10d",
+    "bias_20d",
+    "confidence_20d",
+    "bias_60d",
+    "confidence_60d",
+    "bias_120d",
+    "confidence_120d",
+    # backward-compat (deprecated): 1M/3M aliases
     "bias_1m",
     "confidence_1m",
     "bias_3m",
@@ -22,9 +34,19 @@ NEXT_STEP_SIGNAL_COLUMNS: List[str] = [
     "sojourn_prob_5d",
     "sojourn_prob_10d",
     "sojourn_prob_20d",
+    "sojourn_prob_60d",
+    "sojourn_prob_120d",
     "transition_hazard_5d",
     "transition_hazard_10d",
     "transition_hazard_20d",
+    "transition_hazard_60d",
+    "transition_hazard_120d",
+    "transition_expected_5d",
+    "transition_expected_10d",
+    "transition_expected_20d",
+    "transition_expected_60d",
+    "transition_expected_120d",
+    # backward-compat (deprecated): single expected alias
     "transition_expected",
     "evidence_axis_macro",
     "evidence_axis_price",

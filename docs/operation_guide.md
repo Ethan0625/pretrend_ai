@@ -87,6 +87,11 @@
   - `PYTHONPATH=src python -m pretrend.pipeline.backtest.runner --start 2006-01-03 --end 2024-06-03 --preset v3.2`
 - v3.3(v3.2 + hazard-aware override gate) 실행:
   - `PYTHONPATH=src python -m pretrend.pipeline.backtest.runner --start 2006-01-03 --end 2024-06-03 --preset v3.3`
+- v3.4(v3.3 + tactical group transition gate) 실행:
+  - `PYTHONPATH=src python -m pretrend.pipeline.backtest.runner --start 2006-01-03 --end 2024-06-03 --preset v3.4`
+- v3.4.1(v3.4 + recovery-aware re-entry gate) 실행:
+  - `PYTHONPATH=src python -m pretrend.pipeline.backtest.runner --start 2006-01-03 --end 2024-06-03 --preset v3.4.1`
+  - 규칙: `WEAK>=2`일 때만 축소, `RELIEF 2연속` 또는 `MID=RISK_ON`에서 축소 해제
 - 결과 저장 원칙:
   - `save_result()`를 호출한 실행만 아티팩트/registry에 저장된다.
   - 단순 `BacktestRunner().run()` 호출은 콘솔 결과만 생성하고 파일은 남기지 않는다.
@@ -111,6 +116,8 @@
   - `PYTHONPATH=src python -m pretrend.pipeline.backtest.runner --start 2006-01-03 --end 2024-06-03 --preset v3.1`
   - `PYTHONPATH=src python -m pretrend.pipeline.backtest.runner --start 2006-01-03 --end 2024-06-03 --preset v3.2`
   - `PYTHONPATH=src python -m pretrend.pipeline.backtest.runner --start 2006-01-03 --end 2024-06-03 --preset v3.3`
+  - `PYTHONPATH=src python -m pretrend.pipeline.backtest.runner --start 2006-01-03 --end 2024-06-03 --preset v3.4`
+  - `PYTHONPATH=src python -m pretrend.pipeline.backtest.runner --start 2006-01-03 --end 2024-06-03 --preset v3.4.1`
 - v2 + DCA 월 적립금 지정 실행:
   - `PYTHONPATH=src python -m pretrend.pipeline.backtest.runner --start 2006-01-03 --end 2024-06-03 --preset v2 --monthly-addition 300`
 - v1 + tactical override 실행:
@@ -134,7 +141,7 @@ PY
 ```
 
 Backtest/Walk-forward 해석 키:
-- `sojourn_prob_*`: 현재 상태가 해당 기간(5/10/20일) 더 유지될 확률
+- `sojourn_prob_*`: 현재 상태가 해당 기간(5/10/20/60/120일) 더 유지될 확률
 - `transition_hazard_*`: 해당 기간 내 상태 전환 위험도 (`1 - sojourn_prob`)
 - `PRETREND_HAZARD_THRESHOLD_10D`:
   - v3.3 hazard-aware override 게이트 임계치 (기본 `0.95`)
@@ -143,6 +150,7 @@ Backtest/Walk-forward 해석 키:
 ## Paper Trading 기본 조건
 - 초기 자금: `1,000,000원`
 - 월 첫 거래일 DCA: `300,000원`
+- 환산 환율: `PAPER_FX_USDKRW` (기본 `1300`)
 - 실행 규칙:
   - 월요일: 전 거래일(T-1) 기준 신호 평가
   - 화요일: `INCREASE` 실행(현금 배포 매수)
@@ -152,6 +160,9 @@ Backtest/Walk-forward 해석 키:
   - phase별 매수 강도만 조절(`next_invested_ratio`)
 - 입력 범위 제어:
   - `PAPER_START_DATE` 환경변수(기본 `2026-01-01`) 이후 구간만 누적 계산
+- 통화 처리:
+  - 운영 입력(초기 자금/DCA)은 KRW로 관리
+  - 실제 체결 계산은 USD(가격 소스: Gold EOD `adj_close`)로 환산 후 실행
 - 계약 참조:
   - `docs/architecture/paper_execution_ledger_contract.md`
   - `docs/architecture/paper_trading_alert_contract.md`
@@ -269,5 +280,22 @@ Telegram 표기 기준(혼동 방지):
 - `message_type`:
   - `SIGNAL` = `strategy_engine_dag` 메시지
   - `PAPER_RESULT` = `paper_trading_dag` 메시지
+- snapshot 단일소스 원칙:
+  - SIGNAL/PAPER의 next-step 표시는 `next_step_signal snapshot` 값을 직접 소비한다.
+  - snapshot 결측 시 즉석 재계산 없이 `UNKNOWN/N/A` fail-open 표기만 허용한다.
+- SIGNAL `다음 스텝 가설` 표기:
+  - `5D/10D/20D/60D/120D bias+confidence`
+  - `5D/10D/20D/60D/120D transition_hazard`
+  - `transition_expected_5d/10d/20d/60d/120d`
+- SIGNAL `전술 그룹 다음 스텝` 표기:
+  - `asset_group별 state_now -> expected_10d`
+  - `group_transition_hazard_10d` (결측 시 `N/A`)
+- PAPER_RESULT `게이트/강도` 표기:
+  - `effective_bias`, `bias_source`, `override_reason`
+  - `hard_gate(run_universe/risk_gate)`
+  - `effective_max_tactical_slots`, `effective_tactical_weight`, `hazard_10d`
+  - `paper_start_date` (누적 시뮬레이션 시작일)
+- PAPER_RESULT `전술 적용 근거` 표기:
+  - `group_gate_applied_groups`, `group_gate_reduced_groups`, `group_gate_source`
 - 실패 정책:
   - Telegram 전송 오류/토큰 미설정 시 fail-open (경고 로그만 남기고 DAG 성공 유지)

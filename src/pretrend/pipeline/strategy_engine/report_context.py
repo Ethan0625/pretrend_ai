@@ -173,6 +173,124 @@ def _bias_to_label(bias: str) -> str:
     }.get(bias, "판단불가")
 
 
+def format_transition_expected(expected: Any) -> str:
+    """transition_expected를 사람이 읽기 쉬운 문장으로 변환한다."""
+    raw = "UNKNOWN" if expected is None else str(expected)
+    parts = raw.split("_")
+    if len(parts) != 3:
+        return raw
+
+    long_phase, mid_regime, short_signal = parts
+    long_ko = {
+        "EXPANSION": "확장",
+        "LATE_CYCLE": "후기",
+        "SLOWDOWN": "둔화",
+        "RECESSION": "침체",
+        "RECOVERY": "회복",
+        "UNKNOWN": "미상",
+    }.get(long_phase, long_phase)
+    mid_ko = {
+        "RISK_ON": "위험선호",
+        "NEUTRAL": "혼조",
+        "RISK_OFF": "위험회피",
+        "UNKNOWN": "미상",
+    }.get(mid_regime, mid_regime)
+    short_ko = {
+        "PANIC": "공황",
+        "STABLE": "안정",
+        "RELIEF": "안도",
+        "UNKNOWN": "미상",
+    }.get(short_signal, short_signal)
+    return (
+        f"장기 {long_ko}({long_phase}) · "
+        f"중기 {mid_ko}({mid_regime}) · "
+        f"단기 {short_ko}({short_signal})"
+    )
+
+
+def format_next_step_hazard_lines(nrow: Dict[str, Any] | None) -> List[str]:
+    """next_step snapshot 전용 렌더링 (운영 메시지용).
+
+    nrow가 없거나 필드 결측이면 UNKNOWN/N/A로 fail-open 표기한다.
+    """
+    nrow = nrow or {}
+
+    def _pct_or_na(v: Any) -> str:
+        try:
+            if v is None:
+                return "N/A"
+            fv = float(v)
+            if fv != fv:  # NaN
+                return "N/A"
+            return f"{fv:.0%}"
+        except Exception:
+            return "N/A"
+
+    rows: List[str] = []
+    for h in (5, 10, 20, 60, 120):
+        rows.append(
+            f"🧭 {h}D: {str(nrow.get(f'bias_{h}d', 'UNKNOWN'))} "
+            f"({_pct_or_na(nrow.get(f'confidence_{h}d'))})"
+        )
+        rows.append(
+            f"⏱ {h}D 전환위험: {_pct_or_na(nrow.get(f'transition_hazard_{h}d'))}"
+        )
+        rows.append(
+            f"🔭 {h}D 예상 전이: "
+            f"{format_transition_expected(nrow.get(f'transition_expected_{h}d', 'UNKNOWN'))}"
+        )
+    return rows
+
+
+def format_group_transition_lines(rows: List[Dict[str, Any]] | None) -> List[str]:
+    """그룹 전이 요약 라인 생성 (5D/10D + 전환가능성)."""
+    if not rows:
+        return ["전술 그룹 전이 데이터 없음 (UNKNOWN/N/A)"]
+
+    icon = {
+        "SECTOR": "🏭",
+        "COMMODITY": "⛽️",
+        "BOND": "🏦",
+        "COUNTRY": "🌍",
+    }
+    state_icon = {
+        "STRONG": "🟢",
+        "NEUTRAL": "🟡",
+        "WEAK": "🔴",
+        "UNKNOWN": "⚪",
+    }
+
+    ordered = sorted(rows, key=lambda r: str(r.get("asset_group", "ZZZ")))
+    out: List[str] = []
+    for r in ordered:
+        grp = str(r.get("asset_group", "UNKNOWN"))
+        now_state = str(r.get("group_state_now", "UNKNOWN"))
+        exp5 = str(r.get("group_expected_5d", "UNKNOWN"))
+        exp10 = str(r.get("group_expected_10d", "UNKNOWN"))
+        hz5 = r.get("group_transition_hazard_5d")
+        hz10 = r.get("group_transition_hazard_10d")
+        hz5_txt = "N/A"
+        hz10_txt = "N/A"
+        try:
+            if hz5 is not None:
+                fv5 = float(hz5)
+                if fv5 == fv5:
+                    hz5_txt = f"{fv5:.0%}"
+            if hz10 is not None:
+                fv10 = float(hz10)
+                if fv10 == fv10:
+                    hz10_txt = f"{fv10:.0%}"
+        except Exception:
+            hz5_txt = "N/A"
+            hz10_txt = "N/A"
+        out.append(
+            f"{icon.get(grp, '📌')} {grp}: {state_icon.get(now_state, '⚪')}{now_state} → "
+            f"5D:{state_icon.get(exp5, '⚪')}{exp5} ({hz5_txt}) / "
+            f"10D:{state_icon.get(exp10, '⚪')}{exp10} ({hz10_txt})"
+        )
+    return out
+
+
 def _infer_bias_1m(
     long_phase: str,
     mid_regime: str,
@@ -236,7 +354,12 @@ def build_next_step_lines(
     mid_regime: str,
     short_signal: str,
 ) -> List[str]:
-    """다음 스텝 가설(1m/3m)을 생성한다."""
+    """다음 스텝 가설(1m/3m)을 생성한다.
+
+    NOTE:
+    운영 경로(SIGNAL/PAPER 메시지)는 next_step_signal snapshot 단일소스를 사용한다.
+    본 함수는 개발/테스트용 fallback 계산 유틸로 유지한다.
+    """
     b1, c1 = _infer_bias_1m(long_phase, mid_regime, short_signal)
     b3, c3 = _infer_bias_3m(long_phase, mid_regime, short_signal)
     return [

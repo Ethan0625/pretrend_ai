@@ -51,6 +51,12 @@ This document is the SOT for: Gold Layer v1 PIT join contract and release-date u
 - 출력: `business key`(symbol 또는 indicator_id + date 등), `release_date`, `trade_date`(또는 대상 날짜), 파생 신호/타깃, 입력 파티션·라인리지, 감사용 메타데이터.
 - 파티셔닝: Silver와 일관된 단위(예: symbol/year/month 또는 macro date 버킷)를 유지한다.
 
+### 6.1 Transition Forecast Feature 확장 포트 (운영 기준)
+- 전이예측 운영 지평은 거래일 기준 `5/10/20/60/120D`로 고정한다.
+- Gold 저장본은 Strategy/Paper/Backtest가 공통 소비하는 단일 소스 역할을 수행한다.
+- 지평별 출력은 `forecast_bias_hd`, `forecast_confidence_hd`, `transition_hazard_hd`, `transition_expected_hd` 형태를 권장한다.
+- 결측은 nullable 허용하되, 소비 계층은 fail-open(`UNKNOWN/N/A`)을 유지한다.
+
 ## 7. PIT Join 규칙 (Plain English → 한국어)
 - 조인은 항상 `release_date` 기준으로 수행하며, 소비 시점보다 이후의 정보는 사용할 수 없다.
 - 인게스트 시각이나 관측 시각으로 조인하지 않는다(이는 감사 전용).

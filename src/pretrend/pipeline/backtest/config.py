@@ -90,7 +90,7 @@ PRESET_V3 = BacktestPreset(
 
 PRESET_V3_1 = BacktestPreset(
     name="v3.1",
-    description="v3 + monthly bias lock (1M bias fixed per month)",
+    description="v3 + monthly bias lock (20D bias fixed per month)",
     target_ratio_map=None,
     target_ratio_map_v2=None,
     target_ratio_map_v3=dict(PRESET_V2.target_ratio_map_v2 or {}),
@@ -115,6 +115,24 @@ PRESET_V3_3 = BacktestPreset(
     tactical_groups=_ALL_TACTICAL_GROUPS,
 )
 
+PRESET_V3_4 = BacktestPreset(
+    name="v3.4",
+    description="v3.3 + tactical asset-group transition gate",
+    target_ratio_map=None,
+    target_ratio_map_v2=None,
+    target_ratio_map_v3=dict(PRESET_V2.target_ratio_map_v2 or {}),
+    tactical_groups=_ALL_TACTICAL_GROUPS,
+)
+
+PRESET_V3_4_1 = BacktestPreset(
+    name="v3.4.1",
+    description="v3.4 + recovery-aware re-entry gate (WEAK>=2, RELIEF streak/MID RISK_ON)",
+    target_ratio_map=None,
+    target_ratio_map_v2=None,
+    target_ratio_map_v3=dict(PRESET_V2.target_ratio_map_v2 or {}),
+    tactical_groups=_ALL_TACTICAL_GROUPS,
+)
+
 PRESET_REGISTRY: Dict[str, BacktestPreset] = {
     "v0": PRESET_V0,
     "v1": PRESET_V1,
@@ -123,6 +141,8 @@ PRESET_REGISTRY: Dict[str, BacktestPreset] = {
     "v3.1": PRESET_V3_1,
     "v3.2": PRESET_V3_2,
     "v3.3": PRESET_V3_3,
+    "v3.4": PRESET_V3_4,
+    "v3.4.1": PRESET_V3_4_1,
 }
 
 # 호환용 alias

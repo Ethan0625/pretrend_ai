@@ -20,7 +20,7 @@ from __future__ import annotations
 import argparse
 import logging
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -63,7 +63,8 @@ def _lookup_next_step_bias(
     row = x[x["trade_date"] == latest]
     if row.empty:
         return "UNKNOWN"
-    return str(row.iloc[-1].get("bias_1m", "UNKNOWN"))
+    r = row.iloc[-1]
+    return str(r.get("bias_20d", r.get("bias_1m", "UNKNOWN")))
 
 
 def _lookup_next_step_hazard10(
@@ -103,6 +104,188 @@ def _get_hazard_threshold_10d() -> float:
         return float(raw)
     except Exception:
         return 0.95
+
+
+def _resolve_v3_mode_flags(preset_name: str) -> Tuple[bool, bool, bool, bool, bool]:
+    """v3 계열 모드 플래그를 preset 이름 기준으로 해석한다."""
+    use_monthly_bias_lock = preset_name in {"v3.1", "v3.2", "v3.3", "v3.4", "v3.4.1"}
+    use_shock_override_v32 = preset_name in {"v3.2", "v3.3", "v3.4", "v3.4.1"}
+    use_hazard_gate_v33 = preset_name in {"v3.3", "v3.4", "v3.4.1"}
+    use_group_transition_v34 = preset_name in {"v3.4", "v3.4.1"}
+    use_group_transition_v341 = preset_name == "v3.4.1"
+    return (
+        use_monthly_bias_lock,
+        use_shock_override_v32,
+        use_hazard_gate_v33,
+        use_group_transition_v34,
+        use_group_transition_v341,
+    )
+
+
+def _lookup_group_transition_rows(
+    group_df: Optional[pd.DataFrame],
+    td: date,
+) -> pd.DataFrame:
+    """td 기준 latest group_transition rows 조회."""
+    if group_df is None or group_df.empty or "trade_date" not in group_df.columns:
+        return pd.DataFrame()
+    x = group_df
+    if not hasattr(x["trade_date"].iloc[0], "year"):
+        x = x.copy()
+        x["trade_date"] = pd.to_datetime(x["trade_date"]).dt.date
+    mask = x["trade_date"] <= td
+    if not mask.any():
+        return pd.DataFrame()
+    latest = x.loc[mask, "trade_date"].max()
+    rows = x[x["trade_date"] == latest].copy()
+    if rows.empty:
+        return pd.DataFrame()
+    if "asset_group" in rows.columns:
+        rows = rows.sort_values("asset_group")
+    return rows
+
+
+def _apply_group_transition_gate(
+    config: BacktestConfig,
+    group_df: Optional[pd.DataFrame],
+    td: date,
+) -> Tuple[BacktestConfig, Dict[str, object]]:
+    """v3.4 tactical group soft-gate.
+
+    - WEAK 그룹은 tactical_groups에서 제외
+    - WEAK가 하나라도 있으면 slots 1 감소, tactical_weight 0.75배
+    - 데이터 결측 시 fail-open (원본 config 유지)
+    """
+    rows = _lookup_group_transition_rows(group_df, td)
+    if rows.empty or "asset_group" not in rows.columns or "group_state_now" not in rows.columns:
+        return config, {
+            "applied_groups": list(config.tactical_groups),
+            "reduced_groups": [],
+            "group_gate_source": "MISSING",
+        }
+
+    weak_groups = {
+        str(r["asset_group"])
+        for _, r in rows.iterrows()
+        if str(r.get("group_state_now", "UNKNOWN")) == "WEAK"
+    }
+    allowed_groups = [g for g in config.tactical_groups if g not in weak_groups]
+
+    max_slots = config.max_tactical_slots
+    tactical_weight = config.tactical_weight
+    if weak_groups:
+        max_slots = max(0, max_slots - 1)
+        tactical_weight = round(tactical_weight * 0.75, 4)
+    if not allowed_groups:
+        max_slots = 0
+        tactical_weight = 0.0
+
+    new_cfg = replace(
+        config,
+        tactical_groups=list(allowed_groups),
+        max_tactical_slots=max_slots,
+        tactical_weight=tactical_weight,
+    )
+    return new_cfg, {
+        "applied_groups": list(allowed_groups),
+        "reduced_groups": sorted(list(weak_groups)),
+        "weak_group_count": len(weak_groups),
+        "group_gate_applied": bool(weak_groups),
+        "reentry_trigger": "NONE",
+        "group_gate_source": "SNAPSHOT",
+    }
+
+
+def _lookup_relief_streak(
+    policy_df: Optional[pd.DataFrame],
+    td: date,
+) -> int:
+    """td 기준 연속 RELIEF 일수."""
+    if policy_df is None or policy_df.empty or "trade_date" not in policy_df.columns:
+        return 0
+    x = policy_df.copy()
+    if not hasattr(x["trade_date"].iloc[0], "year"):
+        x["trade_date"] = pd.to_datetime(x["trade_date"]).dt.date
+    x = x[x["trade_date"] <= td].sort_values("trade_date", ascending=False)
+    streak = 0
+    for _, r in x.iterrows():
+        if str(r.get("short_signal", "UNKNOWN")) == "RELIEF":
+            streak += 1
+        else:
+            break
+    return streak
+
+
+def _apply_group_transition_gate_v341(
+    config: BacktestConfig,
+    group_df: Optional[pd.DataFrame],
+    td: date,
+    *,
+    short_signal: str,
+    mid_regime: str,
+    relief_streak: int,
+    group_gate_active: bool,
+) -> Tuple[BacktestConfig, Dict[str, object], int, bool]:
+    """v3.4.1 tactical group gate.
+
+    - WEAK 그룹 2개 이상일 때만 축소
+    - 재진입: RELIEF 2연속 또는 MID=RISK_ON
+    """
+    rows = _lookup_group_transition_rows(group_df, td)
+    reentry_trigger = "NONE"
+    if str(mid_regime) == "RISK_ON":
+        reentry_trigger = "MID_RISK_ON"
+    elif str(short_signal) == "RELIEF" and relief_streak >= 2:
+        reentry_trigger = "RELIEF_STREAK"
+
+    if rows.empty or "asset_group" not in rows.columns or "group_state_now" not in rows.columns:
+        return config, {
+            "applied_groups": list(config.tactical_groups),
+            "reduced_groups": [],
+            "weak_group_count": 0,
+            "group_gate_applied": False,
+            "reentry_trigger": reentry_trigger,
+            "group_gate_source": "MISSING",
+        }, relief_streak, False
+
+    weak_groups = {
+        str(r["asset_group"])
+        for _, r in rows.iterrows()
+        if str(r.get("group_state_now", "UNKNOWN")) == "WEAK"
+    }
+    weak_count = len(weak_groups)
+    if reentry_trigger != "NONE":
+        should_de_risk = False
+    elif group_gate_active:
+        # v3.4.1: 축소 해제는 재진입 트리거에서만 수행
+        should_de_risk = True
+    else:
+        should_de_risk = weak_count >= 2
+
+    if should_de_risk:
+        allowed_groups = [g for g in config.tactical_groups if g not in weak_groups]
+        max_slots = max(0, config.max_tactical_slots - 1)
+        tactical_weight = round(config.tactical_weight * 0.75, 4)
+        if not allowed_groups:
+            max_slots = 0
+            tactical_weight = 0.0
+        new_cfg = replace(
+            config,
+            tactical_groups=list(allowed_groups),
+            max_tactical_slots=max_slots,
+            tactical_weight=tactical_weight,
+        )
+    else:
+        new_cfg = config
+
+    return new_cfg, {
+        "applied_groups": list(new_cfg.tactical_groups),
+        "reduced_groups": sorted(list(weak_groups if should_de_risk else set())),
+        "weak_group_count": weak_count,
+        "group_gate_applied": should_de_risk,
+        "reentry_trigger": reentry_trigger,
+        "group_gate_source": "SNAPSHOT",
+    }, relief_streak, should_de_risk
 
 
 def resolve_monthly_locked_bias(
@@ -263,6 +446,7 @@ class BacktestRunner:
         # 2) Strategy snapshot + Gold EOD features 로드
         policy_df = self._load_snapshot(config, "policy_selection")
         next_step_df = self._load_snapshot(config, "next_step_signal")
+        group_transition_df = self._load_snapshot(config, "group_transition_signal")
         gold_eod_features_df = self._load_gold_eod_features(config)
 
         # 3) 포트폴리오 + 벤치마크 초기화
@@ -290,9 +474,13 @@ class BacktestRunner:
         initialized: bool = False
         prev_date: Optional[date] = None
         preset_name = (config.preset_name or "").lower()
-        use_monthly_bias_lock = preset_name in {"v3.1", "v3.2", "v3.3"}
-        use_shock_override_v32 = preset_name in {"v3.2", "v3.3"}
-        use_hazard_gate_v33 = preset_name == "v3.3"
+        (
+            use_monthly_bias_lock,
+            use_shock_override_v32,
+            use_hazard_gate_v33,
+            use_group_transition_v34,
+            use_group_transition_v341,
+        ) = _resolve_v3_mode_flags(preset_name)
         hazard_threshold_10d = _get_hazard_threshold_10d()
         locked_month: Optional[Tuple[int, int]] = None
         locked_bias: str = "UNKNOWN"
@@ -307,6 +495,8 @@ class BacktestRunner:
         override_days_left: int = 0
         override_bias: str = "UNKNOWN"
         override_reason: str = "NONE"
+        relief_streak: int = 0
+        group_gate_active: bool = False
 
         # 5) 일별 루프
         for td in trade_dates:
@@ -521,12 +711,67 @@ class BacktestRunner:
                     )
 
                     # compute_target_weights: 월요일에 미리 계산 (DECREASE + INCREASE 공용)
+                    rebal_config = config
+                    if use_group_transition_v341:
+                        relief_streak = _lookup_relief_streak(policy_df, signal_date)
+                        short_sig = (
+                            str(policy_row.get("short_signal", "UNKNOWN"))
+                            if policy_row is not None
+                            else "UNKNOWN"
+                        )
+                        mid_reg = (
+                            str(policy_row.get("mid_regime", "UNKNOWN"))
+                            if policy_row is not None
+                            else "UNKNOWN"
+                        )
+                        (
+                            rebal_config,
+                            group_meta,
+                            relief_streak,
+                            group_gate_active,
+                        ) = _apply_group_transition_gate_v341(
+                            config,
+                            group_transition_df,
+                            signal_date,
+                            short_signal=short_sig,
+                            mid_regime=mid_reg,
+                            relief_streak=relief_streak,
+                            group_gate_active=group_gate_active,
+                        )
+                        logger.debug(
+                            "[Backtest-%s] %s group_gate source=%s applied=%s reduced=%s weak_count=%s reentry=%s active=%s relief_streak=%d",
+                            preset_name,
+                            signal_date,
+                            group_meta.get("group_gate_source"),
+                            group_meta.get("applied_groups"),
+                            group_meta.get("reduced_groups"),
+                            group_meta.get("weak_group_count"),
+                            group_meta.get("reentry_trigger", "NONE"),
+                            group_gate_active,
+                            relief_streak,
+                        )
+                    elif use_group_transition_v34:
+                        rebal_config, group_meta = _apply_group_transition_gate(
+                            config, group_transition_df, signal_date
+                        )
+                        logger.debug(
+                            "[Backtest-%s] %s group_gate source=%s applied=%s reduced=%s weak_count=%s reentry=%s active=%s",
+                            preset_name,
+                            signal_date,
+                            group_meta.get("group_gate_source"),
+                            group_meta.get("applied_groups"),
+                            group_meta.get("reduced_groups"),
+                            group_meta.get("weak_group_count"),
+                            group_meta.get("reentry_trigger", "NONE"),
+                            group_gate_active,
+                        )
+
                     _, monday_target_weights = compute_target_weights(
                         trade_date=td,
                         policy_row=policy_row,
                         allocation_row=alloc_row,
                         universe_df=universe_df,
-                        config=config,
+                        config=rebal_config,
                         prices=day_prices,
                     )
 
@@ -1051,8 +1296,9 @@ class BacktestRunner:
             return None
 
         out = policy_row.copy()
-        out["next_step_bias_1m"] = override_bias if override_bias is not None else "UNKNOWN"
-        out["next_step_bias_effective"] = out["next_step_bias_1m"]
+        out["next_step_bias_20d"] = override_bias if override_bias is not None else "UNKNOWN"
+        out["next_step_bias_1m"] = out["next_step_bias_20d"]  # deprecated alias
+        out["next_step_bias_effective"] = out["next_step_bias_20d"]
         out["next_step_bias_source"] = override_source
         out["next_step_bias_reason"] = override_reason
         out["hazard_source"] = hazard_source
@@ -1078,8 +1324,10 @@ class BacktestRunner:
         if row.empty:
             return out
 
-        out["next_step_bias_1m"] = str(row.iloc[-1].get("bias_1m", "UNKNOWN"))
-        out["next_step_bias_effective"] = out["next_step_bias_1m"]
+        bias20 = str(row.iloc[-1].get("bias_20d", row.iloc[-1].get("bias_1m", "UNKNOWN")))
+        out["next_step_bias_20d"] = bias20
+        out["next_step_bias_1m"] = bias20  # deprecated alias
+        out["next_step_bias_effective"] = bias20
         out["next_step_bias_source"] = "SNAPSHOT"
         out["next_step_bias_reason"] = "NONE"
         out["hazard_source"] = "SNAPSHOT" if "transition_hazard_10d" in row.columns else "MISSING"

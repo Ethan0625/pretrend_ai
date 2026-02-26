@@ -34,10 +34,11 @@
 - `docs/architecture/calendar_design_contract.md`
 - `docs/architecture/eod_observability_contract.md`
 - `docs/architecture/next_step_signal_contract.md`
+- `docs/architecture/group_transition_signal_contract.md`
 
 ## 1. 문서 목적
 ### 책임
-- Allocation Engine(v0/v1/v2/v3/v3.1/v3.2/v3.3)의 입력/출력/불변식을 고정한다.
+- Allocation Engine(v0/v1/v2/v3/v3.1/v3.2/v3.3/v3.4/v3.4.1)의 입력/출력/불변식을 고정한다.
 - 총 투자 비율 조절(`invested_ratio`)을 계약 형태로 명확히 한다.
 
 ### Non-goals
@@ -122,12 +123,12 @@ current_invested_ratio: 0.62
   - 상태 기반 목표 비율 추적(target-seeking)
   - `risk_gate=false`여도 `INCREASE` 허용(저점매수)
 - v3(target-seeking + next_step soft adjustment):
-  - `v3 = f(long_phase, mid_regime, next_step_bias_1m)` 형태를 따른다.
-  - `next_step_bias_1m`은 `next_step` 저장본(snapshot + history) 우선 소비를 원칙으로 한다.
+  - `v3 = f(long_phase, mid_regime, next_step_bias_20d)` 형태를 따른다.
+  - `next_step_bias_20d`은 `next_step` 저장본(snapshot + history) 우선 소비를 원칙으로 한다.
   - 저장본 결측 시 fail-open(`UNKNOWN -> NEUTRAL_BIAS`) fallback을 허용한다.
   - bias는 목표 비율 강도 조절용이며, 하드 게이트를 대체하지 않는다.
 - v3.1(target-seeking + monthly lock):
-  - v3 규칙을 유지하되 `bias_1m`을 월 단위로 lock해 사용한다.
+  - v3 규칙을 유지하되 `bias_20d`를 월 단위로 lock해 사용한다.
   - 월중에는 동일 lock bias를 유지한다.
 - v3.2(monthly lock + shock override, Hypothesis):
   - 기본은 v3.1과 동일한 월간 lock을 사용한다.
@@ -140,6 +141,19 @@ current_invested_ratio: 0.62
   - v3.2 규칙을 유지한다.
   - 단, `transition_hazard_10d`가 임계치 미만이면 override를 완화/무시하고 lock bias를 유지한다.
   - hazard 결측 시 fail-open으로 v3.2 경로를 유지한다.
+- v3.4(group transition gate):
+  - v3.3 규칙을 유지한다.
+  - `group_transition_signal`을 tactical 그룹 강도/우선순위 조절 입력으로 사용한다.
+  - `WEAK` 그룹은 tactical 그룹 후보에서 우선 축소한다.
+  - group 전이 결측 시 fail-open으로 v3.3 경로를 유지한다.
+- v3.4.1(recovery-aware re-entry gate):
+  - v3.4 규칙을 유지한다.
+  - 축소 진입은 `WEAK` 그룹 수가 2개 이상일 때만 발동한다.
+  - 축소 해제(재진입)는 아래 중 하나를 만족할 때만 허용한다.
+    - `short_signal=RELIEF` 2거래일 연속
+    - `mid_regime=RISK_ON`
+  - 재진입 전까지 축소 상태를 유지한다(soft gate 상태 유지).
+  - group 전이 결측 시 fail-open으로 v3.3 경로를 유지한다.
 
 ## 5. Outputs
 ### 책임
@@ -199,18 +213,22 @@ current_invested_ratio: 0.62
 - **AE-v0**: `risk_gate=false` 시 `INCREASE` 차단 검증
 - **AE-v1**: `risk_gate=false` 시 `INCREASE` 허용 검증
 - **AE-v2**: `risk_gate=false` 시 `INCREASE` 허용 + `run_universe=false` 시 `INCREASE` 차단 검증
-- **AE-v3**: `next_step_bias_1m` 반영 강도 조절 + snapshot 입력 소비 검증
+- **AE-v3**: `next_step_bias_20d` 반영 강도 조절 + snapshot 입력 소비 검증
 - **AE-v3.1**: monthly lock(동일 월 bias 유지, 월 변경 시 갱신) 검증
 - **AE-v3.2**: shock override + cooldown + 하드 게이트 우선 검증
 - **AE-v3.3-hypothesis**: hazard 조건부 override 적용/완화 + 결측 fail-open 검증
+- **AE-v3.4**: group transition soft gate 적용 + 결측 시 v3.3 동일성 검증
+- **AE-v3.4.1**: WEAK>=2 진입 + RELIEF streak/MID RISK_ON 재진입 + 하드 게이트 우선 검증
 
 ---
 
 ## Change History
 | Date | Summary | References |
 | --- | --- | --- |
+| 2026-02-26 | v3.4.1 규칙 추가: WEAK>=2 진입, RELIEF 2연속/MID RISK_ON 재진입(soft gate 상태 유지) | docs/changelog.md |
+| 2026-02-26 | v3.4(group transition gate) 규칙 추가: tactical 그룹 강도/우선순위 조절, 결측 fail-open(v3.3 유지) | docs/changelog.md |
 | 2026-02-25 | v3.3(Hypothesis) hazard-aware override 규칙 추가 (`transition_hazard_10d` 게이트) | docs/changelog.md |
 | 2026-02-25 | v3.1 monthly lock 정식화 + v3.2(Hypothesis) shock override/cooldown 규칙 추가 | docs/changelog.md |
-| 2026-02-25 | v3 예약 포트 확정: `f(long_phase, mid_regime, next_step_bias_1m)` + snapshot 소비 원칙 명시 | docs/changelog.md |
+| 2026-02-25 | v3 예약 포트 확정: `f(long_phase, mid_regime, next_step_bias_20d)` + snapshot 소비 원칙 명시 | docs/changelog.md |
 | 2026-02-23 | v0/v1/v2 공존 계약으로 확장: mode별 risk_gate 규칙과 DoD 분리 명시 | docs/changelog.md |
 | 2026-02-13 | 파일명 버전 제거 및 문서 표준 블록(Document Status/Capability Matrix) 적용 | docs/changelog.md |

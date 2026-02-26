@@ -73,7 +73,9 @@ Strategy Engine은 **정책·전략 상태에 따라 변경 가능한 계산 결
   * 단계: Axis Features(4축) → Axis×Horizon(3-state 집약 + detail) → Market Position → Policy Selector → Universe-ETF → Allocation → Sell Advisor
   * 출력 경계: WHAT_TO_HOLD / HOW_MUCH_EXPOSURE / HOW_MUCH_TO_SELL
   * `decision_date` snapshot 저장 및 재현성(멱등 overwrite) 보장
-  * Telegram 보고: `시장 컨텍스트(장기/중기/단기)` + `시장 근거 4축(매크로/가격/수급/심리)` 고정 포맷
+  * Telegram 보고:
+    - SIGNAL: `시장 컨텍스트` + `다음 스텝 가설(5/10/20/60/120D bias+hazard+expected)` + `시장 근거 4축` + `전술 그룹 다음 스텝`
+    - PAPER_RESULT: `가상 체결 요약 + PnL + 포지션 + 게이트/강도(effective_bias, hard_gate, tactical_strength)` + `전술 적용 근거(그룹 게이트)`
   * Telegram 표기 별칭:
     - `중기 성향` = `mid_regime`
     - `단기 공황 여부` = `is_panic = not risk_gate`
@@ -90,9 +92,12 @@ Strategy Engine은 **정책·전략 상태에 따라 변경 가능한 계산 결
   * v3.1: monthly bias lock 운영
   * v3.2: monthly lock + shock override(PANIC/RISK_OFF streak, cooldown) 운영
   * v3.3: v3.2 + hazard-aware override gate(`transition_hazard_10d`) 운영
+  * v3.4: v3.3 + tactical group transition gate(`group_transition_signal`) 운영
+  * v3.4.1: v3.4 + recovery-aware re-entry gate(`WEAK>=2` 진입, `RELIEF 2연속`/`MID=RISK_ON` 해제)
 * 🧾 **Paper Engine (stateful EOD simulation)**
   * `src/pretrend/pipeline/paper/` 모듈에서 운용 시뮬레이션 실행
   * `next_step_signal` 기반 tactical 강도 조절(soft gate) + 하드게이트 우선 적용
+  * 운영 입력(KRW: 초기자금/DCA)은 `PAPER_FX_USDKRW`로 USD 환산 후 체결 계산
 * ♻️ **재현성 저장 체계 (Feature Snapshot + Result Registry)**
   * `next_step_history`(year/month partition, key=`trade_date+decision_date_ref`)로 전이예측 feature 선저장
   * backtest/walk-forward/paper 결과를 표준 아티팩트 + registry(parquet partition)로 저장
@@ -279,7 +284,7 @@ conda run -n pytest-pretrend pytest tests/ -v
 ### 4.4 Backtest / Walk-Forward 실행
 
 규칙 기반 전이예측(MVP):
-- `5/10/20 거래일` 지평으로 `sojourn_prob`(지속확률) / `transition_hazard`(전환위험도) 산출
+- `5/10/20/60/120 거래일` 지평으로 `sojourn_prob`(지속확률) / `transition_hazard`(전환위험도) 산출
 - ML 없이 snapshot 확장 필드(nullable)로 제공
 
 ```bash
@@ -300,6 +305,12 @@ PYTHONPATH=src python -m pretrend.pipeline.backtest.runner --start 2006-01-03 --
 
 # Backtest preset v3.3 (v3.2 + hazard-aware override)
 PYTHONPATH=src python -m pretrend.pipeline.backtest.runner --start 2006-01-03 --end 2024-06-03 --preset v3.3
+
+# Backtest preset v3.4 (v3.3 + tactical group transition gate)
+PYTHONPATH=src python -m pretrend.pipeline.backtest.runner --start 2006-01-03 --end 2024-06-03 --preset v3.4
+
+# Backtest preset v3.4.1 (v3.4 + recovery-aware re-entry gate)
+PYTHONPATH=src python -m pretrend.pipeline.backtest.runner --start 2006-01-03 --end 2024-06-03 --preset v3.4.1
 
 # Walk-Forward 저장 (parquet + summary json)
 PYTHONPATH=src python -m pretrend.pipeline.backtest.walk_forward --preset v2 --window-years 4 --step-years 2 --save
@@ -383,6 +394,8 @@ PYTHONPATH=src python -m pretrend.pipeline.eod_job \
   * 파티션 overwrite 기반 멱등성
   * Airflow는 대규모 운영 목적이 아니라, **배치 재현성과 파이프라인 경계 명확화**를 위해 사용
   * Telegram은 동일 채널에서 `SIGNAL`/`PAPER_RESULT`를 `message_type`으로 구분
+  * 운영 메시지의 next-step 값은 `next_step_signal snapshot` 단일소스를 사용
+    (결측 시 `UNKNOWN/N/A` fail-open 표기)
   * Telegram 전송 실패는 fail-open (경고 로그 후 DAG 성공 유지)
 
 ---

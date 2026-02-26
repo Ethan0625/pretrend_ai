@@ -35,6 +35,10 @@ from .universe.engine import build_universe
 from .allocation.engine import build_allocation
 from .sell_advisor.engine import build_sell_advice
 from .next_step.engine import build_next_step_signal
+from .next_step.history_io import save_next_step_history_incremental
+from .group_transition.engine import build_group_transition_signal
+from .group_transition.io import load_universe_for_group_transition
+from .group_transition.history_io import save_group_transition_history_incremental
 
 logger = logging.getLogger(__name__)
 if not logger.handlers:
@@ -64,6 +68,7 @@ class StrategyJobResult:
     allocation: StrategyStageResult = field(default_factory=StrategyStageResult)
     sell_advice: StrategyStageResult = field(default_factory=StrategyStageResult)
     next_step_signal: StrategyStageResult = field(default_factory=StrategyStageResult)
+    group_transition_signal: StrategyStageResult = field(default_factory=StrategyStageResult)
 
 
 class StrategyJobRunner:
@@ -176,8 +181,30 @@ class StrategyJobRunner:
                 df_next, self.config.strategy_output_root,
                 "next_step_signal", decision_date, run_id,
             )
+            save_next_step_history_incremental(
+                df_next,
+                self.config.strategy_output_root,
+                decision_date_ref=decision_date,
+                run_id=run_id,
+            )
 
-        # 10) Meta log
+        # 10) Build Group Transition Signal (전술 그룹 전이예측)
+        df_universe_hist = load_universe_for_group_transition(self.config.strategy_output_root)
+        df_group = build_group_transition_signal(df_universe_hist, run_id=run_id)
+        result.group_transition_signal = StrategyStageResult(row_count=len(df_group))
+        if not df_group.empty:
+            write_snapshot_atomic(
+                df_group, self.config.strategy_output_root,
+                "group_transition_signal", decision_date, run_id,
+            )
+            save_group_transition_history_incremental(
+                df_group,
+                self.config.strategy_output_root,
+                decision_date_ref=decision_date,
+                run_id=run_id,
+            )
+
+        # 11) Meta log
         self._write_meta_log(result)
 
         logger.info("[StrategyJob] Completed run_id=%s", run_id)
@@ -198,6 +225,7 @@ class StrategyJobRunner:
             "allocation_rows": result.allocation.row_count,
             "sell_advice_rows": result.sell_advice.row_count,
             "next_step_rows": result.next_step_signal.row_count,
+            "group_transition_rows": result.group_transition_signal.row_count,
             "completed_at": pd.Timestamp.now("UTC"),
         }])
 
@@ -242,7 +270,8 @@ def main() -> None:
           f"Universe={result.universe.row_count}, "
           f"Allocation={result.allocation.row_count}, "
           f"SellAdvice={result.sell_advice.row_count}, "
-          f"NextStep={result.next_step_signal.row_count}")
+          f"NextStep={result.next_step_signal.row_count}, "
+          f"GroupTransition={result.group_transition_signal.row_count}")
 
 
 if __name__ == "__main__":

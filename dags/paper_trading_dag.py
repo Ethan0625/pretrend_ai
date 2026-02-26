@@ -22,8 +22,10 @@ from pretrend.pipeline.paper.report import (
     save_paper_result_payload,
 )
 from pretrend.pipeline.paper.io import (
+    load_group_transition_runtime_stage,
     load_prices,
     load_strategy_stage,
+    load_next_step_for_date,
     load_next_step_runtime_stage,
     save_decision_partition,
 )
@@ -48,6 +50,25 @@ def _list_decision_dates(exposure_root: Path) -> List[date]:
     return sorted(dates)
 
 
+def _resolve_paper_capital_params() -> Dict[str, float]:
+    """Paper 운영 입력(KRW)과 실행값(USD)을 정규화한다."""
+    initial_krw = float(os.getenv("PAPER_INITIAL_CAPITAL_KRW", "1000000"))
+    monthly_krw = float(os.getenv("PAPER_MONTHLY_ADDITION_KRW", "300000"))
+    try:
+        fx = float(os.getenv("PAPER_FX_USDKRW", "1300"))
+    except Exception:
+        fx = 1300.0
+    if fx <= 0:
+        fx = 1300.0
+    return {
+        "initial_capital_krw": initial_krw,
+        "monthly_addition_krw": monthly_krw,
+        "fx_usdkrw": fx,
+        "initial_capital_usd": initial_krw / fx,
+        "monthly_addition_usd": monthly_krw / fx,
+    }
+
+
 @dag(
     dag_id="paper_trading_dag",
     description="Paper trading daily summary + Telegram PAPER_RESULT (10:30 KST)",
@@ -69,18 +90,22 @@ def paper_trading_pipeline():
         now_kst = pendulum.now("Asia/Seoul").date().isoformat()
         source_job = "paper_trading_dag"
 
+        cap = _resolve_paper_capital_params()
         if not decision_dates:
             return {
                 "decision_date": now_kst,
                 "simulation_date": now_kst,
                 "source_job": source_job,
                 "status": "empty_exposure",
+                "paper_start_date": paper_start.isoformat(),
+                **cap,
             }
 
         exposure_df = load_strategy_stage(data_root, "exposure", "trade_date")
         policy_df = load_strategy_stage(data_root, "policy_selection", "trade_date")
         universe_df = load_strategy_stage(data_root, "what_to_hold", "rebalance_date")
         next_step_df = load_next_step_runtime_stage(data_root, start_date=paper_start)
+        group_transition_df = load_group_transition_runtime_stage(data_root, start_date=paper_start)
         prices_df = load_prices(data_root)
         if not exposure_df.empty:
             exposure_df = exposure_df[exposure_df["trade_date"] >= paper_start]
@@ -96,8 +121,8 @@ def paper_trading_pipeline():
         cfg = BacktestConfig(
             start_date=min(decision_dates),
             end_date=latest,
-            initial_capital=1_000_000.0,
-            monthly_addition=300_000.0,
+            initial_capital=float(cap["initial_capital_usd"]),
+            monthly_addition=float(cap["monthly_addition_usd"]),
             initial_invested_ratio=0.60,
             preset_name="paper_v1",
         )
@@ -109,13 +134,14 @@ def paper_trading_pipeline():
             source_job=source_job,
             decision_date=latest,
             simulation_date=sim_date,
-            initial_capital=1_000_000.0,
-            monthly_addition=300_000.0,
+            initial_capital=float(cap["initial_capital_usd"]),
+            monthly_addition=float(cap["monthly_addition_usd"]),
             sell_tranches=[0.50, 0.30, 0.20],
             schd_sell_locked=True,
             policy_df=policy_df,
             universe_df=universe_df,
             next_step_df=next_step_df,
+            group_transition_df=group_transition_df,
             enable_predictor_gate=True,
         )
 
@@ -129,6 +155,8 @@ def paper_trading_pipeline():
             "simulation_date": now_kst,
             "source_job": source_job,
             "status": "ok",
+            "paper_start_date": paper_start.isoformat(),
+            **cap,
         }
 
     @task(task_id="build_paper_result_payload")
@@ -137,17 +165,24 @@ def paper_trading_pipeline():
         source_job = str(meta.get("source_job", "paper_trading_dag"))
         decision_date = date.fromisoformat(str(meta.get("decision_date")))
         simulation_date = str(meta.get("simulation_date"))
+        paper_start_date = str(meta.get("paper_start_date", "N/A"))
+
+        initial_krw = float(meta.get("initial_capital_krw", 1_000_000.0))
+        monthly_krw = float(meta.get("monthly_addition_krw", 300_000.0))
+        fx_usdkrw = float(meta.get("fx_usdkrw", 1300.0))
 
         if meta.get("status") != "ok":
             return build_paper_result_payload(
             source_job=source_job,
             decision_date=decision_date.isoformat(),
             simulation_date=simulation_date,
+            paper_start_date=paper_start_date,
             action="HOLD",
             next_invested_ratio=0.0,
             delta_ratio=0.0,
-            initial_capital=1_000_000.0,
-            monthly_addition=300_000.0,
+            initial_capital=initial_krw,
+            monthly_addition=monthly_krw,
+            fx_usdkrw=fx_usdkrw,
             buy_day_rule="월요일(T-1) 평가 후 화요일 INCREASE 실행",
             sell_day_rule="금요일 DECREASE 분할매도",
             sell_tranches=[0.50, 0.30, 0.20],
@@ -158,6 +193,10 @@ def paper_trading_pipeline():
             position_changes=["집계 대상 데이터 없음"],
             risk_warnings=["전략 스냅샷 부재"],
         )
+
+        policy_df = load_strategy_stage(data_root, "policy_selection", "trade_date")
+        next_step_df = load_next_step_runtime_stage(data_root)
+        group_transition_df = load_group_transition_runtime_stage(data_root)
 
         portfolio_part = data_root / "paper" / "portfolio_daily" / f"decision_date={decision_date.isoformat()}"
         positions_part = data_root / "paper" / "positions_daily" / f"decision_date={decision_date.isoformat()}"
@@ -173,11 +212,13 @@ def paper_trading_pipeline():
                 source_job=source_job,
                 decision_date=decision_date.isoformat(),
                 simulation_date=simulation_date,
+                paper_start_date=paper_start_date,
                 action="HOLD",
                 next_invested_ratio=0.0,
                 delta_ratio=0.0,
-                initial_capital=1_000_000.0,
-                monthly_addition=300_000.0,
+                initial_capital=initial_krw,
+                monthly_addition=monthly_krw,
+                fx_usdkrw=fx_usdkrw,
                 buy_day_rule="월요일(T-1) 평가 후 화요일 INCREASE 실행",
                 sell_day_rule="금요일 DECREASE 분할매도",
                 sell_tranches=[0.50, 0.30, 0.20],
@@ -237,15 +278,59 @@ def paper_trading_pipeline():
         if action == "DECREASE" and any(p.get("symbol") == "SCHD" for p in top_positions):
             risk_warnings.append("SCHD 매도 금지 정책 적용 중")
 
+        policy_row = None
+        if policy_df is not None and not policy_df.empty and "trade_date" in policy_df.columns:
+            x = policy_df.copy()
+            x["trade_date"] = pd.to_datetime(x["trade_date"]).dt.date
+            x = x[x["trade_date"] <= decision_date]
+            if not x.empty:
+                policy_row = x.iloc[-1]
+
+        next_row = load_next_step_for_date(next_step_df, decision_date)
+        effective_bias = str(next_row.get("bias_effective")) if next_row is not None and next_row.get("bias_effective") is not None else None
+        if effective_bias is None and next_row is not None:
+            effective_bias = str(next_row.get("bias_20d", next_row.get("bias_1m", "UNKNOWN")))
+        hazard_10d = None
+        if next_row is not None:
+            v = next_row.get("transition_hazard_10d")
+            hazard_10d = None if pd.isna(v) else float(v)
+
+        group_day = pd.DataFrame()
+        if group_transition_df is not None and not group_transition_df.empty and "trade_date" in group_transition_df.columns:
+            g = group_transition_df.copy()
+            g["trade_date"] = pd.to_datetime(g["trade_date"]).dt.date
+            g = g[g["trade_date"] <= decision_date]
+            if not g.empty:
+                latest = g["trade_date"].max()
+                group_day = g[g["trade_date"] == latest].copy()
+
+        reduced_groups: List[str] = []
+        applied_groups: List[str] = []
+        if group_day is not None and not group_day.empty and "asset_group" in group_day.columns:
+            all_groups = {"SECTOR", "COMMODITY", "BOND", "COUNTRY"}
+            reduced_groups = sorted(
+                {
+                    str(r["asset_group"])
+                    for _, r in group_day.iterrows()
+                    if str(r.get("group_state_now", "UNKNOWN")) == "WEAK"
+                }
+            )
+            applied_groups = sorted(list(all_groups - set(reduced_groups)))
+            group_gate_source = "SNAPSHOT"
+        else:
+            group_gate_source = "MISSING"
+
         return build_paper_result_payload(
             source_job=source_job,
             decision_date=decision_date.isoformat(),
             simulation_date=simulation_date,
+            paper_start_date=paper_start_date,
             action=action,
             next_invested_ratio=next_ratio,
             delta_ratio=delta_ratio,
-            initial_capital=1_000_000.0,
-            monthly_addition=300_000.0,
+            initial_capital=initial_krw,
+            monthly_addition=monthly_krw,
+            fx_usdkrw=fx_usdkrw,
             buy_day_rule="월요일(T-1) 평가 후 화요일 INCREASE 실행",
             sell_day_rule="금요일 DECREASE 분할매도",
             sell_tranches=[0.50, 0.30, 0.20],
@@ -258,6 +343,33 @@ def paper_trading_pipeline():
             nav=nav,
             total_invested_capital=total_capital,
             top_positions=top_positions,
+            effective_bias=effective_bias,
+            bias_source="SNAPSHOT" if next_row is not None else "UNKNOWN",
+            override_reason=(
+                str(next_row.get("bias_override_reason"))
+                if next_row is not None and next_row.get("bias_override_reason") is not None
+                else None
+            ),
+            hard_gate_run_universe=(
+                None if policy_row is None else bool(policy_row.get("run_universe", True))
+            ),
+            hard_gate_risk_gate=(
+                None if policy_row is None else bool(policy_row.get("risk_gate", True))
+            ),
+            effective_max_tactical_slots=(
+                2 if effective_bias == "RISK_ON_BIAS"
+                else 1 if effective_bias in {"NEUTRAL_BIAS", "UNKNOWN", None}
+                else 0
+            ),
+            effective_tactical_weight=(
+                0.30 if effective_bias == "RISK_ON_BIAS"
+                else 0.225 if effective_bias in {"NEUTRAL_BIAS", "UNKNOWN", None}
+                else 0.0
+            ),
+            hazard_10d=hazard_10d,
+            group_gate_applied_groups=applied_groups,
+            group_gate_reduced_groups=reduced_groups,
+            group_gate_source=group_gate_source,
         )
 
     @task(task_id="send_paper_result_telegram")

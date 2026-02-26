@@ -1,6 +1,6 @@
 """Next Step Signal builder.
 
-Derives 1M/3M bias + evidence summaries from market_position and
+Derives trading-day horizon bias/evidence from market_position and
 axis_horizon_state snapshots.
 """
 from __future__ import annotations
@@ -81,9 +81,18 @@ def _build_state_history(ahs: pd.DataFrame) -> pd.DataFrame:
                 "sojourn_prob_5d",
                 "sojourn_prob_10d",
                 "sojourn_prob_20d",
+                "sojourn_prob_60d",
+                "sojourn_prob_120d",
                 "transition_hazard_5d",
                 "transition_hazard_10d",
                 "transition_hazard_20d",
+                "transition_hazard_60d",
+                "transition_hazard_120d",
+                "transition_expected_5d",
+                "transition_expected_10d",
+                "transition_expected_20d",
+                "transition_expected_60d",
+                "transition_expected_120d",
                 "transition_expected",
             ]
         )
@@ -119,7 +128,7 @@ def _build_state_history(ahs: pd.DataFrame) -> pd.DataFrame:
     )
 
     rows = []
-    horizons = [5, 10, 20]
+    horizons = [5, 10, 20, 60, 120]
     for _, row in x.iterrows():
         cur_ep = int(row["episode_id"])
         cur_state = row["state_key"]
@@ -159,9 +168,18 @@ def _build_state_history(ahs: pd.DataFrame) -> pd.DataFrame:
                 "sojourn_prob_5d": soj[5],
                 "sojourn_prob_10d": soj[10],
                 "sojourn_prob_20d": soj[20],
+                "sojourn_prob_60d": soj[60],
+                "sojourn_prob_120d": soj[120],
                 "transition_hazard_5d": hz[5],
                 "transition_hazard_10d": hz[10],
                 "transition_hazard_20d": hz[20],
+                "transition_hazard_60d": hz[60],
+                "transition_hazard_120d": hz[120],
+                "transition_expected_5d": expected,
+                "transition_expected_10d": expected,
+                "transition_expected_20d": expected,
+                "transition_expected_60d": expected,
+                "transition_expected_120d": expected,
                 "transition_expected": expected,
             }
         )
@@ -211,6 +229,12 @@ def build_next_step_signal(
         next_lines = build_next_step_lines(long_phase, mid_regime, short_signal)
         bias_1m, conf_1m = _parse_bias_and_conf(next_lines[0]) if next_lines else ("UNKNOWN", 0.5)
         bias_3m, conf_3m = _parse_bias_and_conf(next_lines[1]) if len(next_lines) > 1 else ("UNKNOWN", 0.5)
+        # 5/10/20/60/120D 기준으로 통일. 1M/3M은 20D/60D alias로 유지(deprecated).
+        bias_5d, conf_5d = _parse_bias_and_conf(next_lines[0]) if next_lines else ("UNKNOWN", 0.5)
+        bias_10d, conf_10d = _parse_bias_and_conf(next_lines[0]) if next_lines else ("UNKNOWN", 0.5)
+        bias_20d, conf_20d = bias_1m, conf_1m
+        bias_60d, conf_60d = bias_3m, conf_3m
+        bias_120d, conf_120d = bias_3m, conf_3m
 
         ev_lines = build_evidence_lines(long_detail, mid_detail, short_detail)
         evidence_axis_macro = _extract_evidence_value(ev_lines, 0)
@@ -232,6 +256,16 @@ def build_next_step_signal(
         rows.append(
             {
                 "trade_date": td,
+                "bias_5d": bias_5d,
+                "confidence_5d": conf_5d,
+                "bias_10d": bias_10d,
+                "confidence_10d": conf_10d,
+                "bias_20d": bias_20d,
+                "confidence_20d": conf_20d,
+                "bias_60d": bias_60d,
+                "confidence_60d": conf_60d,
+                "bias_120d": bias_120d,
+                "confidence_120d": conf_120d,
                 "bias_1m": bias_1m,
                 "confidence_1m": conf_1m,
                 "bias_3m": bias_3m,
@@ -243,9 +277,18 @@ def build_next_step_signal(
                 "sojourn_prob_5d": hist.get("sojourn_prob_5d"),
                 "sojourn_prob_10d": hist.get("sojourn_prob_10d"),
                 "sojourn_prob_20d": hist.get("sojourn_prob_20d"),
+                "sojourn_prob_60d": hist.get("sojourn_prob_60d"),
+                "sojourn_prob_120d": hist.get("sojourn_prob_120d"),
                 "transition_hazard_5d": hist.get("transition_hazard_5d"),
                 "transition_hazard_10d": hist.get("transition_hazard_10d"),
                 "transition_hazard_20d": hist.get("transition_hazard_20d"),
+                "transition_hazard_60d": hist.get("transition_hazard_60d"),
+                "transition_hazard_120d": hist.get("transition_hazard_120d"),
+                "transition_expected_5d": hist.get("transition_expected_5d", "UNKNOWN"),
+                "transition_expected_10d": hist.get("transition_expected_10d", "UNKNOWN"),
+                "transition_expected_20d": hist.get("transition_expected_20d", "UNKNOWN"),
+                "transition_expected_60d": hist.get("transition_expected_60d", "UNKNOWN"),
+                "transition_expected_120d": hist.get("transition_expected_120d", "UNKNOWN"),
                 "transition_expected": hist.get("transition_expected", "UNKNOWN"),
                 "evidence_axis_macro": evidence_axis_macro,
                 "evidence_axis_price": evidence_axis_price,

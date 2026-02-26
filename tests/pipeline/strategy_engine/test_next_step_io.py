@@ -14,7 +14,7 @@ def test_load_next_step_for_runtime_merges_snapshot_and_history(tmp_path):
     # snapshot (decision_date partition)
     snap = pd.DataFrame(
         [
-            {"trade_date": date(2026, 2, 21), "bias_1m": "RISK_ON_BIAS", "source_run_id": "snap"},
+            {"trade_date": date(2026, 2, 21), "bias_20d": "RISK_ON_BIAS", "source_run_id": "snap"},
         ]
     )
     write_snapshot_atomic(
@@ -28,7 +28,7 @@ def test_load_next_step_for_runtime_merges_snapshot_and_history(tmp_path):
     # history (older)
     hist = pd.DataFrame(
         [
-            {"trade_date": date(2026, 2, 20), "bias_1m": "NEUTRAL_BIAS", "source_run_id": "hist"},
+            {"trade_date": date(2026, 2, 20), "bias_20d": "NEUTRAL_BIAS", "source_run_id": "hist"},
         ]
     )
     save_next_step_history_incremental(

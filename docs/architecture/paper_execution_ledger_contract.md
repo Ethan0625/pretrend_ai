@@ -30,6 +30,7 @@
 - `docs/architecture/paper_trading_alert_contract.md`
 - `docs/architecture/allocation_engine_contract.md`
 - `docs/architecture/next_step_signal_contract.md`
+- `docs/architecture/group_transition_signal_contract.md`
 - `docs/strategy_engine_design.md`
 
 ## 1. 문서 목적
@@ -60,13 +61,19 @@
 | next_invested_ratio | FLOAT | Y | 목표 투자 비율 |
 | delta_ratio | FLOAT | Y | 비중 변화량 |
 | adj_close | FLOAT | Y | EOD 평가 가격 (`gold/eod/eod_features`) |
-| bias_1m (next_step) | TEXT | N | 전이예측 1M bias (`RISK_ON_BIAS`/`NEUTRAL_BIAS`/`RISK_OFF_BIAS`/`UNKNOWN`) |
+| bias_20d (next_step) | TEXT | N | 전이예측 20거래일 bias (`RISK_ON_BIAS`/`NEUTRAL_BIAS`/`RISK_OFF_BIAS`/`UNKNOWN`) |
 
 운영 파라미터 (기본값):
 - `initial_capital = 1,000,000원`
 - `monthly_addition = 300,000원`
 - `sell_tranches = [0.50, 0.30, 0.20]`
 - `schd_sell_locked = true`
+- `PAPER_FX_USDKRW = 1300` (KRW→USD 환산 기본값)
+
+통화 처리:
+- 운영 입력(`initial_capital`, `monthly_addition`)은 KRW 단위다.
+- 체결/평가 가격(`adj_close`)은 USD 단위다.
+- 실행 엔진은 KRW 입력을 `PAPER_FX_USDKRW`로 USD 환산 후 체결 계산한다.
 
 ## 4. Output Tables
 ### 4.1 execution_ledger
@@ -120,6 +127,13 @@
 - `SCHD`는 매도 금지 (`schd_sell_locked=true`)
 - phase는 `next_invested_ratio`를 통해 매수 강도에 반영
 - tactical universe는 `policy_selection + what_to_hold(is_candidate, relative_strength)` 기준으로 반영
+- tactical group 전이는 `group_transition_signal` 저장본(snapshot + history) 기준으로 반영
+- `WEAK` 그룹은 tactical slots/weight 우선 축소 대상이다(soft gate)
+- v3.4.1에서는 `WEAK` 그룹 수가 2개 이상일 때만 축소를 발동한다.
+- v3.4.1 재진입(축소 해제) 조건:
+  - `short_signal=RELIEF` 2거래일 연속 또는
+  - `mid_regime=RISK_ON`
+- 재진입 조건이 충족되기 전까지 축소 상태는 유지된다.
 - `next_step` 입력은 저장본 우선(snapshot + history 결합)으로 로드한다.
 - 런타임 재계산은 기본 금지하고 결측 시 fail-open을 적용한다.
 - 전이예측 soft gate는 tactical 강도만 조절한다:
@@ -157,11 +171,15 @@
 - **PEL6**: 결측 가격 fail-open 검증
 - **PEL7**: next_step bias soft gate(강도 조절) 검증
 - **PEL8**: 하드 게이트 우선 적용(`run_universe=false` 등) 검증
+- **PEL9**: group transition soft gate 적용(WEAK 그룹 축소) + 결측 fail-open 검증
+- **PEL10**: v3.4.1 재진입 규칙(WEAK>=2 진입, RELIEF streak/MID RISK_ON 해제) 검증
 
 ---
 
 ## Change History
 | Date | Summary | References |
 | --- | --- | --- |
+| 2026-02-26 | v3.4.1 재진입 규칙 추가: WEAK>=2 진입 + RELIEF 2연속/MID RISK_ON 해제 | docs/changelog.md |
+| 2026-02-26 | group transition 입력 추가: WEAK 그룹 tactical 축소(soft gate), 결측 fail-open 명시 | docs/changelog.md |
 | 2026-02-25 | next_step_signal soft gate 입력 추가(하드 게이트 우선/강도 조절 규칙 명시) | docs/changelog.md |
 | 2026-02-25 | EOD 가상체결 레이어 계약 신규 추가 (NAV/PnL/포지션 상세) | docs/changelog.md |

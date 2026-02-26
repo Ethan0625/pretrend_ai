@@ -7,6 +7,140 @@
 
 > 참고: changelog 과거 섹션은 작성 시점 원문을 보존한다.
 
+## v2026.02.26c — 전이예측 지평 재정의 (거래일 5축 통일)
+
+### feat(next-step): 지평 체계 `5/10/20/60/120D`로 통일
+- 혼합 표기(`1M/3M`) 대신 거래일 기반 지평으로 통일
+- 신규 필드:
+  - `bias_5d/10d/20d/60d/120d`
+  - `confidence_5d/10d/20d/60d/120d`
+  - `sojourn_prob_60d/120d`
+  - `transition_hazard_60d/120d`
+  - `transition_expected_5d/10d/20d/60d/120d`
+- 하위호환:
+  - `bias_1m/3m`, `confidence_1m/3m`, `transition_expected`는 deprecated alias로 1회 유지
+
+### feat(signal/paper/backtest): 소비 키 `20D bias` 우선화
+- backtest/paper soft gate 입력을 `bias_20d` 우선으로 변경
+- `bias_1m`은 fallback alias로만 사용
+- SIGNAL `다음 스텝 가설`은 5축(5/10/20/60/120D) bias/hazard/expected 동시 출력
+
+### docs(sync)
+- 계약/운영 문서에서 지평 표기를 `5/10/20/60/120D`로 통일
+
+## v2026.02.26b — v3.4.1 회복기 재진입 강화 실험
+
+### feat(backtest/paper): v3.4.1 preset 추가
+- `PRESET_V3_4_1` 등록 (`v3.4 + recovery-aware re-entry gate`)
+- allocation registry에 `v3.4.1 -> compute_allocation_v3` 연결
+- v3.4.1은 v3.1/v3.2/v3.3/v3.4 체인을 유지한 상태에서 group gate만 강화
+
+### feat(gate): WEAK>=2 진입 + 재진입 조건 고정
+- 축소 진입: `group_state_now=WEAK` 그룹 수가 2개 이상일 때만 발동
+- 축소 해제(재진입): 아래 중 하나 충족 시 복원
+  - `short_signal=RELIEF` 2거래일 연속
+  - `mid_regime=RISK_ON`
+- 재진입 전까지 축소 상태 유지(soft gate 상태 유지)
+- group_transition 결측 시 fail-open(`group_gate_source=MISSING`, v3.3 경로 유지)
+
+### test(sync): v3.4.1 단위/회귀 검증 추가
+- backtest: mode flags, WEAK>=2 진입, RELIEF streak 재진입 검증
+- paper: v3.4.1 group gate helper(WEAK=1 미발동, MID=RISK_ON 재진입) 검증
+- allocation: `v3.4.1` dispatch 경로 검증
+
+### docs(sync)
+- `allocation_engine_contract.md`: v3.4.1 규칙/DoD/이력 반영
+- `paper_execution_ledger_contract.md`: 재진입 규칙 반영
+- `operation_guide.md`, `README.md`: `--preset v3.4.1` 실행/설명 추가
+
+### backtest(compare): v3.3/v3.4/v3.4.1 2구간 비교 저장
+- 저장 경로:
+  - `result/backtest_compare/long_20060103-20240603/*`
+  - `result/backtest_compare/recent_20250101-20260101/*`
+  - `result/backtest_compare/compare_v33_v34_v341_2windows_20260226.csv`
+- 핵심 결과:
+
+| Window | Preset | CAGR | MDD | Sharpe | XIRR | Trades |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| 2006-01~2024-06 | v3.3 | 30.93% | -14.56% | 1.69 | 7.54% | 5,323 |
+| 2006-01~2024-06 | v3.4 | 30.59% | -19.10% | 1.68 | 7.10% | 4,380 |
+| 2006-01~2024-06 | v3.4.1 | 31.16% | -15.46% | 1.71 | 7.85% | 5,030 |
+| 2025-01~2026-01 | v3.3 | 390.02% | -6.30% | 3.34 | 21.43% | 282 |
+| 2025-01~2026-01 | v3.4 | 409.42% | -6.26% | 3.43 | 29.04% | 261 |
+| 2025-01~2026-01 | v3.4.1 | 392.49% | -6.30% | 3.36 | 22.39% | 278 |
+
+## v2026.02.26 — Tactical Asset Group 전이예측(v3.4) 도입
+
+### feat(strategy): group_transition_signal 스냅샷/히스토리 추가
+- 신규 모듈 추가:
+  - `strategy_engine/group_transition/schema.py`
+  - `strategy_engine/group_transition/engine.py`
+  - `strategy_engine/group_transition/io.py`
+  - `strategy_engine/group_transition/history_io.py`
+- `strategy_job.py`에 그룹 전이 생성/저장 단계 추가:
+  - snapshot: `data/strategy/group_transition_signal/decision_date=...`
+  - history: `data/strategy/group_transition_history/year=.../month=...`
+- grain/key:
+  - snapshot `(trade_date, asset_group)`
+  - history `(trade_date, asset_group, decision_date_ref)`
+
+### feat(signal): Telegram에 `전술 그룹 다음 스텝` 섹션 추가
+- `strategy_engine_dag` SIGNAL 메시지에 그룹별 10D 요약 노출:
+  - `STATE_NOW -> EXPECTED_10D`
+  - `group_transition_hazard_10d`
+- 결측 시 fail-open 문구 고정:
+  - `전술 그룹 전이 데이터 없음 (UNKNOWN/N/A)`
+
+### feat(paper/backtest): v3.4 group transition soft gate 연결
+- `PRESET_V3_4` 추가 (`v3.3 + group transition gate`)
+- backtest runner:
+  - WEAK 그룹 tactical 축소(그룹 제외 + slots/weight 완화)
+  - 결측 시 fail-open(v3.3 경로 유지)
+- paper execution:
+  - predictor soft gate 이후 group transition gate 적용
+- PAPER_RESULT:
+  - `전술 적용 근거` 섹션 추가 (`적용 그룹/축소 그룹/게이트 소스`)
+
+### docs(contracts/ops): SOT 동기화
+- 신규 계약: `docs/architecture/group_transition_signal_contract.md`
+- 기존 계약/운영 문서 동기화:
+  - `next_step_signal_contract.md` (scope 분리)
+  - `allocation_engine_contract.md` (v3.4 규칙/DoD)
+  - `paper_execution_ledger_contract.md` (group transition 입력)
+  - `operation_guide.md`, `README.md`
+
+## v2026.02.25c — Telegram next-step 단일소스 통일 + hazard 가시화
+
+### feat(signal): next_step fallback 재계산 제거
+- `strategy_engine_dag`의 `다음 스텝 가설` 섹션을 snapshot 단일소스로 통일
+- `next_step_signal` 결측 시 `_build_next_step_lines` 재계산 대신 `UNKNOWN/N/A` fail-open 렌더링
+- warning 로그 추가:
+  - decision_date 기준 next_step snapshot 부재 시 1회 경고
+
+### feat(signal): 5/10/20D transition_hazard + transition_expected 표시
+- SIGNAL 메시지에 아래 라인 추가:
+  - `⏱ 5D/10D/20D 전환위험`
+  - `🔭 예상 전이`
+- 값은 `next_step_signal` 컬럼(`transition_hazard_*`, `transition_expected`) 직접 소비
+
+### feat(paper): PAPER_RESULT 게이트/강도 설명 필드 확장
+- paper payload optional 필드 추가:
+  - `effective_bias`, `bias_source`, `override_reason`
+  - `hard_gate_run_universe`, `hard_gate_risk_gate`
+  - `effective_max_tactical_slots`, `effective_tactical_weight`, `hazard_10d`
+- PAPER_RESULT 메시지에 `게이트/강도` 섹션 추가
+- 표시 계층과 계산 계층 분리 유지(계산 규칙은 execution contract 참조)
+
+### fix(paper): KRW 운영조건의 USD 과대집행 수정
+- paper execution 입력(`초기자금 1,000,000원`, `월 DCA 300,000원`)을 USD 가격계산에 직접 사용하던 문제 수정
+- `PAPER_FX_USDKRW`(기본 1300) 기준으로 KRW→USD 환산 후 체결 계산하도록 변경
+- PAPER_RESULT 메시지 `운영 조건`에 환산 환율 라인 추가
+
+### ux(signal/paper): 예상 전이 가독성 + paper 시작일 표시
+- SIGNAL `예상 전이`를 `RECESSION_NEUTRAL_RELIEF` 원문 대신
+  `장기/중기/단기` 3축 설명형으로 렌더링
+- PAPER_RESULT `운영 조건`에 `Paper 시작일(PAPER_START_DATE)` 표시 추가
+
 ## v2026.02.25b — 재현성 저장 체계 고도화 (Feature Snapshot + Result Registry)
 
 ### feat(strategy): next_step_history 저장 계층 추가

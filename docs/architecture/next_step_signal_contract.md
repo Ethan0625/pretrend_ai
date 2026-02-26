@@ -35,10 +35,11 @@
 - `docs/architecture/market_structure_short_contract.md`
 - `docs/architecture/paper_execution_ledger_contract.md`
 - `docs/architecture/allocation_engine_contract.md`
+- `docs/architecture/group_transition_signal_contract.md`
 
 ## 1. 문서 목적
 ### 책임
-- 현재 상태(3-state: long/mid/short)와 다음 스텝 가설(1m/3m)의 출력 계약을 고정한다.
+ - 현재 상태(3-state: long/mid/short)와 다음 스텝 가설(5/10/20/60/120D)의 출력 계약을 고정한다.
 - Telegram/리포트 소비용 4축 근거 서술 인터페이스를 고정한다.
 - 12셀(4축×3horizon)을 실행 신호가 아닌 진단 KPI 계층으로 정의한다.
 - Strategy/Paper/Backtest가 공통 소비하는 **운용 게이트 입력(snapshot)** 인터페이스를 고정한다.
@@ -52,10 +53,12 @@
 - 입력 상태(long_phase, mid_regime, short_signal) 기반 다음 스텝 가설 생성
 - 4축(매크로/가격/수급/심리) 근거 문구 생성
 - 12셀 진단 KPI(coverage, unknown_ratio) 계산
+- 시장 3-state 전이예측 전용 인터페이스 고정
 
 ### Non-goals
 - 12셀 개별 셀을 독립 실행 신호로 승격
 - 가설 정확도 성능 보장
+- 전술 그룹 전이 예측(별도 계약: `group_transition_signal_contract.md`)
 
 ## 3. Inputs
 ### 책임
@@ -87,10 +90,20 @@
 | 컬럼 | 타입 | 필수 | 설명 |
 | --- | --- | --- | --- |
 | trade_date | DATE | Y | 기준일 |
-| bias_1m | TEXT | Y | `RISK_ON_BIAS`, `NEUTRAL_BIAS`, `RISK_OFF_BIAS`, `UNKNOWN` |
-| confidence_1m | FLOAT | Y | 0~1 |
-| bias_3m | TEXT | Y | `RISK_ON_BIAS`, `NEUTRAL_BIAS`, `RISK_OFF_BIAS`, `UNKNOWN` |
-| confidence_3m | FLOAT | Y | 0~1 |
+| bias_5d | TEXT | Y | `RISK_ON_BIAS`, `NEUTRAL_BIAS`, `RISK_OFF_BIAS`, `UNKNOWN` |
+| confidence_5d | FLOAT | Y | 0~1 |
+| bias_10d | TEXT | Y | `RISK_ON_BIAS`, `NEUTRAL_BIAS`, `RISK_OFF_BIAS`, `UNKNOWN` |
+| confidence_10d | FLOAT | Y | 0~1 |
+| bias_20d | TEXT | Y | `RISK_ON_BIAS`, `NEUTRAL_BIAS`, `RISK_OFF_BIAS`, `UNKNOWN` |
+| confidence_20d | FLOAT | Y | 0~1 |
+| bias_60d | TEXT | Y | `RISK_ON_BIAS`, `NEUTRAL_BIAS`, `RISK_OFF_BIAS`, `UNKNOWN` |
+| confidence_60d | FLOAT | Y | 0~1 |
+| bias_120d | TEXT | Y | `RISK_ON_BIAS`, `NEUTRAL_BIAS`, `RISK_OFF_BIAS`, `UNKNOWN` |
+| confidence_120d | FLOAT | Y | 0~1 |
+| bias_1m | TEXT | N | Deprecated alias (권장: `bias_20d`) |
+| confidence_1m | FLOAT | N | Deprecated alias (권장: `confidence_20d`) |
+| bias_3m | TEXT | N | Deprecated alias (권장: `bias_60d`) |
+| confidence_3m | FLOAT | N | Deprecated alias (권장: `confidence_60d`) |
 | bias_effective | TEXT | N | v3.2 확장 포트(실제 적용 bias, nullable) |
 | bias_override_flag | BOOLEAN | N | v3.2 확장 포트(override 발동 여부, nullable) |
 | bias_override_reason | TEXT | N | v3.2 확장 포트(`PANIC`, `RISK_OFF`, `NONE`, nullable) |
@@ -98,10 +111,19 @@
 | sojourn_prob_5d | FLOAT | N | v3.3 확장 포트(5거래일 지속 확률) |
 | sojourn_prob_10d | FLOAT | N | v3.3 확장 포트(10거래일 지속 확률) |
 | sojourn_prob_20d | FLOAT | N | v3.3 확장 포트(20거래일 지속 확률) |
+| sojourn_prob_60d | FLOAT | N | v3.3 확장 포트(60거래일 지속 확률) |
+| sojourn_prob_120d | FLOAT | N | v3.3 확장 포트(120거래일 지속 확률) |
 | transition_hazard_5d | FLOAT | N | v3.3 확장 포트(5거래일 전환 위험도) |
 | transition_hazard_10d | FLOAT | N | v3.3 확장 포트(10거래일 전환 위험도) |
 | transition_hazard_20d | FLOAT | N | v3.3 확장 포트(20거래일 전환 위험도) |
-| transition_expected | TEXT | N | v3.3 확장 포트(예상 다음 상태, nullable) |
+| transition_hazard_60d | FLOAT | N | v3.3 확장 포트(60거래일 전환 위험도) |
+| transition_hazard_120d | FLOAT | N | v3.3 확장 포트(120거래일 전환 위험도) |
+| transition_expected_5d | TEXT | N | v3.3 확장 포트(5거래일 예상 다음 상태, nullable) |
+| transition_expected_10d | TEXT | N | v3.3 확장 포트(10거래일 예상 다음 상태, nullable) |
+| transition_expected_20d | TEXT | N | v3.3 확장 포트(20거래일 예상 다음 상태, nullable) |
+| transition_expected_60d | TEXT | N | v3.3 확장 포트(60거래일 예상 다음 상태, nullable) |
+| transition_expected_120d | TEXT | N | v3.3 확장 포트(120거래일 예상 다음 상태, nullable) |
+| transition_expected | TEXT | N | Deprecated alias (권장: `transition_expected_20d`) |
 | evidence_axis_macro | TEXT | Y | 매크로/정책 서술 |
 | evidence_axis_price | TEXT | Y | 가격 서술 |
 | evidence_axis_flow | TEXT | Y | 수급/구조 서술 |
@@ -123,6 +145,11 @@ History Grain/Key:
 소비 우선순위:
 1. `next_step_history` + `next_step_signal` 저장본
 2. 런타임 재계산 fallback (결측 시 fail-open)
+
+운영 메시지 소비 규칙(SIGNAL/PAPER):
+- `bias_5d/10d/20d/60d/120d`, `confidence_*`, `transition_hazard_*`, `transition_expected_*`는 snapshot에서 직접 소비한다.
+- 운영 메시지 경로에서 상태 기반 즉석 재계산은 금지한다.
+- snapshot 결측 시 표시용 fail-open(`UNKNOWN/N/A`)만 허용한다.
 
 ## 5. Axis×Horizon Evidence Matrix (4x3)
 ### 책임
@@ -174,10 +201,10 @@ History Grain/Key:
 - v3.2 soft gate 대체
 
 - v3.3은 v3.2 위에 얹는 **확장 가설**이며, 하드게이트는 불변이다.
-- 지평은 `5/10/20 거래일` 고정이다.
+- 지평은 `5/10/20/60/120 거래일` 고정이다.
 - `sojourn_prob_hd`는 상태 지속 확률, `transition_hazard_hd = 1 - sojourn_prob_hd`로 정의한다.
 - 소표본/결측 시 nullable 허용(fail-open)하며 기존 bias 흐름을 유지한다.
-- `transition_expected`는 설명용 필드이며 실행 명령이 아니다.
+- `transition_expected_*`는 설명용 필드이며 실행 명령이 아니다.
 
 ## 9. Invariants
 ### 책임
@@ -208,7 +235,7 @@ History Grain/Key:
 - **NSS7**: 12셀 진단 지표(`coverage`, `unknown_ratio`) 일관성 검증
 - **NSS8**: Strategy/Paper/Backtest가 동일 snapshot(`next_step_signal`)을 소비함을 검증
 - **NSS9**: v3.2 확장 포트(`bias_effective`, `bias_override_flag`, `bias_override_reason`) nullable/하위호환 검증
-- **NSS10**: v3.3 확장 포트(`state_age_days`, `sojourn_prob_*`, `transition_hazard_*`, `transition_expected`) nullable/하위호환 검증
+- **NSS10**: v3.3 확장 포트(`state_age_days`, `sojourn_prob_*`, `transition_hazard_*`, `transition_expected_*`) nullable/하위호환 검증
 - **NSS11**: `transition_hazard_hd = 1 - sojourn_prob_hd` 수치 일관성 검증(결측 제외)
 - **NSS12**: history key(`trade_date`, `decision_date_ref`) 중복 방지 및 재현성 검증
 

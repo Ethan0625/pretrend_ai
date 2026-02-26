@@ -4,6 +4,9 @@ from pretrend.pipeline.strategy_engine.report_context import (
     build_context_lines as _build_context_lines,
     build_diagnostic_lines as _build_diagnostic_lines,
     build_evidence_lines as _build_evidence_lines,
+    format_group_transition_lines as _format_group_transition_lines,
+    format_transition_expected as _format_transition_expected,
+    format_next_step_hazard_lines as _format_next_step_hazard_lines,
     build_next_step_lines as _build_next_step_lines,
     build_switch_lines as _build_switch_lines,
 )
@@ -71,3 +74,94 @@ def test_diagnostic_lines_show_quality_and_coverage() -> None:
     assert lines[0].startswith("🧪 12셀 품질:")
     assert "coverage=" in lines[1]
     assert "unknown=" in lines[1]
+
+
+def test_next_step_hazard_lines_snapshot_present() -> None:
+    lines = _format_next_step_hazard_lines(
+        {
+            "bias_5d": "NEUTRAL_BIAS",
+            "confidence_5d": 0.5,
+            "bias_10d": "RISK_OFF_BIAS",
+            "confidence_10d": 0.71,
+            "bias_20d": "RISK_ON_BIAS",
+            "confidence_20d": 0.8,
+            "bias_60d": "NEUTRAL_BIAS",
+            "confidence_60d": 0.6,
+            "bias_120d": "RISK_OFF_BIAS",
+            "confidence_120d": 0.65,
+            "transition_hazard_5d": 0.2,
+            "transition_hazard_10d": 0.4,
+            "transition_hazard_20d": 0.6,
+            "transition_hazard_60d": 0.3,
+            "transition_hazard_120d": 0.1,
+            "transition_expected_5d": "RECOVERY_NEUTRAL_RELIEF",
+            "transition_expected_10d": "RECOVERY_NEUTRAL_RELIEF",
+            "transition_expected_20d": "RECOVERY_NEUTRAL_RELIEF",
+            "transition_expected_60d": "RECOVERY_NEUTRAL_RELIEF",
+            "transition_expected_120d": "RECOVERY_NEUTRAL_RELIEF",
+        }
+    )
+    text = "\n".join(lines)
+    assert "🧭 5D: NEUTRAL_BIAS (50%)" in text
+    assert "🧭 10D: RISK_OFF_BIAS (71%)" in text
+    assert "🧭 20D: RISK_ON_BIAS (80%)" in text
+    assert "🧭 60D: NEUTRAL_BIAS (60%)" in text
+    assert "🧭 120D: RISK_OFF_BIAS (65%)" in text
+    assert "⏱ 5D 전환위험: 20%" in text
+    assert "⏱ 10D 전환위험: 40%" in text
+    assert "⏱ 20D 전환위험: 60%" in text
+    assert "⏱ 60D 전환위험: 30%" in text
+    assert "⏱ 120D 전환위험: 10%" in text
+    assert "🔭 10D 예상 전이: 장기 회복(RECOVERY) · 중기 혼조(NEUTRAL) · 단기 안도(RELIEF)" in text
+
+
+def test_next_step_hazard_lines_snapshot_missing_fail_open() -> None:
+    lines = _format_next_step_hazard_lines(None)
+    text = "\n".join(lines)
+    assert "🧭 5D: UNKNOWN (N/A)" in text
+    assert "🧭 10D: UNKNOWN (N/A)" in text
+    assert "🧭 20D: UNKNOWN (N/A)" in text
+    assert "🧭 60D: UNKNOWN (N/A)" in text
+    assert "🧭 120D: UNKNOWN (N/A)" in text
+    assert "⏱ 5D 전환위험: N/A" in text
+    assert "⏱ 10D 전환위험: N/A" in text
+    assert "⏱ 20D 전환위험: N/A" in text
+    assert "⏱ 60D 전환위험: N/A" in text
+    assert "⏱ 120D 전환위험: N/A" in text
+    assert "🔭 20D 예상 전이: UNKNOWN" in text
+
+
+def test_format_transition_expected_human_readable() -> None:
+    out = _format_transition_expected("RECESSION_NEUTRAL_RELIEF")
+    assert out == "장기 침체(RECESSION) · 중기 혼조(NEUTRAL) · 단기 안도(RELIEF)"
+
+
+def test_group_transition_lines_render_10d_summary() -> None:
+    lines = _format_group_transition_lines(
+        [
+            {
+                "asset_group": "SECTOR",
+                "group_state_now": "STRONG",
+                "group_expected_5d": "WEAK",
+                "group_expected_10d": "NEUTRAL",
+                "group_transition_hazard_5d": 0.35,
+                "group_transition_hazard_10d": 0.42,
+            },
+            {
+                "asset_group": "BOND",
+                "group_state_now": "NEUTRAL",
+                "group_expected_5d": "STRONG",
+                "group_expected_10d": "STRONG",
+                "group_transition_hazard_5d": 0.12,
+                "group_transition_hazard_10d": 0.18,
+            },
+        ]
+    )
+    text = "\n".join(lines)
+    assert "SECTOR: 🟢STRONG → 5D:🔴WEAK (35%) / 10D:🟡NEUTRAL (42%)" in text
+    assert "BOND: 🟡NEUTRAL → 5D:🟢STRONG (12%) / 10D:🟢STRONG (18%)" in text
+
+
+def test_group_transition_lines_missing_fail_open() -> None:
+    lines = _format_group_transition_lines(None)
+    assert lines == ["전술 그룹 전이 데이터 없음 (UNKNOWN/N/A)"]

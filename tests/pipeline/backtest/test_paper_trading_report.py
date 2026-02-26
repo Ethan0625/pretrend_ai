@@ -51,8 +51,10 @@ def test_format_message_includes_fixed_sections_and_fallbacks() -> None:
     assert "가상 체결 요약" in msg
     assert "PnL 요약" in msg
     assert "운영 조건" in msg
+    assert "Paper 시작일: N/A" in msg
     assert "초기자금: 1,000,000원" in msg
     assert "월 첫 거래일 DCA: 300,000원" in msg
+    assert "환산환율: 1 USD = 1,300 KRW" in msg
     assert "SCHD 매도: 금지" in msg
     assert "당일: 집계 데이터 없음" in msg
     assert "누적: 집계 데이터 없음" in msg
@@ -88,6 +90,64 @@ def test_format_message_renders_top_positions() -> None:
     assert "평단 $100.00" in msg
     assert "현재가 $102.00" in msg
     assert "손익 +2.0%" in msg
+
+
+def test_format_message_includes_gate_and_strength_section() -> None:
+    payload = build_paper_result_payload(
+        source_job="paper_trading_dag",
+        decision_date="2026-02-25",
+        simulation_date="2026-02-25",
+        action="INCREASE",
+        next_invested_ratio=0.7,
+        delta_ratio=0.1,
+        effective_bias="RISK_OFF_BIAS",
+        bias_source="OVERRIDE",
+        override_reason="PANIC",
+        hard_gate_run_universe=False,
+        hard_gate_risk_gate=True,
+        effective_max_tactical_slots=0,
+        effective_tactical_weight=0.0,
+        hazard_10d=0.88,
+        group_gate_applied_groups=["BOND", "SECTOR"],
+        group_gate_reduced_groups=["COMMODITY"],
+        group_gate_source="SNAPSHOT",
+        fx_usdkrw=1400,
+        paper_start_date="2026-01-01",
+    )
+    msg = format_paper_result_message(payload)
+    assert "게이트/강도" in msg
+    assert "적용 Bias: RISK_OFF_BIAS (source=OVERRIDE)" in msg
+    assert "Override 사유: PANIC" in msg
+    assert "run_universe=제한" in msg
+    assert "risk_gate=허용" in msg
+    assert "전술 강도: slots=0, weight=0.00x" in msg
+    assert "10D 전환위험: +88.0%" in msg
+    assert "전술 적용 근거" in msg
+    assert "적용 그룹: BOND, SECTOR" in msg
+    assert "축소 그룹: COMMODITY" in msg
+    assert "그룹 게이트 소스: SNAPSHOT" in msg
+    assert "환산환율: 1 USD = 1,400 KRW" in msg
+    assert "Paper 시작일: 2026-01-01" in msg
+
+
+def test_format_message_gate_section_fallback_unknown() -> None:
+    payload = build_paper_result_payload(
+        source_job="paper_trading_dag",
+        decision_date="2026-02-25",
+        simulation_date="2026-02-25",
+        action="HOLD",
+        next_invested_ratio=0.6,
+        delta_ratio=0.0,
+    )
+    msg = format_paper_result_message(payload)
+    assert "적용 Bias: UNKNOWN (source=UNKNOWN)" in msg
+    assert "run_universe=UNKNOWN" in msg
+    assert "risk_gate=UNKNOWN" in msg
+    assert "전술 강도: slots=N/A, weight=N/A" in msg
+    assert "10D 전환위험: N/A" in msg
+    assert "적용 그룹: N/A" in msg
+    assert "축소 그룹: 없음" in msg
+    assert "그룹 게이트 소스: UNKNOWN" in msg
 
 
 def test_validate_payload_raises_when_required_missing() -> None:

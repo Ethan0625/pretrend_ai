@@ -67,7 +67,7 @@
 | 진단 지표 | diag_12slot_coverage | FLOAT | N | 12셀 커버리지 |
 | 진단 지표 | diag_unknown_ratio | FLOAT | N | UNKNOWN 비율 |
 | 진단 지표 | diag_axis_consistency | FLOAT | N | 축 일관성 근사 |
-| 진단 지표 | hazard_non_null_ratio | FLOAT | N | hazard_10d 비결측 비율 |
+| 진단 지표 | hazard_non_null_ratio | FLOAT | N | hazard_5d/10d/20d/60d/120d 비결측 비율(평균) |
 | 진단 지표 | diag_calibration_error | FLOAT | N | 간이 Brier calibration error (hazard_10d) |
 | 진단 지표 | diag_hazard_bucket_monotonicity | FLOAT | N | hazard bucket 단조성(high-low) |
 | 입력 소스 | next_step_signal snapshot | TABLE | N | v3 검증 시 우선 입력 소스 |
@@ -124,6 +124,7 @@
 - 진단 지표 결측 시 fail-open으로 `tier2_warning=False`를 허용한다.
 - v3에서는 `next_step_signal` 진단 컬럼이 있으면 이를 우선 사용하고, 없으면 AHS detail 재계산 fallback을 허용한다.
 - hazard 진단(`diag_calibration_error`, `diag_hazard_bucket_monotonicity`)은 Tier-2 경고 판정에만 사용한다.
+- 지평 축은 거래일 기준 `5/10/20/60/120D`를 기본으로 사용한다.
 
 ## 8. DoD
 ### 책임

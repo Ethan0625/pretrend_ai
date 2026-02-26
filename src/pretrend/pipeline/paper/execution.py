@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from datetime import date
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple, Any
 
 import pandas as pd
 
@@ -150,19 +150,154 @@ def _resolve_bias(next_step_df: Optional[pd.DataFrame], td: date) -> str:
     row = load_next_step_for_date(next_step_df, td)
     if row is None:
         return "UNKNOWN"
-    return str(row.get("bias_1m", "UNKNOWN"))
+    return str(row.get("bias_20d", row.get("bias_1m", "UNKNOWN")))
 
 
-def _apply_soft_gate(config: BacktestConfig, bias_1m: str) -> BacktestConfig:
+def _apply_soft_gate(config: BacktestConfig, bias_20d: str) -> BacktestConfig:
     """Soft gate: tactical 강도 조절만 수행한다."""
-    if bias_1m == "RISK_ON_BIAS":
+    if bias_20d == "RISK_ON_BIAS":
         return replace(config, max_tactical_slots=2, tactical_weight=config.tactical_weight)
-    if bias_1m == "NEUTRAL_BIAS":
+    if bias_20d == "NEUTRAL_BIAS":
         return replace(config, max_tactical_slots=1, tactical_weight=round(config.tactical_weight * 0.75, 4))
-    if bias_1m == "RISK_OFF_BIAS":
+    if bias_20d == "RISK_OFF_BIAS":
         return replace(config, max_tactical_slots=0, tactical_weight=0.0)
     # UNKNOWN fail-open -> NEUTRAL 동일
     return replace(config, max_tactical_slots=1, tactical_weight=round(config.tactical_weight * 0.75, 4))
+
+
+def _lookup_group_transition_rows(
+    group_df: Optional[pd.DataFrame],
+    td: date,
+) -> pd.DataFrame:
+    if group_df is None or group_df.empty or "trade_date" not in group_df.columns:
+        return pd.DataFrame()
+    x = group_df
+    if not hasattr(x["trade_date"].iloc[0], "year"):
+        x = x.copy()
+        x["trade_date"] = pd.to_datetime(x["trade_date"]).dt.date
+    mask = x["trade_date"] <= td
+    if not mask.any():
+        return pd.DataFrame()
+    latest = x.loc[mask, "trade_date"].max()
+    rows = x[x["trade_date"] == latest].copy()
+    if rows.empty:
+        return pd.DataFrame()
+    if "asset_group" in rows.columns:
+        rows = rows.sort_values("asset_group")
+    return rows
+
+
+def _apply_group_transition_gate(
+    config: BacktestConfig,
+    group_df: Optional[pd.DataFrame],
+    td: date,
+) -> Tuple[BacktestConfig, Dict[str, Any]]:
+    """v3.4 tactical group soft-gate."""
+    rows = _lookup_group_transition_rows(group_df, td)
+    if rows.empty or "asset_group" not in rows.columns or "group_state_now" not in rows.columns:
+        return config, {
+            "applied_groups": list(config.tactical_groups),
+            "reduced_groups": [],
+            "group_gate_source": "MISSING",
+        }
+
+    weak_groups = {
+        str(r["asset_group"])
+        for _, r in rows.iterrows()
+        if str(r.get("group_state_now", "UNKNOWN")) == "WEAK"
+    }
+    allowed_groups = [g for g in config.tactical_groups if g not in weak_groups]
+
+    max_slots = config.max_tactical_slots
+    tactical_weight = config.tactical_weight
+    if weak_groups:
+        max_slots = max(0, max_slots - 1)
+        tactical_weight = round(tactical_weight * 0.75, 4)
+    if not allowed_groups:
+        max_slots = 0
+        tactical_weight = 0.0
+
+    return replace(
+        config,
+        tactical_groups=list(allowed_groups),
+        max_tactical_slots=max_slots,
+        tactical_weight=tactical_weight,
+    ), {
+        "applied_groups": list(allowed_groups),
+        "reduced_groups": sorted(list(weak_groups)),
+        "group_gate_source": "SNAPSHOT",
+    }
+
+
+def _apply_group_transition_gate_v341(
+    config: BacktestConfig,
+    group_df: Optional[pd.DataFrame],
+    td: date,
+    *,
+    short_signal: str,
+    mid_regime: str,
+    relief_streak: int,
+    group_gate_active: bool,
+) -> Tuple[BacktestConfig, Dict[str, Any], int, bool]:
+    """v3.4.1 tactical group soft-gate.
+
+    - WEAK >= 2일 때 축소 진입
+    - 재진입: RELIEF 2연속 또는 MID=RISK_ON
+    """
+    rows = _lookup_group_transition_rows(group_df, td)
+    reentry_trigger = "NONE"
+    if str(mid_regime) == "RISK_ON":
+        reentry_trigger = "MID_RISK_ON"
+    elif str(short_signal) == "RELIEF" and relief_streak >= 2:
+        reentry_trigger = "RELIEF_STREAK"
+
+    if rows.empty or "asset_group" not in rows.columns or "group_state_now" not in rows.columns:
+        return config, {
+            "applied_groups": list(config.tactical_groups),
+            "reduced_groups": [],
+            "weak_group_count": 0,
+            "group_gate_applied": False,
+            "reentry_trigger": reentry_trigger,
+            "group_gate_source": "MISSING",
+        }, relief_streak, False
+
+    weak_groups = {
+        str(r["asset_group"])
+        for _, r in rows.iterrows()
+        if str(r.get("group_state_now", "UNKNOWN")) == "WEAK"
+    }
+    weak_count = len(weak_groups)
+    if reentry_trigger != "NONE":
+        should_de_risk = False
+    elif group_gate_active:
+        should_de_risk = True
+    else:
+        should_de_risk = weak_count >= 2
+
+    if should_de_risk:
+        allowed_groups = [g for g in config.tactical_groups if g not in weak_groups]
+        max_slots = max(0, config.max_tactical_slots - 1)
+        tactical_weight = round(config.tactical_weight * 0.75, 4)
+        if not allowed_groups:
+            max_slots = 0
+            tactical_weight = 0.0
+        new_cfg = replace(
+            config,
+            tactical_groups=list(allowed_groups),
+            max_tactical_slots=max_slots,
+            tactical_weight=tactical_weight,
+        )
+    else:
+        new_cfg = config
+
+    return new_cfg, {
+        "applied_groups": list(new_cfg.tactical_groups),
+        "reduced_groups": sorted(list(weak_groups if should_de_risk else set())),
+        "weak_group_count": weak_count,
+        "group_gate_applied": should_de_risk,
+        "reentry_trigger": reentry_trigger,
+        "group_gate_source": "SNAPSHOT",
+    }, relief_streak, should_de_risk
 
 
 def simulate_paper_execution(
@@ -180,6 +315,7 @@ def simulate_paper_execution(
     policy_df: Optional[pd.DataFrame] = None,
     universe_df: Optional[pd.DataFrame] = None,
     next_step_df: Optional[pd.DataFrame] = None,
+    group_transition_df: Optional[pd.DataFrame] = None,
     enable_predictor_gate: bool = True,
 ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """Run EOD paper simulation and return ledger/positions/portfolio frames."""
@@ -212,6 +348,8 @@ def simulate_paper_execution(
 
     prev_td: Optional[date] = None
     prev_nav: Optional[float] = None
+    relief_streak: int = 0
+    group_gate_active: bool = False
 
     for _, row in df.iterrows():
         td: date = row["trade_date"]
@@ -230,8 +368,33 @@ def simulate_paper_execution(
 
         effective_config = config
         if enable_predictor_gate:
-            bias_1m = _resolve_bias(next_step_df, td)
-            effective_config = _apply_soft_gate(config, bias_1m)
+            bias_20d = _resolve_bias(next_step_df, td)
+            effective_config = _apply_soft_gate(config, bias_20d)
+            short_sig = "UNKNOWN"
+            mid_reg = "UNKNOWN"
+            if policy_row is not None:
+                short_sig = str(policy_row.get("short_signal", "UNKNOWN"))
+                mid_reg = str(policy_row.get("mid_regime", "UNKNOWN"))
+            relief_streak = relief_streak + 1 if short_sig == "RELIEF" else 0
+            if str(config.preset_name or "") == "v3.4.1":
+                (
+                    effective_config,
+                    _,
+                    relief_streak,
+                    group_gate_active,
+                ) = _apply_group_transition_gate_v341(
+                    effective_config,
+                    group_transition_df,
+                    td,
+                    short_signal=short_sig,
+                    mid_regime=mid_reg,
+                    relief_streak=relief_streak,
+                    group_gate_active=group_gate_active,
+                )
+            else:
+                effective_config, _ = _apply_group_transition_gate(
+                    effective_config, group_transition_df, td
+                )
 
         target_ratio, target_weights = compute_target_weights(
             trade_date=td,

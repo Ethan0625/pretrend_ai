@@ -187,14 +187,14 @@ def compute_allocation_v3(current: float, policy_row: pd.Series, config) -> dict
     """v3: f(long_phase, mid_regime, next_step_bias) target-seeking.
 
     base_target는 v2와 동일한 2D lookup을 사용하고,
-    next_step_bias_1m으로 soft adjustment를 적용한다.
+    next_step_bias_20d로 soft adjustment를 적용한다.
     """
     long_phase = str(policy_row.get("long_phase", "UNKNOWN"))
     mid_regime = str(policy_row.get("mid_regime", "UNKNOWN"))
     next_bias = str(
         policy_row.get(
             "next_step_bias_effective",
-            policy_row.get("next_step_bias_1m", "UNKNOWN"),
+            policy_row.get("next_step_bias_20d", policy_row.get("next_step_bias_1m", "UNKNOWN")),
         )
     )
     risk_gate = bool(policy_row.get("risk_gate", True))
@@ -245,6 +245,8 @@ ALLOCATION_REGISTRY: Dict[str, Callable] = {
     "v3.1": compute_allocation_v3,
     "v3.2": compute_allocation_v3,
     "v3.3": compute_allocation_v3,
+    "v3.4": compute_allocation_v3,
+    "v3.4.1": compute_allocation_v3,
 }
 
 

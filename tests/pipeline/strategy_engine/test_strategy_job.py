@@ -115,6 +115,7 @@ class TestStrategyJobE2E:
         assert result.market_position.row_count > 0
         assert result.policy_selection.row_count > 0
         assert result.allocation.row_count > 0
+        assert result.group_transition_signal.row_count >= 0
 
     def test_snapshot_files_created(self, tmp_path):
         """스냅샷 파일 생성 확인."""
@@ -128,6 +129,8 @@ class TestStrategyJobE2E:
         assert (strategy_root / "market_position").exists()
         assert (strategy_root / "policy_selection").exists()
         assert (strategy_root / "exposure").exists()
+        assert (strategy_root / "group_transition_signal").exists()
+        assert (strategy_root / "group_transition_history").exists()
 
     def test_snapshot_path_convention(self, tmp_path):
         """decision_date 파티션 경로 검증."""
@@ -171,6 +174,7 @@ class TestStrategyJobE2E:
         df = pd.read_parquet(log_path)
         assert len(df) >= 1
         assert "run_id" in df.columns
+        assert "group_transition_rows" in df.columns
 
     def test_empty_gold_data(self, tmp_path):
         """Gold 데이터 없어도 에러 없이 완료."""

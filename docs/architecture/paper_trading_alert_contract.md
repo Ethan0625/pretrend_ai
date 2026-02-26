@@ -71,6 +71,7 @@
 | source_job | TEXT | Y | 생성 DAG/Job 식별자 |
 | decision_date | DATE | Y | 전략 판단 기준일 |
 | simulation_date | DATE | Y | 시뮬레이션/전송 기준일 |
+| paper_start_date | DATE | N | paper 누적 시뮬레이션 시작일(`PAPER_START_DATE`) |
 
 PAPER_RESULT 전용 필드:
 | 필드 | 타입 | 필수 | 설명 |
@@ -84,8 +85,21 @@ PAPER_RESULT 전용 필드:
 | position_changes | ARRAY<TEXT> | Y | 포지션 변화 요약 |
 | top_positions | ARRAY<JSON> | N | 상위 보유 종목(평단/현재가/수량/평가/손익) |
 | risk_warnings | ARRAY<TEXT> | N | 리스크 경고 목록 |
+| effective_bias | TEXT | N | 실행 시 적용된 bias (`RISK_ON_BIAS` 등) |
+| bias_source | TEXT | N | bias 출처 (`SNAPSHOT`, `LOCKED`, `OVERRIDE`, `UNKNOWN`) |
+| override_reason | TEXT | N | override 사유 (`PANIC`, `RISK_OFF`, `NONE`) |
+| hard_gate_run_universe | BOOLEAN | N | 하드게이트 run_universe 상태 |
+| hard_gate_risk_gate | BOOLEAN | N | 하드게이트 risk_gate 상태 |
+| effective_max_tactical_slots | INT | N | 적용된 전술 슬롯 수 |
+| effective_tactical_weight | FLOAT | N | 적용된 전술 비중 강도 |
+| hazard_10d | FLOAT | N | 10거래일 전환 위험도(설명용) |
+| group_gate_applied_groups | ARRAY<TEXT> | N | 적용된 tactical 그룹 |
+| group_gate_reduced_groups | ARRAY<TEXT> | N | 축소된 tactical 그룹 |
+| group_gate_source | TEXT | N | 그룹 게이트 소스 (`SNAPSHOT`, `MISSING`) |
+| fx_usdkrw | FLOAT | N | KRW→USD 환산 환율(표시용) |
 
 계산식/운영조건은 `paper_execution_ledger_contract.md`를 따른다.
+표시 계층과 계산 계층을 분리하며, 알림 payload는 계산 결과의 요약만 담당한다.
 
 ## 6. Invariants
 - SIGNAL과 PAPER_RESULT는 `message_type`으로 명확히 구분된다.
@@ -105,4 +119,5 @@ PAPER_RESULT 전용 필드:
 ## Change History
 | Date | Summary | References |
 | --- | --- | --- |
+| 2026-02-26 | PAPER_RESULT payload에 group gate 요약 필드 추가 | docs/changelog.md |
 | 2026-02-25 | SIGNAL/PAPER_RESULT 분리 전송 + paper EOD + fail-open 정책 계약 추가 | docs/changelog.md |
