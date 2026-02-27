@@ -134,6 +134,11 @@
   - `short_signal=RELIEF` 2거래일 연속 또는
   - `mid_regime=RISK_ON`
 - 재진입 조건이 충족되기 전까지 축소 상태는 유지된다.
+- v3.4.2a(체류 규칙 완화 실험):
+  - cooldown 기본값은 5거래일을 유지한다.
+  - 단, `mid_regime=RISK_ON` 또는 `short_signal=RELIEF` 2연속이면 cooldown을 2거래일로 압축할 수 있다.
+  - `run_universe=false -> true` 복귀 직후 + `RELIEF` 2연속이면 월요일 판정에서 `RISK_OFF_BIAS -> NEUTRAL_BIAS` 1단 완화를 허용한다(즉시 `RISK_ON` 점프 금지).
+  - 위 완화는 soft-only이며 하드게이트 우선순위를 변경하지 않는다.
 - `next_step` 입력은 저장본 우선(snapshot + history 결합)으로 로드한다.
 - 런타임 재계산은 기본 금지하고 결측 시 fail-open을 적용한다.
 - 전이예측 soft gate는 tactical 강도만 조절한다:
@@ -173,12 +178,14 @@
 - **PEL8**: 하드 게이트 우선 적용(`run_universe=false` 등) 검증
 - **PEL9**: group transition soft gate 적용(WEAK 그룹 축소) + 결측 fail-open 검증
 - **PEL10**: v3.4.1 재진입 규칙(WEAK>=2 진입, RELIEF streak/MID RISK_ON 해제) 검증
+- **PEL11**: v3.4.2a cooldown 압축 플래그(`cooldown_compressed_*`) 및 hard-gate exit assist 플래그(`hard_gate_exit_assist_*`) 반영 검증
 
 ---
 
 ## Change History
 | Date | Summary | References |
 | --- | --- | --- |
+| 2026-02-27 | v3.4.2a 실험 규칙 추가: cooldown 조건부 압축 + hard-gate exit assist(soft-only) | docs/changelog.md |
 | 2026-02-26 | v3.4.1 재진입 규칙 추가: WEAK>=2 진입 + RELIEF 2연속/MID RISK_ON 해제 | docs/changelog.md |
 | 2026-02-26 | group transition 입력 추가: WEAK 그룹 tactical 축소(soft gate), 결측 fail-open 명시 | docs/changelog.md |
 | 2026-02-25 | next_step_signal soft gate 입력 추가(하드 게이트 우선/강도 조절 규칙 명시) | docs/changelog.md |

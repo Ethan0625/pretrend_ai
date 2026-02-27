@@ -94,6 +94,10 @@ Strategy Engine은 **정책·전략 상태에 따라 변경 가능한 계산 결
   * v3.3: v3.2 + hazard-aware override gate(`transition_hazard_10d`) 운영
   * v3.4: v3.3 + tactical group transition gate(`group_transition_signal`) 운영
   * v3.4.1: v3.4 + recovery-aware re-entry gate(`WEAK>=2` 진입, `RELIEF 2연속`/`MID=RISK_ON` 해제)
+  * v3.4.2-phase: v3.4.1 + phase-aware bias state machine(`RECOVERY -> RISK_ON_BIAS`, 월요일 판정, cooldown=5)
+  * v3.4.2a: v3.4.2-phase + 체류 규칙 완화(조건부 cooldown 압축 + hard-gate exit assist)
+  * 실행 기준 bias는 `bias_20d` 단일 경로 사용(`1m/3m` alias 미사용)
+  * 운영 기본 preset: `v3.4.1` (`v3.4.2-phase`, `v3.4.2a`는 실험군)
 * 🧾 **Paper Engine (stateful EOD simulation)**
   * `src/pretrend/pipeline/paper/` 모듈에서 운용 시뮬레이션 실행
   * `next_step_signal` 기반 tactical 강도 조절(soft gate) + 하드게이트 우선 적용
@@ -396,6 +400,8 @@ PYTHONPATH=src python -m pretrend.pipeline.eod_job \
   * Telegram은 동일 채널에서 `SIGNAL`/`PAPER_RESULT`를 `message_type`으로 구분
   * 운영 메시지의 next-step 값은 `next_step_signal snapshot` 단일소스를 사용
     (결측 시 `UNKNOWN/N/A` fail-open 표기)
+  * 전이 지평은 거래일 기준 `5/10/20/60/120D`로 고정
+  * SIGNAL/PAPER는 상태머신 메타(`bias_state_source/switch/reason/cooldown`)를 함께 표기해 전환 근거를 설명
   * Telegram 전송 실패는 fail-open (경고 로그 후 DAG 성공 유지)
 
 ---

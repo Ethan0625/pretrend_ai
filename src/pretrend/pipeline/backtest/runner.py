@@ -64,7 +64,7 @@ def _lookup_next_step_bias(
     if row.empty:
         return "UNKNOWN"
     r = row.iloc[-1]
-    return str(r.get("bias_20d", r.get("bias_1m", "UNKNOWN")))
+    return str(r.get("bias_20d", "UNKNOWN"))
 
 
 def _lookup_next_step_hazard10(
@@ -108,6 +108,10 @@ def _get_hazard_threshold_10d() -> float:
 
 def _resolve_v3_mode_flags(preset_name: str) -> Tuple[bool, bool, bool, bool, bool]:
     """v3 계열 모드 플래그를 preset 이름 기준으로 해석한다."""
+    if preset_name in {"v3.4.2-phase", "v3.4.2a"}:
+        # phase-aware bias state machine은 next_step snapshot에 반영되어 있으므로
+        # runner 내부 monthly/shock/hazard 오버레이는 비활성화하고 group gate만 유지한다.
+        return (False, False, False, True, False)
     use_monthly_bias_lock = preset_name in {"v3.1", "v3.2", "v3.3", "v3.4", "v3.4.1"}
     use_shock_override_v32 = preset_name in {"v3.2", "v3.3", "v3.4", "v3.4.1"}
     use_hazard_gate_v33 = preset_name in {"v3.3", "v3.4", "v3.4.1"}
@@ -120,6 +124,53 @@ def _resolve_v3_mode_flags(preset_name: str) -> Tuple[bool, bool, bool, bool, bo
         use_group_transition_v34,
         use_group_transition_v341,
     )
+
+
+def _normalize_bias(v: object) -> str:
+    b = str(v or "UNKNOWN")
+    if b in {"RISK_ON_BIAS", "NEUTRAL_BIAS", "RISK_OFF_BIAS"}:
+        return b
+    return "UNKNOWN"
+
+
+def _apply_v342a_soft_adjustment(policy_row: pd.Series) -> pd.Series:
+    """v3.4.2a: 체류 완화 보정 (soft-only).
+
+    - hard-gate exit assist: RISK_OFF -> NEUTRAL 1단 완화
+    - cooldown compression: HOLD_COOLDOWN 구간에서 candidate bias 적용
+    """
+    out = policy_row.copy()
+    current_effective = _normalize_bias(out.get("next_step_bias_effective", out.get("next_step_bias_20d", "UNKNOWN")))
+    current_raw = _normalize_bias(out.get("next_step_bias_20d", "UNKNOWN"))
+
+    assist_flag = bool(out.get("hard_gate_exit_assist_flag", False))
+    assist_reason = str(out.get("hard_gate_exit_assist_reason", "NONE"))
+
+    compressed_flag = bool(out.get("cooldown_compressed_flag", False))
+    compressed_reason = str(out.get("cooldown_compressed_reason", "NONE"))
+    bias_source = str(out.get("bias_state_source", "UNKNOWN"))
+    candidate_bias = _normalize_bias(out.get("bias_candidate_20d", "UNKNOWN"))
+
+    # 보조 규칙 1: hard gate 해제 직후 1단 완화
+    if assist_flag and current_effective == "RISK_OFF_BIAS":
+        out["next_step_bias_effective"] = "NEUTRAL_BIAS"
+        out["next_step_bias_source"] = "ASSIST"
+        out["next_step_bias_reason"] = assist_reason
+        out["next_step_bias_assist_applied"] = True
+        return out
+
+    # 보조 규칙 2: HOLD_COOLDOWN 구간 조건부 압축
+    if compressed_flag and bias_source == "HOLD_COOLDOWN":
+        if candidate_bias != "UNKNOWN" and candidate_bias != current_raw:
+            out["next_step_bias_effective"] = candidate_bias
+            out["next_step_bias_source"] = "COMPRESSED"
+            out["next_step_bias_reason"] = compressed_reason
+            out["next_step_bias_assist_applied"] = False
+            return out
+
+    out["next_step_bias_effective"] = current_effective
+    out["next_step_bias_assist_applied"] = False
+    return out
 
 
 def _lookup_group_transition_rows(
@@ -665,6 +716,7 @@ class BacktestRunner:
                         hazard_source=hazard_source if use_hazard_gate_v33 else "MISSING",
                         hazard_value_10d=hazard_value_10d if use_hazard_gate_v33 else None,
                         override_applied=override_applied if use_hazard_gate_v33 else None,
+                        apply_v342a=(preset_name == "v3.4.2a"),
                     )
                     if use_shock_override_v32:
                         logger.debug(
@@ -1287,6 +1339,7 @@ class BacktestRunner:
         hazard_source: str = "MISSING",
         hazard_value_10d: Optional[float] = None,
         override_applied: Optional[bool] = None,
+        apply_v342a: bool = False,
     ) -> Optional[pd.Series]:
         """v3 입력용 next_step_bias를 policy_row에 부착한다.
 
@@ -1297,15 +1350,24 @@ class BacktestRunner:
 
         out = policy_row.copy()
         out["next_step_bias_20d"] = override_bias if override_bias is not None else "UNKNOWN"
-        out["next_step_bias_1m"] = out["next_step_bias_20d"]  # deprecated alias
         out["next_step_bias_effective"] = out["next_step_bias_20d"]
         out["next_step_bias_source"] = override_source
         out["next_step_bias_reason"] = override_reason
         out["hazard_source"] = hazard_source
         out["hazard_value_10d"] = hazard_value_10d
         out["override_applied"] = override_applied
+        out["next_step_bias_assist_applied"] = False
+        out["bias_state_source"] = "UNKNOWN"
+        out["bias_switch_flag"] = False
+        out["bias_switch_reason"] = "UNKNOWN"
+        out["bias_cooldown_left"] = None
+        out["bias_candidate_20d"] = "UNKNOWN"
+        out["cooldown_compressed_flag"] = False
+        out["cooldown_compressed_reason"] = "NONE"
+        out["hard_gate_exit_assist_flag"] = False
+        out["hard_gate_exit_assist_reason"] = "NONE"
         if override_bias is not None:
-            return out
+            return _apply_v342a_soft_adjustment(out) if apply_v342a else out
 
         if next_step_df is None or next_step_df.empty or "trade_date" not in next_step_df.columns:
             return out
@@ -1324,15 +1386,29 @@ class BacktestRunner:
         if row.empty:
             return out
 
-        bias20 = str(row.iloc[-1].get("bias_20d", row.iloc[-1].get("bias_1m", "UNKNOWN")))
+        bias20 = str(row.iloc[-1].get("bias_20d", "UNKNOWN"))
         out["next_step_bias_20d"] = bias20
-        out["next_step_bias_1m"] = bias20  # deprecated alias
         out["next_step_bias_effective"] = bias20
         out["next_step_bias_source"] = "SNAPSHOT"
         out["next_step_bias_reason"] = "NONE"
         out["hazard_source"] = "SNAPSHOT" if "transition_hazard_10d" in row.columns else "MISSING"
         out["hazard_value_10d"] = row.iloc[-1].get("transition_hazard_10d", None)
         out["override_applied"] = False
+        for key in [
+            "bias_state_source",
+            "bias_switch_flag",
+            "bias_switch_reason",
+            "bias_cooldown_left",
+            "bias_candidate_20d",
+            "cooldown_compressed_flag",
+            "cooldown_compressed_reason",
+            "hard_gate_exit_assist_flag",
+            "hard_gate_exit_assist_reason",
+        ]:
+            if key in row.columns:
+                out[key] = row.iloc[-1].get(key)
+        if apply_v342a:
+            out = _apply_v342a_soft_adjustment(out)
         return out
 
     def _initial_buy(

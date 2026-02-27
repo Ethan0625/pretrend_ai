@@ -38,7 +38,7 @@
 
 ## 1. 문서 목적
 ### 책임
-- Allocation Engine(v0/v1/v2/v3/v3.1/v3.2/v3.3/v3.4/v3.4.1)의 입력/출력/불변식을 고정한다.
+- Allocation Engine(v0/v1/v2/v3/v3.1/v3.2/v3.3/v3.4/v3.4.1/v3.4.2-phase/v3.4.2a)의 입력/출력/불변식을 고정한다.
 - 총 투자 비율 조절(`invested_ratio`)을 계약 형태로 명확히 한다.
 
 ### Non-goals
@@ -124,6 +124,7 @@ current_invested_ratio: 0.62
   - `risk_gate=false`여도 `INCREASE` 허용(저점매수)
 - v3(target-seeking + next_step soft adjustment):
   - `v3 = f(long_phase, mid_regime, next_step_bias_20d)` 형태를 따른다.
+  - `next_step_bias_20d`가 유일한 실행 기준 bias다(`bias_1m/3m` alias 미사용).
   - `next_step_bias_20d`은 `next_step` 저장본(snapshot + history) 우선 소비를 원칙으로 한다.
   - 저장본 결측 시 fail-open(`UNKNOWN -> NEUTRAL_BIAS`) fallback을 허용한다.
   - bias는 목표 비율 강도 조절용이며, 하드 게이트를 대체하지 않는다.
@@ -154,6 +155,18 @@ current_invested_ratio: 0.62
     - `mid_regime=RISK_ON`
   - 재진입 전까지 축소 상태를 유지한다(soft gate 상태 유지).
   - group 전이 결측 시 fail-open으로 v3.3 경로를 유지한다.
+- v3.4.2-phase(phase-aware bias state machine):
+  - v3.4.1 규칙을 유지한다.
+  - 실행 기준 bias는 `next_step_bias_20d` 단일 경로를 사용한다.
+  - `next_step` 생성 단계에서 phase-aware 상태머신(weekly/hysteresis/cooldown)으로 계산된 bias를 그대로 소비한다.
+  - `RECOVERY` baseline은 `RISK_ON_BIAS`를 사용한다(회복기 참여 강화).
+  - 상태 메타(`bias_state_source/switch/reason/cooldown`)는 설명용이며 하드게이트를 대체하지 않는다.
+- v3.4.2a(체류 완화 실험):
+  - v3.4.2-phase 규칙을 유지한다.
+  - 아래 조건에서 `next_step_bias_effective`를 soft-only로 완화할 수 있다.
+    - `cooldown_compressed_flag=true` + `bias_state_source=HOLD_COOLDOWN` -> `bias_candidate_20d` 적용
+    - `hard_gate_exit_assist_flag=true` + `next_step_bias_20d=RISK_OFF_BIAS` -> `NEUTRAL_BIAS` 1단 완화
+  - 위 완화는 하드게이트보다 후순위이며, 실행 금지 규칙을 대체하지 않는다.
 
 ## 5. Outputs
 ### 책임
@@ -219,6 +232,8 @@ current_invested_ratio: 0.62
 - **AE-v3.3-hypothesis**: hazard 조건부 override 적용/완화 + 결측 fail-open 검증
 - **AE-v3.4**: group transition soft gate 적용 + 결측 시 v3.3 동일성 검증
 - **AE-v3.4.1**: WEAK>=2 진입 + RELIEF streak/MID RISK_ON 재진입 + 하드 게이트 우선 검증
+- **AE-v3.4.2-phase**: `RECOVERY -> RISK_ON_BIAS` baseline + weekly cadence + cooldown 메타 전달 검증
+- **AE-v3.4.2a**: cooldown compression/exit assist soft 적용 + 하드 게이트 우선성 회귀 검증
 
 ---
 
@@ -227,6 +242,8 @@ current_invested_ratio: 0.62
 | --- | --- | --- |
 | 2026-02-26 | v3.4.1 규칙 추가: WEAK>=2 진입, RELIEF 2연속/MID RISK_ON 재진입(soft gate 상태 유지) | docs/changelog.md |
 | 2026-02-26 | v3.4(group transition gate) 규칙 추가: tactical 그룹 강도/우선순위 조절, 결측 fail-open(v3.3 유지) | docs/changelog.md |
+| 2026-02-27 | v3.4.2-phase 규칙 추가: RECOVERY baseline 상향 + phase-aware bias state machine 메타 연동 | docs/changelog.md |
+| 2026-02-27 | v3.4.2a 실험 규칙 추가: 체류 완화(cooldown compression, hard-gate exit assist) | docs/changelog.md |
 | 2026-02-25 | v3.3(Hypothesis) hazard-aware override 규칙 추가 (`transition_hazard_10d` 게이트) | docs/changelog.md |
 | 2026-02-25 | v3.1 monthly lock 정식화 + v3.2(Hypothesis) shock override/cooldown 규칙 추가 | docs/changelog.md |
 | 2026-02-25 | v3 예약 포트 확정: `f(long_phase, mid_regime, next_step_bias_20d)` + snapshot 소비 원칙 명시 | docs/changelog.md |

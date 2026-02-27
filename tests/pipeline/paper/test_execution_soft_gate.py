@@ -175,3 +175,49 @@ def test_group_transition_v341_reentry_mid_risk_on_releases_gate() -> None:
     assert active is False
     assert meta["reentry_trigger"] == "MID_RISK_ON"
     assert new_cfg.max_tactical_slots == cfg.max_tactical_slots
+
+
+def test_v342a_exit_assist_relaxes_risk_off_bias_to_neutral() -> None:
+    cfg = BacktestConfig(
+        start_date=date(2026, 1, 6),
+        end_date=date(2026, 1, 7),
+        preset_name="v3.4.2a",
+    )
+    exposure = pd.DataFrame(
+        [{"trade_date": date(2026, 1, 6), "action": "INCREASE", "next_invested_ratio": 0.80, "delta_ratio": 0.20}]
+    )
+    policy = pd.DataFrame(
+        [{"trade_date": date(2026, 1, 6), "run_universe": True, "risk_gate": True, "short_signal": "RELIEF", "mid_regime": "NEUTRAL"}]
+    )
+    universe = pd.DataFrame(
+        [
+            {"rebalance_date": date(2026, 1, 6), "symbol": "SPY", "asset_group": "SECTOR", "relative_strength": 0.00, "is_candidate": True},
+            {"rebalance_date": date(2026, 1, 6), "symbol": "XLE", "asset_group": "SECTOR", "relative_strength": 0.10, "is_candidate": True},
+        ]
+    )
+    next_step = pd.DataFrame(
+        [
+            {
+                "trade_date": date(2026, 1, 6),
+                "bias_20d": "RISK_OFF_BIAS",
+                "hard_gate_exit_assist_flag": True,
+                "hard_gate_exit_assist_reason": "RUN_UNIVERSE_RECOVERY_RELIEF",
+                "cooldown_compressed_flag": False,
+                "bias_state_source": "BASELINE",
+            }
+        ]
+    )
+    ledger, _, _ = simulate_paper_execution(
+        config=cfg,
+        exposure_df=exposure,
+        prices_df=_base_prices(),
+        source_job="paper_trading_dag",
+        decision_date=date(2026, 1, 6),
+        simulation_date=date(2026, 1, 6),
+        policy_df=policy,
+        universe_df=universe,
+        next_step_df=next_step,
+        enable_predictor_gate=True,
+    )
+    # assist 적용 시 RISK_OFF(슬롯0) 대신 NEUTRAL(슬롯1)로 완화되어 전술 매수가 가능해야 한다.
+    assert not ledger[ledger["symbol"] == "XLE"].empty

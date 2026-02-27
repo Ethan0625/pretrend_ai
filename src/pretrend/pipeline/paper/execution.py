@@ -146,11 +146,27 @@ def _rebalance_to_target(
     return trades
 
 
-def _resolve_bias(next_step_df: Optional[pd.DataFrame], td: date) -> str:
+def _resolve_next_step_meta(next_step_df: Optional[pd.DataFrame], td: date) -> Dict[str, Any]:
     row = load_next_step_for_date(next_step_df, td)
     if row is None:
-        return "UNKNOWN"
-    return str(row.get("bias_20d", row.get("bias_1m", "UNKNOWN")))
+        return {
+            "bias_20d": "UNKNOWN",
+            "bias_candidate_20d": "UNKNOWN",
+            "bias_state_source": "UNKNOWN",
+            "cooldown_compressed_flag": False,
+            "cooldown_compressed_reason": "NONE",
+            "hard_gate_exit_assist_flag": False,
+            "hard_gate_exit_assist_reason": "NONE",
+        }
+    return {
+        "bias_20d": str(row.get("bias_20d", "UNKNOWN")),
+        "bias_candidate_20d": str(row.get("bias_candidate_20d", "UNKNOWN")),
+        "bias_state_source": str(row.get("bias_state_source", "UNKNOWN")),
+        "cooldown_compressed_flag": bool(row.get("cooldown_compressed_flag", False)),
+        "cooldown_compressed_reason": str(row.get("cooldown_compressed_reason", "NONE")),
+        "hard_gate_exit_assist_flag": bool(row.get("hard_gate_exit_assist_flag", False)),
+        "hard_gate_exit_assist_reason": str(row.get("hard_gate_exit_assist_reason", "NONE")),
+    }
 
 
 def _apply_soft_gate(config: BacktestConfig, bias_20d: str) -> BacktestConfig:
@@ -368,7 +384,18 @@ def simulate_paper_execution(
 
         effective_config = config
         if enable_predictor_gate:
-            bias_20d = _resolve_bias(next_step_df, td)
+            next_meta = _resolve_next_step_meta(next_step_df, td)
+            bias_20d = str(next_meta.get("bias_20d", "UNKNOWN"))
+            if str(config.preset_name or "") == "v3.4.2a":
+                if bool(next_meta.get("hard_gate_exit_assist_flag", False)) and bias_20d == "RISK_OFF_BIAS":
+                    bias_20d = "NEUTRAL_BIAS"
+                elif (
+                    bool(next_meta.get("cooldown_compressed_flag", False))
+                    and str(next_meta.get("bias_state_source", "UNKNOWN")) == "HOLD_COOLDOWN"
+                ):
+                    candidate = str(next_meta.get("bias_candidate_20d", "UNKNOWN"))
+                    if candidate in {"RISK_ON_BIAS", "NEUTRAL_BIAS", "RISK_OFF_BIAS"}:
+                        bias_20d = candidate
             effective_config = _apply_soft_gate(config, bias_20d)
             short_sig = "UNKNOWN"
             mid_reg = "UNKNOWN"

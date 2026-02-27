@@ -47,6 +47,10 @@
 - Paper Trading 요약 payload(표시) 계약
 - 전송 실패 처리 정책
 
+**권위 구현 경로(canonical)**:
+- `pretrend.pipeline.paper.execution` — PAPER_RESULT 생성 권위 구현 (source_job=`paper_trading_dag`)
+- `pretrend.pipeline.backtest.paper_execution` — 하위 호환 shim (deprecated, 신규 코드는 canonical 경로 사용)
+
 ### Non-goals
 - 가상 체결 계산식/NAV 산출 규칙 정의
 - 전략 신호 생성 로직 변경

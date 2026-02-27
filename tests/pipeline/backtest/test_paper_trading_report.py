@@ -103,6 +103,14 @@ def test_format_message_includes_gate_and_strength_section() -> None:
         effective_bias="RISK_OFF_BIAS",
         bias_source="OVERRIDE",
         override_reason="PANIC",
+        bias_state_source="OVERLAY",
+        bias_switch_flag=True,
+        bias_switch_reason="SHORT_PANIC",
+        bias_cooldown_left=3,
+        cooldown_compressed_flag=True,
+        cooldown_compressed_reason="RELIEF_STREAK",
+        hard_gate_exit_assist_flag=True,
+        hard_gate_exit_assist_reason="RUN_UNIVERSE_RECOVERY_RELIEF",
         hard_gate_run_universe=False,
         hard_gate_risk_gate=True,
         effective_max_tactical_slots=0,
@@ -118,6 +126,9 @@ def test_format_message_includes_gate_and_strength_section() -> None:
     assert "게이트/강도" in msg
     assert "적용 Bias: RISK_OFF_BIAS (source=OVERRIDE)" in msg
     assert "Override 사유: PANIC" in msg
+    assert "Bias 상태: source=OVERLAY, switch=Y, reason=SHORT_PANIC, cooldown=3" in msg
+    assert "Cooldown 압축: Y (reason=RELIEF_STREAK)" in msg
+    assert "Hard-gate Exit Assist: Y (reason=RUN_UNIVERSE_RECOVERY_RELIEF)" in msg
     assert "run_universe=제한" in msg
     assert "risk_gate=허용" in msg
     assert "전술 강도: slots=0, weight=0.00x" in msg
@@ -141,6 +152,7 @@ def test_format_message_gate_section_fallback_unknown() -> None:
     )
     msg = format_paper_result_message(payload)
     assert "적용 Bias: UNKNOWN (source=UNKNOWN)" in msg
+    assert "Bias 상태: source=UNKNOWN, switch=N, reason=UNKNOWN, cooldown=N/A" in msg
     assert "run_universe=UNKNOWN" in msg
     assert "risk_gate=UNKNOWN" in msg
     assert "전술 강도: slots=N/A, weight=N/A" in msg

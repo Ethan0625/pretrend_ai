@@ -133,6 +133,24 @@ PRESET_V3_4_1 = BacktestPreset(
     tactical_groups=_ALL_TACTICAL_GROUPS,
 )
 
+PRESET_V3_4_2_PHASE = BacktestPreset(
+    name="v3.4.2-phase",
+    description="v3.4.1 + phase-aware bias state machine (RECOVERY baseline=RISK_ON)",
+    target_ratio_map=None,
+    target_ratio_map_v2=None,
+    target_ratio_map_v3=dict(PRESET_V2.target_ratio_map_v2 or {}),
+    tactical_groups=_ALL_TACTICAL_GROUPS,
+)
+
+PRESET_V3_4_2A = BacktestPreset(
+    name="v3.4.2a",
+    description="v3.4.2-phase + conditional cooldown compression + hard-gate exit assist",
+    target_ratio_map=None,
+    target_ratio_map_v2=None,
+    target_ratio_map_v3=dict(PRESET_V2.target_ratio_map_v2 or {}),
+    tactical_groups=_ALL_TACTICAL_GROUPS,
+)
+
 PRESET_REGISTRY: Dict[str, BacktestPreset] = {
     "v0": PRESET_V0,
     "v1": PRESET_V1,
@@ -143,6 +161,8 @@ PRESET_REGISTRY: Dict[str, BacktestPreset] = {
     "v3.3": PRESET_V3_3,
     "v3.4": PRESET_V3_4,
     "v3.4.1": PRESET_V3_4_1,
+    "v3.4.2-phase": PRESET_V3_4_2_PHASE,
+    "v3.4.2a": PRESET_V3_4_2A,
 }
 
 # 호환용 alias

@@ -77,6 +77,15 @@
 - 핵심 합격 게이트
 - 항목: CAGR / MDD / Sharpe / Excess CAGR
 
+**Tier-1 임계값 (Gate G — 2026-02-26 확정)**:
+| 항목 | 상수명 | 임계값 | 방향 | 근거 |
+|------|--------|--------|------|------|
+| CAGR | `_MIN_CAGR` | 0.0 | ≥ | 취약구간(GFC +0.76%) 포함 시 0으로도 변별력 확보 |
+| Sharpe | `_MIN_SHARPE` | 0.30 | ≥ | WF 9구간 Mean Sharpe=0.67, 취약구간 목표 Sharpe 0.3+ |
+| MDD | `_MAX_MDD` | -0.30 | ≥ | WF 9구간 Mean MDD=-10.75%, GFC 구간 경계 허용 |
+
+임계값 변경 시 Gate G 준수 필수: 계약 문서 업데이트 → 코드 반영 → 테스트 통과 순서 엄수.
+
 ### Tier-2 (진단 KPI)
 - 보조 진단 게이트
 - 항목: 12셀 coverage / unknown ratio / 축별 일관성
@@ -125,6 +134,7 @@
 - v3에서는 `next_step_signal` 진단 컬럼이 있으면 이를 우선 사용하고, 없으면 AHS detail 재계산 fallback을 허용한다.
 - hazard 진단(`diag_calibration_error`, `diag_hazard_bucket_monotonicity`)은 Tier-2 경고 판정에만 사용한다.
 - 지평 축은 거래일 기준 `5/10/20/60/120D`를 기본으로 사용한다.
+- legacy `1m/3m` 지평 alias는 검증 입력으로 사용하지 않는다.
 
 ## 8. DoD
 ### 책임
@@ -149,6 +159,7 @@
 ## Change History
 | Date | Summary | References |
 | --- | --- | --- |
+| 2026-02-26 | Tier-1 임계값 수치 앵커 추가: Sharpe≥0.30, MDD≥-0.30 (Gate G) | docs/changelog.md |
 | 2026-02-25 | Tier-2에 hazard 품질 KPI(calibration error, bucket monotonicity) 추가 | docs/changelog.md |
 | 2026-02-25 | v3 검증 입력 소스를 `next_step_signal snapshot` 우선으로 명시 | docs/changelog.md |
 | 2026-02-24 | Walk-forward 이중 검증 계약 신규 추가: Tier-1 성과 + Tier-2 12셀 진단 KPI | docs/changelog.md |

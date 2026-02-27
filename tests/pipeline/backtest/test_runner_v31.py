@@ -180,6 +180,11 @@ def test_v341_mode_flags_enable_reentry_variant() -> None:
     assert flags == (True, True, True, True, True)
 
 
+def test_v342a_mode_flags_follow_phase_and_group_chain() -> None:
+    flags = _resolve_v3_mode_flags("v3.4.2a")
+    assert flags == (False, False, False, True, False)
+
+
 def test_v341_group_gate_triggers_on_weak_count_ge_2() -> None:
     cfg = BacktestConfig.from_preset("v3.4.1", start_date=date(2025, 1, 1), end_date=date(2025, 2, 1))
     group_df = pd.DataFrame(
@@ -225,3 +230,64 @@ def test_v341_group_gate_reentry_by_relief_streak() -> None:
     assert meta["group_gate_applied"] is False
     assert meta["reentry_trigger"] == "RELIEF_STREAK"
     assert new_cfg.max_tactical_slots == cfg.max_tactical_slots
+
+
+def test_attach_next_step_bias_v342a_applies_cooldown_compression() -> None:
+    from pretrend.pipeline.backtest.runner import BacktestRunner
+
+    runner = BacktestRunner()
+    policy = pd.Series({"long_phase": "EXPANSION", "mid_regime": "RISK_ON"})
+    next_df = pd.DataFrame(
+        [
+            {
+                "trade_date": date(2025, 1, 10),
+                "bias_20d": "RISK_OFF_BIAS",
+                "bias_candidate_20d": "NEUTRAL_BIAS",
+                "bias_state_source": "HOLD_COOLDOWN",
+                "cooldown_compressed_flag": True,
+                "cooldown_compressed_reason": "RELIEF_STREAK",
+                "hard_gate_exit_assist_flag": False,
+                "hard_gate_exit_assist_reason": "NONE",
+            }
+        ]
+    )
+    out = runner._attach_next_step_bias(  # noqa: SLF001
+        policy_row=policy,
+        next_step_df=next_df,
+        td=date(2025, 1, 10),
+        apply_v342a=True,
+    )
+    assert out is not None
+    assert out["next_step_bias_effective"] == "NEUTRAL_BIAS"
+    assert out["next_step_bias_source"] == "COMPRESSED"
+    assert out["next_step_bias_reason"] == "RELIEF_STREAK"
+
+
+def test_attach_next_step_bias_v342a_applies_hard_gate_exit_assist() -> None:
+    from pretrend.pipeline.backtest.runner import BacktestRunner
+
+    runner = BacktestRunner()
+    policy = pd.Series({"long_phase": "RECESSION", "mid_regime": "NEUTRAL"})
+    next_df = pd.DataFrame(
+        [
+            {
+                "trade_date": date(2025, 1, 13),
+                "bias_20d": "RISK_OFF_BIAS",
+                "bias_candidate_20d": "RISK_OFF_BIAS",
+                "bias_state_source": "BASELINE",
+                "cooldown_compressed_flag": False,
+                "cooldown_compressed_reason": "NONE",
+                "hard_gate_exit_assist_flag": True,
+                "hard_gate_exit_assist_reason": "RUN_UNIVERSE_RECOVERY_RELIEF",
+            }
+        ]
+    )
+    out = runner._attach_next_step_bias(  # noqa: SLF001
+        policy_row=policy,
+        next_step_df=next_df,
+        td=date(2025, 1, 13),
+        apply_v342a=True,
+    )
+    assert out is not None
+    assert out["next_step_bias_effective"] == "NEUTRAL_BIAS"
+    assert out["next_step_bias_source"] == "ASSIST"

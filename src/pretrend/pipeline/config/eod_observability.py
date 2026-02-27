@@ -27,9 +27,9 @@ class ObservabilityEntry(TypedDict):
     asset_subtype: str
 
 
-# ── Observability Set v1 (32 ETFs) ──────────────────────
+# ── Observability Set v1 (39 ETFs) ──────────────────────
 
-OBSERVABILITY_SET_V1: List[ObservabilityEntry] = [  # 36 ETFs total
+OBSERVABILITY_SET_V1: List[ObservabilityEntry] = [  # 39 ETFs total
     # INDEX (8)
     {"symbol": "SPY",  "asset_group": "INDEX", "asset_name": "SP500",                    "asset_subtype": "BROAD_MARKET"},
     {"symbol": "VOO",  "asset_group": "INDEX", "asset_name": "SP500",                    "asset_subtype": "BROAD_MARKET"},
@@ -53,8 +53,12 @@ OBSERVABILITY_SET_V1: List[ObservabilityEntry] = [  # 36 ETFs total
     {"symbol": "XOP",  "asset_group": "COMMODITY", "asset_name": "OIL_PRODUCERS",  "asset_subtype": "ENERGY_EQUITY"},
     {"symbol": "UNG",  "asset_group": "COMMODITY", "asset_name": "NATURAL_GAS",    "asset_subtype": "ENERGY_RAW"},
     {"symbol": "DBA",  "asset_group": "COMMODITY", "asset_name": "AGRICULTURE",    "asset_subtype": "SOFT_COMMODITY"},
-    # BOND (1)
-    {"symbol": "TLT",  "asset_group": "BOND", "asset_name": "US_TREASURY_20Y", "asset_subtype": "LONG_DURATION"},
+    # BOND (5)
+    {"symbol": "TLT",  "asset_group": "BOND", "asset_name": "US_TREASURY_20Y",     "asset_subtype": "LONG_DURATION"},
+    {"symbol": "HYG",  "asset_group": "BOND", "asset_name": "US_HIGH_YIELD",       "asset_subtype": "HIGH_YIELD"},
+    {"symbol": "LQD",  "asset_group": "BOND", "asset_name": "US_INVESTMENT_GRADE", "asset_subtype": "INVESTMENT_GRADE"},
+    {"symbol": "SHY",  "asset_group": "BOND", "asset_name": "US_TREASURY_1_3Y",    "asset_subtype": "SHORT_DURATION"},
+    {"symbol": "TIP",  "asset_group": "BOND", "asset_name": "US_TIPS",             "asset_subtype": "INFLATION_PROTECTED"},
     # SECTOR (14)
     {"symbol": "XLV",  "asset_group": "SECTOR", "asset_name": "HEALTH_CARE",              "asset_subtype": "DEFENSIVE"},
     {"symbol": "XLE",  "asset_group": "SECTOR", "asset_name": "ENERGY",                   "asset_subtype": "CYCLICAL"},

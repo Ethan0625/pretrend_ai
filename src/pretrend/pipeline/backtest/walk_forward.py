@@ -45,10 +45,11 @@ WALK_FORWARD_COLUMNS: List[str] = [
     "preset", "generated_at",
 ]
 
-# Tier-1 성과 기준(1차 게이트)
+# Tier-1 성과 기준(1차 게이트) — Gate G 확정 2026-02-26
+# 근거: docs/architecture/walk_forward_validation_contract.md §4 Tier-1 임계값 표
 _MIN_CAGR = 0.0
-_MIN_SHARPE = 0.0
-_MAX_MDD = -0.35
+_MIN_SHARPE = 0.30
+_MAX_MDD = -0.30
 
 # Tier-2 진단 기준(2차 진단 KPI)
 _MIN_DIAG_COVERAGE = 0.20

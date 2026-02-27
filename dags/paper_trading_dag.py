@@ -124,7 +124,7 @@ def paper_trading_pipeline():
             initial_capital=float(cap["initial_capital_usd"]),
             monthly_addition=float(cap["monthly_addition_usd"]),
             initial_invested_ratio=0.60,
-            preset_name="paper_v1",
+            preset_name="v3.4.2a",
         )
 
         ledger_df, positions_df, portfolio_df = simulate_paper_execution(
@@ -289,11 +289,36 @@ def paper_trading_pipeline():
         next_row = load_next_step_for_date(next_step_df, decision_date)
         effective_bias = str(next_row.get("bias_effective")) if next_row is not None and next_row.get("bias_effective") is not None else None
         if effective_bias is None and next_row is not None:
-            effective_bias = str(next_row.get("bias_20d", next_row.get("bias_1m", "UNKNOWN")))
+            effective_bias = str(next_row.get("bias_20d", "UNKNOWN"))
         hazard_10d = None
+        bias_state_source = None
+        bias_switch_flag = None
+        bias_switch_reason = None
+        bias_cooldown_left = None
+        cooldown_compressed_flag = None
+        cooldown_compressed_reason = None
+        hard_gate_exit_assist_flag = None
+        hard_gate_exit_assist_reason = None
         if next_row is not None:
             v = next_row.get("transition_hazard_10d")
             hazard_10d = None if pd.isna(v) else float(v)
+            bias_state_source = next_row.get("bias_state_source")
+            bias_switch_flag = next_row.get("bias_switch_flag")
+            bias_switch_reason = next_row.get("bias_switch_reason")
+            bias_cooldown_left = next_row.get("bias_cooldown_left")
+            cooldown_compressed_flag = next_row.get("cooldown_compressed_flag")
+            cooldown_compressed_reason = next_row.get("cooldown_compressed_reason")
+            hard_gate_exit_assist_flag = next_row.get("hard_gate_exit_assist_flag")
+            hard_gate_exit_assist_reason = next_row.get("hard_gate_exit_assist_reason")
+            if str(effective_bias) == "RISK_OFF_BIAS" and bool(hard_gate_exit_assist_flag):
+                effective_bias = "NEUTRAL_BIAS"
+            elif (
+                bool(cooldown_compressed_flag)
+                and str(bias_state_source) == "HOLD_COOLDOWN"
+            ):
+                candidate = str(next_row.get("bias_candidate_20d", "UNKNOWN"))
+                if candidate in {"RISK_ON_BIAS", "NEUTRAL_BIAS", "RISK_OFF_BIAS"}:
+                    effective_bias = candidate
 
         group_day = pd.DataFrame()
         if group_transition_df is not None and not group_transition_df.empty and "trade_date" in group_transition_df.columns:
@@ -349,6 +374,31 @@ def paper_trading_pipeline():
                 str(next_row.get("bias_override_reason"))
                 if next_row is not None and next_row.get("bias_override_reason") is not None
                 else None
+            ),
+            bias_state_source=(
+                None if bias_state_source is None else str(bias_state_source)
+            ),
+            bias_switch_flag=(
+                None if bias_switch_flag is None else bool(bias_switch_flag)
+            ),
+            bias_switch_reason=(
+                None if bias_switch_reason is None else str(bias_switch_reason)
+            ),
+            bias_cooldown_left=(
+                None if bias_cooldown_left is None or pd.isna(bias_cooldown_left)
+                else int(bias_cooldown_left)
+            ),
+            cooldown_compressed_flag=(
+                None if cooldown_compressed_flag is None else bool(cooldown_compressed_flag)
+            ),
+            cooldown_compressed_reason=(
+                None if cooldown_compressed_reason is None else str(cooldown_compressed_reason)
+            ),
+            hard_gate_exit_assist_flag=(
+                None if hard_gate_exit_assist_flag is None else bool(hard_gate_exit_assist_flag)
+            ),
+            hard_gate_exit_assist_reason=(
+                None if hard_gate_exit_assist_reason is None else str(hard_gate_exit_assist_reason)
             ),
             hard_gate_run_universe=(
                 None if policy_row is None else bool(policy_row.get("run_universe", True))

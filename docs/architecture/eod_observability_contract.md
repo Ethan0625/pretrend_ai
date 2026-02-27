@@ -47,7 +47,7 @@
 ### SECTOR
 미국 섹터 ETF를 통해 섹터 상대강도와 rotation(방어↔경기민감) 흐름을 관측한다.
 
-## 5. Base EOD Observability Set v1 (표)
+## 5. Base EOD Observability Set v1 (표) — 39 ETFs
 
 | symbol | asset_group | asset_name | asset_subtype(옵션) | rationale(한줄) |
 | --- | --- | --- | --- | --- |
@@ -57,6 +57,8 @@
 | DIA | INDEX | DOW30 | VALUE_INDUSTRIAL | 다우존스 산업평균 축 관측 |
 | SCHD | INDEX | US_DIVIDEND | DIVIDEND_GROWTH | 배당 성장 스타일 축 관측 |
 | IWM | INDEX | RUSSELL2000 | SMALL_CAP | Russell2000 소형주 축 관측 |
+| DVY | INDEX | US_DIVIDEND_SELECT | DIVIDEND_YIELD | 배당 선별 수익률 축 관측 |
+| VIG | INDEX | US_DIVIDEND_APPRECIATION | DIVIDEND_GROWTH | 배당 성장 품질 축 관측 |
 | EWY | COUNTRY | SOUTH_KOREA | EM_ASIA | 한국 시장 축 관측 |
 | ASHR | COUNTRY | CHINA | CHINA_A_SHARES | 중국 A주 축 관측 |
 | CQQQ | COUNTRY | CHINA | CHINA_TECH | 중국 기술 축 관측 |
@@ -70,6 +72,10 @@
 | UNG | COMMODITY | NATURAL_GAS | ENERGY_RAW | 천연가스 가격 축 관측 |
 | DBA | COMMODITY | AGRICULTURE | SOFT_COMMODITY | 농산물 가격 축 관측 |
 | TLT | BOND | US_TREASURY_20Y | LONG_DURATION | 미국 장기 국채 축 관측 |
+| HYG | BOND | US_HIGH_YIELD | HIGH_YIELD | 하이일드 채권 신용 스프레드 축 관측 |
+| LQD | BOND | US_INVESTMENT_GRADE | INVESTMENT_GRADE | 투자등급 회사채 축 관측 |
+| SHY | BOND | US_TREASURY_1_3Y | SHORT_DURATION | 단기 국채 금리 민감도 축 관측 |
+| TIP | BOND | US_TIPS | INFLATION_PROTECTED | 인플레이션 연동 채권 축 관측 |
 | XLV | SECTOR | HEALTH_CARE | DEFENSIVE | 헬스케어 섹터 축 관측 |
 | XLE | SECTOR | ENERGY | CYCLICAL | 에너지 섹터 축 관측 |
 | SOXX | SECTOR | SEMICONDUCTOR | TECH_INDUSTRY | 반도체 섹터 축 관측 |
@@ -83,6 +89,7 @@
 | XLC | SECTOR | COMMUNICATION_SERVICES | DEFENSIVE_GROWTH | 통신서비스 축 관측 |
 | XLRE | SECTOR | REAL_ESTATE | RATE_SENSITIVE | 부동산 섹터 축 관측 |
 | XLU | SECTOR | UTILITIES | DEFENSIVE | 유틸리티 섹터 축 관측 |
+| XLI | SECTOR | INDUSTRIALS | CYCLICAL | 산업재 섹터 축 관측 |
 
 ## 6. 데이터 계약 (Data Contract)
 ### 6.1 레이어별 라벨 전파 규칙

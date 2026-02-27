@@ -66,9 +66,9 @@ class TestOL1SotCoverage:
     """OL1: Observability SOT 커버리지 및 중복 없음."""
 
     def test_ol1_sot_coverage_and_no_duplicates(self):
-        """OBSERVABILITY_SET_V1에 35개 ETF가 중복 없이 존재한다."""
-        # 35개 ETF
-        assert len(OBSERVABILITY_SET_V1) == 35
+        """OBSERVABILITY_SET_V1에 39개 ETF가 중복 없이 존재한다."""
+        # 39개 ETF (Gate E 2026-02-26: BOND 풀 HYG/LQD/SHY/TIP 추가 + DVY/VIG/XLI 계약 정합화)
+        assert len(OBSERVABILITY_SET_V1) == 39
 
         # symbol 중복 금지
         symbols = [entry["symbol"] for entry in OBSERVABILITY_SET_V1]
@@ -96,6 +96,22 @@ class TestOL1SotCoverage:
     def test_ol1_validate_passes(self):
         """validate_observability_set()이 예외 없이 통과한다."""
         validate_observability_set()
+
+    def test_ol1_bond_group_includes_all_tactical_etfs(self):
+        """BOND asset_group에 전술 풀 5개(TLT/HYG/LQD/SHY/TIP)가 모두 존재한다.
+
+        Gate E 2026-02-26: BOND 전술 레지스트리(registries.py:51)와
+        Observability Set이 정합된 상태를 자동으로 검증한다.
+        """
+        bond_symbols = {
+            e["symbol"] for e in OBSERVABILITY_SET_V1
+            if e["asset_group"] == "BOND"
+        }
+        required_bond = {"TLT", "HYG", "LQD", "SHY", "TIP"}
+        assert required_bond <= bond_symbols, (
+            f"BOND 전술 풀 불일치: missing={required_bond - bond_symbols}"
+        )
+        assert len(bond_symbols) == 5, f"BOND ETF 수 기대=5, 실제={len(bond_symbols)}"
 
 
 # ── OL2: Bronze has labels and ENUM valid ────────────────

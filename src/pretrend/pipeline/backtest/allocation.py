@@ -194,7 +194,7 @@ def compute_allocation_v3(current: float, policy_row: pd.Series, config) -> dict
     next_bias = str(
         policy_row.get(
             "next_step_bias_effective",
-            policy_row.get("next_step_bias_20d", policy_row.get("next_step_bias_1m", "UNKNOWN")),
+            policy_row.get("next_step_bias_20d", "UNKNOWN"),
         )
     )
     risk_gate = bool(policy_row.get("risk_gate", True))
@@ -247,6 +247,8 @@ ALLOCATION_REGISTRY: Dict[str, Callable] = {
     "v3.3": compute_allocation_v3,
     "v3.4": compute_allocation_v3,
     "v3.4.1": compute_allocation_v3,
+    "v3.4.2-phase": compute_allocation_v3,
+    "v3.4.2a": compute_allocation_v3,
 }
 
 

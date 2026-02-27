@@ -48,6 +48,14 @@ def build_paper_result_payload(
     effective_bias: Optional[str] = None,
     bias_source: Optional[str] = None,
     override_reason: Optional[str] = None,
+    bias_state_source: Optional[str] = None,
+    bias_switch_flag: Optional[bool] = None,
+    bias_switch_reason: Optional[str] = None,
+    bias_cooldown_left: Optional[int] = None,
+    cooldown_compressed_flag: Optional[bool] = None,
+    cooldown_compressed_reason: Optional[str] = None,
+    hard_gate_exit_assist_flag: Optional[bool] = None,
+    hard_gate_exit_assist_reason: Optional[str] = None,
     hard_gate_run_universe: Optional[bool] = None,
     hard_gate_risk_gate: Optional[bool] = None,
     effective_max_tactical_slots: Optional[int] = None,
@@ -90,6 +98,16 @@ def build_paper_result_payload(
         "effective_bias": effective_bias,
         "bias_source": bias_source,
         "override_reason": override_reason,
+        "bias_state_source": bias_state_source,
+        "bias_switch_flag": bias_switch_flag,
+        "bias_switch_reason": bias_switch_reason,
+        "bias_cooldown_left": (
+            None if bias_cooldown_left is None else int(bias_cooldown_left)
+        ),
+        "cooldown_compressed_flag": cooldown_compressed_flag,
+        "cooldown_compressed_reason": cooldown_compressed_reason,
+        "hard_gate_exit_assist_flag": hard_gate_exit_assist_flag,
+        "hard_gate_exit_assist_reason": hard_gate_exit_assist_reason,
         "hard_gate_run_universe": hard_gate_run_universe,
         "hard_gate_risk_gate": hard_gate_risk_gate,
         "effective_max_tactical_slots": (
@@ -168,6 +186,14 @@ def format_paper_result_message(payload: Dict[str, Any]) -> str:
     effective_bias = payload.get("effective_bias")
     bias_source = payload.get("bias_source")
     override_reason = payload.get("override_reason")
+    bias_state_source = payload.get("bias_state_source")
+    bias_switch_flag = payload.get("bias_switch_flag")
+    bias_switch_reason = payload.get("bias_switch_reason")
+    bias_cooldown_left = payload.get("bias_cooldown_left")
+    cooldown_compressed_flag = payload.get("cooldown_compressed_flag")
+    cooldown_compressed_reason = payload.get("cooldown_compressed_reason")
+    hard_gate_exit_assist_flag = payload.get("hard_gate_exit_assist_flag")
+    hard_gate_exit_assist_reason = payload.get("hard_gate_exit_assist_reason")
     hard_gate_run_universe = payload.get("hard_gate_run_universe")
     hard_gate_risk_gate = payload.get("hard_gate_risk_gate")
     eff_slots = payload.get("effective_max_tactical_slots")
@@ -186,6 +212,20 @@ def format_paper_result_message(payload: Dict[str, Any]) -> str:
     )
     if override_reason:
         lines.append(f"- Override 사유: {override_reason}")
+    lines.append(
+        f"- Bias 상태: source={bias_state_source if bias_state_source is not None else 'UNKNOWN'}, "
+        f"switch={'Y' if bool(bias_switch_flag) else 'N'}, "
+        f"reason={bias_switch_reason if bias_switch_reason is not None else 'UNKNOWN'}, "
+        f"cooldown={bias_cooldown_left if bias_cooldown_left is not None else 'N/A'}"
+    )
+    if bool(cooldown_compressed_flag):
+        lines.append(
+            f"- Cooldown 압축: Y (reason={cooldown_compressed_reason if cooldown_compressed_reason is not None else 'UNKNOWN'})"
+        )
+    if bool(hard_gate_exit_assist_flag):
+        lines.append(
+            f"- Hard-gate Exit Assist: Y (reason={hard_gate_exit_assist_reason if hard_gate_exit_assist_reason is not None else 'UNKNOWN'})"
+        )
     lines.append(
         f"- Hard Gate: run_universe={_yn_or_unknown(hard_gate_run_universe)}, "
         f"risk_gate={_yn_or_unknown(hard_gate_risk_gate)}"

@@ -233,6 +233,29 @@ class TestWalkForwardRunnerRun:
         )
         assert warn is True
 
+    def test_tier1_fail_sharpe_below_new_threshold(self):
+        """Sharpe < 0.30이면 CAGR이 양수여도 Tier-1 FAIL (Gate G 경계 검증)."""
+        runner = WalkForwardRunner()
+        # Sharpe=0.15: 구 임계값(0.0)으로는 PASS, 신 임계값(0.30)으로는 FAIL
+        assert runner._is_tier1_pass(
+            {"cagr": 0.03, "max_drawdown": -0.10, "sharpe_ratio": 0.15}
+        ) is False
+
+    def test_tier1_fail_mdd_below_new_threshold(self):
+        """MDD < -0.30이면 CAGR·Sharpe가 양호해도 Tier-1 FAIL (Gate G 경계 검증)."""
+        runner = WalkForwardRunner()
+        # MDD=-0.32: 구 임계값(-0.35)으로는 PASS, 신 임계값(-0.30)으로는 FAIL
+        assert runner._is_tier1_pass(
+            {"cagr": 0.04, "max_drawdown": -0.32, "sharpe_ratio": 0.50}
+        ) is False
+
+    def test_tier1_pass_at_new_boundary(self):
+        """Sharpe=0.30, MDD=-0.30, CAGR=0.0은 신 임계값 경계에서 PASS."""
+        runner = WalkForwardRunner()
+        assert runner._is_tier1_pass(
+            {"cagr": 0.0, "max_drawdown": -0.30, "sharpe_ratio": 0.30}
+        ) is True
+
 
 # ── save_walk_forward 저장 검증 ────────────────────────────────
 

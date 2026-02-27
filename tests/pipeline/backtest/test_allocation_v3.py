@@ -136,3 +136,37 @@ def test_v341_dispatch_uses_v3_logic_with_effective_bias() -> None:
     )
     result = dispatch_allocation("v3.4.1", 0.78, row, cfg)
     assert result["action"] == "HOLD"
+
+
+def test_v342_phase_dispatch_uses_v3_logic_with_effective_bias() -> None:
+    assert "v3.4.2-phase" in PRESET_REGISTRY
+    cfg = BacktestConfig.from_preset("v3.4.2-phase", start_date=date(2012, 1, 3), end_date=date(2024, 6, 3))
+    row = pd.Series(
+        {
+            "long_phase": "EXPANSION",
+            "mid_regime": "RISK_ON",
+            "next_step_bias_20d": "RISK_ON_BIAS",
+            "next_step_bias_effective": "RISK_OFF_BIAS",
+            "risk_gate": True,
+            "run_universe": True,
+        }
+    )
+    result = dispatch_allocation("v3.4.2-phase", 0.78, row, cfg)
+    assert result["action"] == "HOLD"
+
+
+def test_v342a_dispatch_uses_v3_logic_with_effective_bias() -> None:
+    assert "v3.4.2a" in PRESET_REGISTRY
+    cfg = BacktestConfig.from_preset("v3.4.2a", start_date=date(2012, 1, 3), end_date=date(2024, 6, 3))
+    row = pd.Series(
+        {
+            "long_phase": "RECESSION",
+            "mid_regime": "RISK_OFF",
+            "next_step_bias_20d": "RISK_OFF_BIAS",
+            "next_step_bias_effective": "NEUTRAL_BIAS",
+            "risk_gate": True,
+            "run_universe": True,
+        }
+    )
+    result = dispatch_allocation("v3.4.2a", 0.82, row, cfg)
+    assert result["action"] == "DECREASE"
