@@ -148,7 +148,10 @@ def write_silver_fred_vintages(
 
         if final_file.exists():
             final_file.unlink()
-        tmp_file.replace(final_file)
+        try:
+            tmp_file.replace(final_file)
+        except OSError:
+            shutil.move(str(tmp_file), str(final_file))
 
         print(f"[CalendarFredVintages] Saved: {final_file}")
 

@@ -7,6 +7,8 @@ import json
 import logging
 import os
 import hashlib
+import shutil
+import uuid
 from datetime import datetime, date
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -458,87 +460,110 @@ def save_result(
     benchmark = cfg.benchmark_symbol
     period = f"{cfg.start_date.strftime('%Y%m%d')}-{cfg.end_date.strftime('%Y%m%d')}"
     stem = f"{capital}_{benchmark}_{period}_{ts}"
+    run_id = uuid.uuid4().hex[:8]
 
     out_dir = resolved_dir / version
-    out_dir.mkdir(parents=True, exist_ok=True)
+    # INV-IDEMP-01: 모든 아티팩트를 tmp 디렉토리에 먼저 쓴 후 원자적으로 이동한다.
+    tmp_dir = out_dir / f"{stem}_tmp_{run_id}"
+    tmp_dir.mkdir(parents=True, exist_ok=True)
 
-    # daily log (legacy)
-    daily_path = out_dir / f"{stem}.parquet"
-    result.daily_log.to_parquet(daily_path)
-
-    # standard artifacts
-    daily_nav_path = out_dir / f"{stem}_daily_nav.parquet"
     nav_df = result.daily_log.reset_index().rename(columns={"index": "trade_date"})
-    nav_df.to_parquet(daily_nav_path, index=False)
+    try:
+        # 1) daily log (legacy)
+        (tmp_dir / f"{stem}.parquet").parent.mkdir(parents=True, exist_ok=True)
+        result.daily_log.to_parquet(tmp_dir / f"{stem}.parquet")
 
-    # trade_log
-    trades_path = None
-    if result.trade_log:
-        trades_df = pd.DataFrame([
-            {
-                "trade_date": t.trade_date,
-                "symbol":     t.symbol,
-                "action":     t.action,
-                "shares":     t.shares,
-                "price":      t.price,
-                "amount":     t.amount,
-            }
-            for t in result.trade_log
-        ])
-        trades_path = out_dir / f"{stem}_trades.parquet"
-        trades_df.to_parquet(trades_path, index=False)
+        # 2) standard artifacts
+        nav_df.to_parquet(tmp_dir / f"{stem}_daily_nav.parquet", index=False)
 
-    # config JSON
-    config_path = out_dir / f"{stem}_config.json"
-    config_path.write_text(
-        json.dumps(_config_to_dict(cfg), indent=2, ensure_ascii=False),
-        encoding="utf-8",
-    )
+        # 3) trade_log
+        trades_path = None
+        if result.trade_log:
+            trades_df = pd.DataFrame([
+                {
+                    "trade_date": t.trade_date,
+                    "symbol":     t.symbol,
+                    "action":     t.action,
+                    "shares":     t.shares,
+                    "price":      t.price,
+                    "amount":     t.amount,
+                }
+                for t in result.trade_log
+            ])
+            trades_df.to_parquet(tmp_dir / f"{stem}_trades.parquet", index=False)
+            trades_path = out_dir / f"{stem}_trades.parquet"
 
-    # metrics JSON (legacy)
-    if result.metrics:
-        metrics_path = out_dir / f"{stem}_metrics.json"
-        metrics_path.write_text(
-            json.dumps(result.metrics, indent=2, ensure_ascii=False),
+        # 4) config JSON
+        (tmp_dir / f"{stem}_config.json").write_text(
+            json.dumps(_config_to_dict(cfg), indent=2, ensure_ascii=False),
             encoding="utf-8",
         )
 
-    summary_metrics = dict(result.metrics or {})
-    summary_metrics.update(
-        {
-            "preset": version,
-            "start_date": cfg.start_date.isoformat(),
-            "end_date": cfg.end_date.isoformat(),
-            "run_id": stem,
-            "code_version": os.getenv("PRETREND_CODE_VERSION", "unknown"),
-            "data_version": os.getenv("PRETREND_DATA_VERSION", "unknown"),
-            "decision_date_ref": os.getenv("PRETREND_DECISION_DATE_REF", "unknown"),
-            "created_at": datetime.now().isoformat(timespec="seconds"),
-        }
-    )
-    metrics_df = pd.DataFrame([summary_metrics])
+        # 5) metrics JSON (legacy)
+        if result.metrics:
+            (tmp_dir / f"{stem}_metrics.json").write_text(
+                json.dumps(result.metrics, indent=2, ensure_ascii=False),
+                encoding="utf-8",
+            )
+
+        # 6) summary_metrics
+        created_at = datetime.now().isoformat(timespec="seconds")
+        summary_metrics = dict(result.metrics or {})
+        summary_metrics.update(
+            {
+                "preset": version,
+                "start_date": cfg.start_date.isoformat(),
+                "end_date": cfg.end_date.isoformat(),
+                "run_id": stem,
+                "code_version": os.getenv("PRETREND_CODE_VERSION", "unknown"),
+                "data_version": os.getenv("PRETREND_DATA_VERSION", "unknown"),
+                "decision_date_ref": os.getenv("PRETREND_DECISION_DATE_REF", "unknown"),
+                "created_at": created_at,
+            }
+        )
+        metrics_df = pd.DataFrame([summary_metrics])
+        metrics_df.to_parquet(tmp_dir / f"{stem}_summary_metrics.parquet", index=False)
+        (tmp_dir / f"{stem}_summary_metrics.json").write_text(
+            json.dumps(summary_metrics, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+
+        # 7) diagnostics
+        diag_cols = [c for c in ("trade_date", "action", "nav", "benchmark_nav") if c in nav_df.columns]
+        if not diag_cols:
+            diag_cols = list(nav_df.columns)
+        nav_df[diag_cols].to_parquet(tmp_dir / f"{stem}_diagnostics.parquet", index=False)
+
+        # 8) final_positions
+        pos_rows = []
+        for sym, v in getattr(result, "final_positions", {}).items():
+            row = {"symbol": sym}
+            if isinstance(v, dict):
+                row.update(v)
+            pos_rows.append(row)
+        pd.DataFrame(pos_rows).to_parquet(tmp_dir / f"{stem}_final_positions.parquet", index=False)
+
+        # 모든 아티팩트 쓰기 완료 → out_dir로 원자적 이동
+        out_dir.mkdir(parents=True, exist_ok=True)
+        for src_file in sorted(tmp_dir.iterdir()):
+            dst_file = out_dir / src_file.name
+            try:
+                src_file.replace(dst_file)
+            except OSError:
+                shutil.move(str(src_file), str(dst_file))
+
+    except Exception:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        raise
+    else:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    # registry append는 아티팩트 이동 완료 후에만 수행 (INV-IDEMP-01)
     summary_metrics_parquet = out_dir / f"{stem}_summary_metrics.parquet"
-    summary_metrics_json = out_dir / f"{stem}_summary_metrics.json"
-    metrics_df.to_parquet(summary_metrics_parquet, index=False)
-    summary_metrics_json.write_text(json.dumps(summary_metrics, indent=2, ensure_ascii=False), encoding="utf-8")
-
+    daily_nav_path = out_dir / f"{stem}_daily_nav.parquet"
     diagnostics_path = out_dir / f"{stem}_diagnostics.parquet"
-    diag_cols = [c for c in ("trade_date", "action", "nav", "benchmark_nav") if c in nav_df.columns]
-    if not diag_cols:
-        diag_cols = list(nav_df.columns)
-    nav_df[diag_cols].to_parquet(diagnostics_path, index=False)
-
     final_positions_path = out_dir / f"{stem}_final_positions.parquet"
-    pos_rows = []
-    for sym, v in getattr(result, "final_positions", {}).items():
-        row = {"symbol": sym}
-        if isinstance(v, dict):
-            row.update(v)
-        pos_rows.append(row)
-    pd.DataFrame(pos_rows).to_parquet(final_positions_path, index=False)
 
     registry_root = _default_result_dir() / "registry"
-    created_at = datetime.now().isoformat(timespec="seconds")
     entry = {
         "pipeline": "backtest",
         "artifact_path": str(summary_metrics_parquet),

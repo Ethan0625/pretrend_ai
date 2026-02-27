@@ -214,7 +214,10 @@ def write_gold_eod_features(
 
         if final_file.exists():
             final_file.unlink()
-        tmp_file.replace(final_file)
+        try:
+            tmp_file.replace(final_file)
+        except OSError:
+            shutil.move(str(tmp_file), str(final_file))
 
         logger.info("[GoldEOD] Saved: %s", final_file)
 
