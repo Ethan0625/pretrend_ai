@@ -20,6 +20,19 @@ def safe_json_dict(raw: Any) -> Dict[str, Any]:
     return {}
 
 
+def select_interpretation_text(deterministic_text: str, llm_text: Any) -> str:
+    """LLM 해석 문구 선택(fail-open).
+
+    - llm_text가 유효 문자열이면 사용
+    - 그 외에는 결정론 문구(deterministic_text)로 fallback
+    """
+    if isinstance(llm_text, str):
+        stripped = llm_text.strip()
+        if stripped:
+            return stripped
+    return deterministic_text
+
+
 def build_context_lines(long_phase: str, mid_regime: str, short_signal: str) -> List[str]:
     long_msg = {
         "EXPANSION": "확장 국면이 이어집니다.",

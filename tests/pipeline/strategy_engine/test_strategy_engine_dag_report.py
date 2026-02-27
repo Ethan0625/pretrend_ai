@@ -8,6 +8,7 @@ from pretrend.pipeline.strategy_engine.report_context import (
     format_transition_expected as _format_transition_expected,
     format_next_step_hazard_lines as _format_next_step_hazard_lines,
     format_bias_state_line as _format_bias_state_line,
+    select_interpretation_text as _select_interpretation_text,
     build_switch_lines as _build_switch_lines,
 )
 
@@ -204,3 +205,10 @@ def test_next_step_hazard_lines_10d_primary_and_four_horizon_summary() -> None:
     for horizon in ("5D", "20D", "60D", "120D"):
         assert horizon in summary_line, f"{horizon} not in summary: {summary_line}"
     assert "10D" not in summary_line, f"10D should not appear in summary line: {summary_line}"
+
+
+def test_select_interpretation_text_fallback() -> None:
+    deterministic = "결정론 메시지"
+    assert _select_interpretation_text(deterministic, "  LLM 해석  ") == "LLM 해석"
+    assert _select_interpretation_text(deterministic, None) == deterministic
+    assert _select_interpretation_text(deterministic, "   ") == deterministic

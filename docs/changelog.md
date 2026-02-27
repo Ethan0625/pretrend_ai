@@ -7,6 +7,57 @@
 
 > 참고: changelog 과거 섹션은 작성 시점 원문을 보존한다.
 
+## v2026.02.27d — P2-1 Universe-Stock(U0~U3) 계약 초안 정합화
+
+### docs(universe): Research 확장 포트 명문화
+- `docs/architecture/universe_contract.md`에 `§8 Universe-Stock(U0~U3) Extension Port (Research)` 추가
+- 단계별 산출물 초안 명시:
+  - `U0 macro_signal_event`
+  - `U1 theme_priority_snapshot`
+  - `U2 theme_stock_candidates`
+  - `U3 stock_universe_snapshot`
+
+### gateA(sync): Execution/Research key 격리 규칙 고정
+- `Universe-ETF(Execution)` key(`rebalance_date, symbol`)와
+  `Universe-Stock(Research)` key(`as_of_date` 기반)를 분리 명시
+- 동일 테이블/파티션 공유 금지 원칙 문서화
+
+### test(smoke): 계약 구조 검증 추가
+- `tests/pipeline/strategy_engine/test_universe_stock_contract_smoke.py` 추가
+- 계약 섹션 존재(U0~U3) + 그레인 분리 문구 존재 여부를 smoke 수준으로 검증
+
+## v2026.02.27e — P2-2 Text v1+ 확장 체크리스트 정합화
+
+### docs(text-contract): Gate D 체크리스트 추가
+- `docs/architecture/text_observability_contract.md`에 `§12 v1+ 확장 체크리스트 (Gate D)` 추가
+- 포함 항목:
+  - External API: rate-limit/재시도, ToS/라이선스, secret 관리
+  - fail-open: Text 결측 시 Strategy 3-state 독립 동작 보장
+  - 운영 준비: 비용 상한/장애 fallback/changelog-operation_guide 동기화
+
+### test(text-failopen): 혼합 소스 장애 지속성 검증
+- `tests/pipeline/text/test_text_failopen.py`에 mixed source 시나리오 추가:
+  - 한 소스(fetch 예외) 실패
+  - 다른 소스(1건 반환) 성공
+  - 파이프라인이 중단되지 않고 결과를 분리 보고하는지 확인
+
+## v2026.02.27f — P2-3 LLM 해석 레이어 경계/폴백 고정
+
+### docs(strategy/ops): LLM 적용 범위 제한 명시
+- `strategy_engine_design.md` SECTION J Invariants에 아래 원칙 추가:
+  - LLM은 문장 요약/해석 전용
+  - 신호 판정/게이트/allocation 입력은 비LLM 규칙 경로 유지
+  - LLM 장애 시 결정론 문구로 fallback
+- `operation_guide.md`에 운영 정책 추가:
+  - LLM 실패 시 DAG 성공 유지
+  - 비용 상한 env(`PRETREND_LLM_DAILY_BUDGET_USD`) 관리
+
+### test(fallback): 해석 문구 선택 fallback 경로 추가
+- `report_context.py`에 `select_interpretation_text()` 추가
+  - 유효 LLM 문구가 있으면 사용
+  - 없으면 결정론 문구로 즉시 fallback
+- `test_strategy_engine_dag_report.py`에 fallback 테스트 1건 추가
+
 ## v2026.02.27c — P1-1 지평별 bias 분화 품질 개선 (Gate A/B 반영)
 
 ### feat(next-step): horizon 분화 로직 강화

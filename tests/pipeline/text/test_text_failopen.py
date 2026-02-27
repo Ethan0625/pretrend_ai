@@ -35,6 +35,30 @@ class _RaisingAdapter:
         raise ConnectionError("Simulated connection error")
 
 
+class _OneDocAdapter:
+    """1건 반환 어댑터 (정상 소스 시뮬레이션)."""
+
+    def __init__(self, source_name: str = "mock_ok") -> None:
+        self.source_name = source_name
+
+    def fetch(self, start_dt, end_dt) -> Iterable[RawDoc]:
+        return iter(
+            [
+                RawDoc(
+                    source=self.source_name,
+                    source_doc_id="doc-1",
+                    canonical_url="https://example.com/doc-1",
+                    published_at=datetime(2026, 2, 20, 1, 0, tzinfo=timezone.utc),
+                    ingested_at=datetime(2026, 2, 20, 2, 0, tzinfo=timezone.utc),
+                    title="sample",
+                    body="sample body",
+                    lang="en",
+                    raw_payload_hash="hash-1",
+                )
+            ]
+        )
+
+
 # ---------------------------------------------------------------------------
 # Bronze: 빈 어댑터 → 0건 기록, 에러 없음
 # ---------------------------------------------------------------------------
@@ -86,6 +110,39 @@ def test_bronze_raising_adapter_records_error(tmp_path, monkeypatch):
     r = results[0]
     assert not r.success
     assert r.error is not None  # 에러 메시지 기록됨
+
+
+def test_bronze_failopen_mixed_sources_continue(tmp_path, monkeypatch):
+    """한 소스 실패 + 다른 소스 성공 시 전체 ingest는 계속되어야 한다."""
+    import pretrend.pipeline.text.bronze_ingest as mod
+
+    def _build(src, cfg):
+        if src == "sec":
+            return _RaisingAdapter()
+        if src == "fed":
+            return _OneDocAdapter(source_name="mock_ok")
+        return _EmptyAdapter()
+
+    monkeypatch.setattr(mod, "_build_adapter", _build)
+
+    cfg = TextPipelineConfig(
+        data_root=tmp_path,
+        bronze_root=tmp_path / "bronze" / "text",
+        silver_root=tmp_path / "silver" / "text",
+        gold_root=tmp_path / "gold" / "text",
+    )
+    results = run_text_bronze_ingest(
+        sources=["sec", "fed"],
+        start_date=date(2026, 2, 20),
+        end_date=date(2026, 2, 20),
+        cfg=cfg,
+    )
+
+    assert len(results) == 2
+    by_source = {r.source: r for r in results}
+    assert by_source["sec"].success is False
+    assert by_source["fed"].success is True
+    assert by_source["fed"].docs_written == 1
 
 
 # ---------------------------------------------------------------------------

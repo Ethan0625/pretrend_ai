@@ -192,6 +192,20 @@ Backtest/Walk-forward 해석 키:
   - `docs/architecture/next_step_signal_contract.md`
   - `docs/architecture/walk_forward_validation_contract.md`
 
+### Level 2 운영 경계 절차
+- 중단 트리거:
+  - `NAV < 초기자금의 70%`
+  - `short_signal=PANIC` 5거래일 연속
+- 중단 시 조치:
+  - Paper 결과 전송은 유지하되, 운영 상태를 `PAUSED`로 기록
+  - 재진입(매수 확대) 판단은 운영자 수동 승인 전까지 보류
+- 재개 조건:
+  - 최근 5거래일 NAV가 중단 임계 상회
+  - PANIC 연속 해소 + 운영자 승인 완료
+- 승인 포인트:
+  - `DECREASE` 3회 연속 후 첫 `INCREASE` 시도 구간
+  - `run_universe` 하드게이트 복귀 직후 첫 주간 판단
+
 ## Walk-Forward 실행
 - v2 4년 창 / 2년 슬라이드 실행:
   - `PYTHONPATH=src python -m pretrend.pipeline.backtest.walk_forward --preset v2 --window-years 4 --step-years 2`
@@ -318,6 +332,10 @@ Telegram 표기 기준(혼동 방지):
   - `hard_gate(run_universe/risk_gate)`
   - `effective_max_tactical_slots`, `effective_tactical_weight`, `hazard_10d`
   - `paper_start_date` (누적 시뮬레이션 시작일)
+- LLM 해석 레이어(향후 확장):
+  - 적용 범위는 문장 요약/해석에 한정(신호 생성/게이트/배분 입력 변경 금지)
+  - LLM 실패/지연 시 결정론 템플릿으로 fallback, DAG 성공 상태 유지
+  - 운영 비용 상한은 환경변수로 관리(`PRETREND_LLM_DAILY_BUDGET_USD`, 기본 0=비활성)
 - PAPER_RESULT `전술 적용 근거` 표기:
   - `group_gate_applied_groups`, `group_gate_reduced_groups`, `group_gate_source`
 - 실패 정책:
@@ -340,4 +358,3 @@ Telegram 표기 기준(혼동 방지):
 
 **10D-centric 원칙**: `다음 스텝 가설` 섹션에서 10D bias/hazard/expected를 1차(상단)로 표시하고,
 나머지 지평(5D·20D·60D·120D)은 한 줄 요약으로 압축한다. 10D는 요약 줄에 포함하지 않는다.
-

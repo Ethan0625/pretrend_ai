@@ -23,6 +23,7 @@
 - [5. Grain / Key](#5-grain--key)
 - [6. 불변식](#6-불변식)
 - [7. DoD](#7-dod)
+- [8. Universe-Stock(U0~U3) Extension Port (Research)](#8-universe-stocku0u3-extension-port-research)
 
 연계 문서:
 - `docs/strategy_architecture.md`
@@ -162,6 +163,42 @@ is_candidate: true
 - **UV4**: phase별 제외 규칙(`RECESSION/SLOWDOWN/RECOVERY`) 검증
 - **UV5**: `mid_regime`별 Top-N(`RISK_OFF=5`, `RISK_ON=9`) 검증
 - **UV6**: 상대강도 공식(`ret_20d - ret_20d(SPY)`) 검증
+
+## 8. Universe-Stock(U0~U3) Extension Port (Research)
+### 책임
+- 본 절은 `Universe-Stock(U0~U3)` 연구 파이프라인의 인터페이스 경계만 정의한다.
+- Strategy Engine `Universe-ETF(Execution)`와 충돌하지 않도록 입력/출력 분리를 명시한다.
+
+### Non-goals
+- U0~U3 계산 로직, 점수식, 외부 API 스펙을 확정하지 않는다.
+- 본 문서 범위에서 개별 종목 실행/주문 로직을 정의하지 않는다.
+
+### 단계별 산출물(초안)
+| Stage | 이름 | 입력(예시) | 출력(초안) |
+| --- | --- | --- | --- |
+| U0 | Macro Signal Detector | Macro 정책/이벤트 입력 | `macro_signal_event` |
+| U1 | Theme Prioritization | U0 + ETF 성과/유입 proxy | `theme_priority_snapshot` |
+| U2 | Theme Universe-Stock Builder | U1 + 테마-종목 매핑 | `theme_stock_candidates` |
+| U3 | Growth & Flow Filtering | U2 + 성장/수급/모멘텀 feature | `stock_universe_snapshot` |
+
+### 인터페이스 경계(Execution 분리)
+- `Universe-ETF` 입력/출력(`rebalance_date, symbol`)과 `Universe-Stock` 산출물은 서로 독립 키를 사용한다.
+- `Universe-Stock` 산출물은 Strategy Engine 실행 경로의 필수 입력이 아니다(Research 파이프라인).
+- M2 구현 전까지 `Universe-ETF` 계약/테스트(UV1~UV6)는 변경 없이 유지한다.
+
+### Grain/Key 분리 원칙 (Gate A)
+- Universe-ETF(Execution) grain: `(rebalance_date, symbol)` (본 문서 §5)
+- Universe-Stock(Research) 초안 grain:
+  - U0: `(as_of_date, signal_id)`
+  - U1: `(as_of_date, theme_id)`
+  - U2: `(as_of_date, theme_id, symbol)`
+  - U3: `(as_of_date, symbol)`
+- 위 키는 Execution Universe key와 격리되며, 동일 테이블/파티션을 공유하지 않는다.
+
+### DoD (U0~U3 계약 초안)
+- **US1**: U0~U3 용어/입출력 이름이 문서에 고정됨
+- **US2**: Execution/Research 키 격리 원칙이 문서에 명시됨
+- **US3**: `milestones.md` M2 범위와 충돌 없음(로드맵 정합)
 
 ---
 

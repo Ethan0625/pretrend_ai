@@ -319,6 +319,8 @@ mid_regime Top-N:
 - Strategy Engine은 LLM을 직접 호출하지 않는다(호출 책임은 외부 서비스/파이프라인).
 - Text 입력 결측은 허용되며, 결측이 v0 실행 중단 사유가 되어서는 안 된다.
 - Text 신호는 Axis×Horizon/Market Position의 보조 근거로만 사용하며 3-state 결정 구조를 변경하지 않는다.
+- LLM 도입 시 적용 범위는 `문장 요약/해석`에 한정한다(신호 판정/게이트/allocation 입력 금지).
+- LLM 해석 경로 장애 시 결정론 문구로 즉시 fallback 해야 하며, Strategy/Paper 파이프라인 성공 상태를 유지한다.
 
 ### 스냅샷 저장 (Reserved)
 - `data/strategy/text_signals/decision_date=YYYY-MM-DD/*.parquet`
