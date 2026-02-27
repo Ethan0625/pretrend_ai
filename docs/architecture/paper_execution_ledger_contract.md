@@ -25,6 +25,7 @@
 - [7. Valuation / PnL Rules](#7-valuation--pnl-rules)
 - [8. Invariants](#8-invariants)
 - [9. DoD](#9-dod)
+- [10. Level 2 운영 가드레일](#10-level-2-운영-가드레일)
 
 참조:
 - `docs/architecture/paper_trading_alert_contract.md`
@@ -179,6 +180,20 @@
 - **PEL9**: group transition soft gate 적용(WEAK 그룹 축소) + 결측 fail-open 검증
 - **PEL10**: v3.4.1 재진입 규칙(WEAK>=2 진입, RELIEF streak/MID RISK_ON 해제) 검증
 - **PEL11**: v3.4.2a cooldown 압축 플래그(`cooldown_compressed_*`) 및 hard-gate exit assist 플래그(`hard_gate_exit_assist_*`) 반영 검증
+
+## 10. Level 2 운영 가드레일
+- 본 섹션은 Level 2(Paper + Alert) 운영 경계만 정의하며, 자동 주문 실행(Level 3)은 범위 밖이다.
+- 중단 조건(운영 즉시 일시정지):
+  - `portfolio_daily.nav < initial_capital * 0.70`
+  - `short_signal=PANIC` 연속 5거래일 이상
+- 수동 승인 지점(운영자 확인 후 재개):
+  - `DECREASE`가 3회 연속 발생한 뒤 첫 재진입(`INCREASE`) 시도 구간
+  - Hard gate가 `run_universe=false -> true`로 복귀한 첫 주간 판단
+- 복귀 조건(일시정지 해제):
+  - 최근 5거래일 NAV가 중단 임계(`0.70 * initial_capital`)를 상회 유지
+  - `PANIC` 연속 상태가 해소되고(`RELIEF` 또는 `STABLE` 전환), 운영자 승인 완료
+- 기록 의무:
+  - 중단/복귀/승인 이벤트는 RUN_LOG 또는 운영 로그에 날짜/사유/조치 결과를 남긴다.
 
 ---
 

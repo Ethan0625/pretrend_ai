@@ -4,6 +4,8 @@ from __future__ import annotations
 from datetime import date
 from pathlib import Path
 from typing import Optional
+import shutil
+import uuid
 
 import pandas as pd
 
@@ -109,5 +111,10 @@ def save_decision_partition(df: pd.DataFrame, root: Path, decision_date: date, s
     part = root / f"decision_date={decision_date.isoformat()}"
     part.mkdir(parents=True, exist_ok=True)
     out = part / f"{stem}_{decision_date.strftime('%Y%m%d')}.parquet"
-    df.to_parquet(out, index=False)
+    tmp_out = part / f"{stem}_{decision_date.strftime('%Y%m%d')}_tmp_{uuid.uuid4().hex}.parquet"
+    df.to_parquet(tmp_out, index=False)
+    try:
+        tmp_out.replace(out)
+    except OSError:
+        shutil.move(str(tmp_out), str(out))
     return out

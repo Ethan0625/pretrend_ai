@@ -104,3 +104,42 @@ def test_group_transition_hazard_range_and_fail_open_unknown() -> None:
     country = out[out["asset_group"] == "COUNTRY"]
     if not country.empty:
         assert (country["group_state_now"] == "UNKNOWN").all()
+
+
+def test_group_transition_state_boundary_pos_ratio() -> None:
+    # STRONG 경계: pos_ratio == 0.5 이고 median > 0
+    strong_df = pd.DataFrame(
+        [
+            {"rebalance_date": date(2026, 2, 3), "symbol": "XLE", "asset_group": "SECTOR", "relative_strength": 0.10, "is_candidate": True},
+            {"rebalance_date": date(2026, 2, 3), "symbol": "XLV", "asset_group": "SECTOR", "relative_strength": 0.01, "is_candidate": True},
+            {"rebalance_date": date(2026, 2, 3), "symbol": "XLF", "asset_group": "SECTOR", "relative_strength": -0.001, "is_candidate": True},
+            {"rebalance_date": date(2026, 2, 3), "symbol": "XLI", "asset_group": "SECTOR", "relative_strength": -0.05, "is_candidate": True},
+        ]
+    )
+    out_strong = build_group_transition_signal(strong_df, run_id="rid3")
+    assert out_strong.iloc[-1]["group_state_now"] == "STRONG"
+
+    # WEAK 경계: pos_ratio == 0.25(<0.4) 이고 median < 0
+    weak_df = pd.DataFrame(
+        [
+            {"rebalance_date": date(2026, 2, 4), "symbol": "XLE", "asset_group": "SECTOR", "relative_strength": -0.10, "is_candidate": True},
+            {"rebalance_date": date(2026, 2, 4), "symbol": "XLV", "asset_group": "SECTOR", "relative_strength": -0.06, "is_candidate": True},
+            {"rebalance_date": date(2026, 2, 4), "symbol": "XLF", "asset_group": "SECTOR", "relative_strength": -0.02, "is_candidate": True},
+            {"rebalance_date": date(2026, 2, 4), "symbol": "XLI", "asset_group": "SECTOR", "relative_strength": 0.03, "is_candidate": True},
+        ]
+    )
+    out_weak = build_group_transition_signal(weak_df, run_id="rid4")
+    assert out_weak.iloc[-1]["group_state_now"] == "WEAK"
+
+
+def test_group_transition_gts5_fallback_empty() -> None:
+    out = build_group_transition_signal(pd.DataFrame(), run_id="rid5")
+    assert out.empty
+    assert {
+        "trade_date",
+        "asset_group",
+        "group_state_now",
+        "group_expected_10d",
+        "group_transition_hazard_10d",
+        "source_run_id",
+    }.issubset(set(out.columns))

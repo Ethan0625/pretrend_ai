@@ -79,10 +79,10 @@
 - History Key: `(trade_date, asset_group, decision_date_ref)`
 
 ## 6. State Rules
-- `STRONG`: 그룹 RS 중앙값 > 0 이고 양수 비율이 충분한 경우
-- `WEAK`: 그룹 RS 중앙값 < 0 이고 양수 비율이 낮은 경우
+- `STRONG`: 그룹 RS 중앙값 > 0 이고 양수 비율(`pos_ratio`)이 `>= 0.5`인 경우
+- `WEAK`: 그룹 RS 중앙값 < 0 이고 양수 비율(`pos_ratio`)이 `< 0.4`인 경우
 - 나머지: `NEUTRAL`
-- 표본 부족 시: `UNKNOWN` (fail-open)
+- 표본 부족(`rs_values` 수 < 2) 시: `UNKNOWN` (fail-open)
 
 ## 7. Invariants
 - 하드게이트 우선 원칙은 유지된다(본 신호는 soft gate 전용).
