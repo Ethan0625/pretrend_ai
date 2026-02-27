@@ -20,15 +20,20 @@ NEXT_STEP_SIGNAL_COLUMNS: List[str] = [
     "confidence_60d",
     "bias_120d",
     "confidence_120d",
-    # backward-compat (deprecated): 1M/3M aliases
-    "bias_1m",
-    "confidence_1m",
-    "bias_3m",
-    "confidence_3m",
     # v3.2 extension ports (nullable)
     "bias_effective",
     "bias_override_flag",
     "bias_override_reason",
+    # phase-aware bias state machine metadata (nullable)
+    "bias_state_source",
+    "bias_switch_flag",
+    "bias_switch_reason",
+    "bias_cooldown_left",
+    "bias_candidate_20d",
+    "cooldown_compressed_flag",
+    "cooldown_compressed_reason",
+    "hard_gate_exit_assist_flag",
+    "hard_gate_exit_assist_reason",
     # v3.3 hypothesis extension ports (nullable)
     "state_age_days",
     "sojourn_prob_5d",
@@ -46,8 +51,6 @@ NEXT_STEP_SIGNAL_COLUMNS: List[str] = [
     "transition_expected_20d",
     "transition_expected_60d",
     "transition_expected_120d",
-    # backward-compat (deprecated): single expected alias
-    "transition_expected",
     "evidence_axis_macro",
     "evidence_axis_price",
     "evidence_axis_flow",
@@ -56,5 +59,9 @@ NEXT_STEP_SIGNAL_COLUMNS: List[str] = [
     "evidence_unknown_ratio",
     "diag_12slot_coverage",
     "diag_12slot_quality",
+    # P1-1 diagnostics (nullable, backward compatible)
+    "horizon_bias_diversity_count",
+    "horizon_bias_diversity_ratio_60d",
+    "horizon_conf_spread",
     "source_run_id",
 ]

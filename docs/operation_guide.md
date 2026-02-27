@@ -51,6 +51,13 @@
 - 계산 가능한 전이예측 feature(`state_age/sojourn/hazard`)는 snapshot/history로 선저장한다.
 - 소비자는 저장본을 우선 사용하고 결측 시에만 fail-open fallback을 사용한다.
 - 결과 비교는 registry + summary artifact로 재실행 없이 조회 가능해야 한다.
+- 실행 기준 bias는 `bias_20d` 단일 경로를 사용한다 (`1m/3m` alias 비사용).
+
+### next_step 지평 마이그레이션 (5/10/20/60/120D)
+- dry-run:
+  - `python scripts/migrate_next_step_horizons.py --dry-run`
+- apply:
+  - `python scripts/migrate_next_step_horizons.py --apply`
 
 ## 통합 테스트 실행
 - 전체 테스트:
@@ -92,6 +99,16 @@
 - v3.4.1(v3.4 + recovery-aware re-entry gate) 실행:
   - `PYTHONPATH=src python -m pretrend.pipeline.backtest.runner --start 2006-01-03 --end 2024-06-03 --preset v3.4.1`
   - 규칙: `WEAK>=2`일 때만 축소, `RELIEF 2연속` 또는 `MID=RISK_ON`에서 축소 해제
+- v3.4.2-phase(v3.4.1 + phase-aware bias state machine) 실행:
+  - `PYTHONPATH=src python -m pretrend.pipeline.backtest.runner --start 2006-01-03 --end 2024-06-03 --preset v3.4.2-phase`
+  - 규칙: `RECOVERY -> RISK_ON_BIAS` baseline, 월요일 판정, hysteresis/cooldown(5거래일)
+- v3.4.2a(v3.4.2-phase + 체류 규칙 완화 실험) 실행:
+  - `PYTHONPATH=src python -m pretrend.pipeline.backtest.runner --start 2006-01-03 --end 2024-06-03 --preset v3.4.2a`
+  - 규칙: cooldown 기본 5일 유지 + `mid=RISK_ON` 또는 `RELIEF 2연속`에서 cooldown 2일 압축
+  - 보조 규칙: `run_universe` 복귀 + `RELIEF 2연속`이면 월요일에 `RISK_OFF -> NEUTRAL` 1단 완화(soft-only)
+- 운영 기준:
+  - `v3.4.2a`는 실험군으로만 유지한다.
+  - 운영 기본 preset은 `v3.4.1`을 사용한다.
 - 결과 저장 원칙:
   - `save_result()`를 호출한 실행만 아티팩트/registry에 저장된다.
   - 단순 `BacktestRunner().run()` 호출은 콘솔 결과만 생성하고 파일은 남기지 않는다.
@@ -146,6 +163,12 @@ Backtest/Walk-forward 해석 키:
 - `PRETREND_HAZARD_THRESHOLD_10D`:
   - v3.3 hazard-aware override 게이트 임계치 (기본 `0.95`)
   - `transition_hazard_10d < threshold`일 때 override 억제
+- `bias_state_source` / `bias_switch_reason` / `bias_cooldown_left`:
+  - v3.4.2-phase 상태머신 메타
+  - SIGNAL/PAPER에서 전환 근거 설명용으로 사용
+- `cooldown_compressed_flag/reason`, `hard_gate_exit_assist_flag/reason`:
+  - v3.4.2a 체류 완화 메타
+  - PAPER_RESULT의 게이트/강도 섹션에서 보조 설명으로 노출
 
 ## Paper Trading 기본 조건
 - 초기 자금: `1,000,000원`
@@ -284,9 +307,9 @@ Telegram 표기 기준(혼동 방지):
   - SIGNAL/PAPER의 next-step 표시는 `next_step_signal snapshot` 값을 직접 소비한다.
   - snapshot 결측 시 즉석 재계산 없이 `UNKNOWN/N/A` fail-open 표기만 허용한다.
 - SIGNAL `다음 스텝 가설` 표기:
-  - `5D/10D/20D/60D/120D bias+confidence`
-  - `5D/10D/20D/60D/120D transition_hazard`
-  - `transition_expected_5d/10d/20d/60d/120d`
+  - `10D bias+confidence + transition_hazard_10d + transition_expected_10d` 상세
+  - `5D/20D/60D/120D bias+confidence` 요약 1줄
+  - `horizon_bias_diversity_count`, `horizon_bias_diversity_ratio_60d`, `horizon_conf_spread` 진단 1줄
 - SIGNAL `전술 그룹 다음 스텝` 표기:
   - `asset_group별 state_now -> expected_10d`
   - `group_transition_hazard_10d` (결측 시 `N/A`)
@@ -299,3 +322,22 @@ Telegram 표기 기준(혼동 방지):
   - `group_gate_applied_groups`, `group_gate_reduced_groups`, `group_gate_source`
 - 실패 정책:
   - Telegram 전송 오류/토큰 미설정 시 fail-open (경고 로그만 남기고 DAG 성공 유지)
+
+### SIGNAL 메시지 구조 (8섹션 고정)
+
+`strategy_engine_dag`가 생성하는 SIGNAL 메시지는 아래 8개 섹션으로 고정된다.
+섹션 순서·헤더 문자열은 계약 변경 없이 변경 불가.
+
+| 순서 | 섹션 헤더 | 표시 내용 | 비고 |
+|------|-----------|-----------|------|
+| 1 | 헤더 | 날짜 · `message_type=SIGNAL` · `source_job=strategy_engine_dag` · action(비중 변화) | 공황 시 `⚠️ 단기 공황 — 매도 동결` 삽입 |
+| 2 | `── 시장 컨텍스트 ──` | 3-state(장기/중기/단기) + 스위치(공황여부/전술실행) | `build_context_lines()` + `build_switch_lines()` |
+| 3 | `── 다음 스텝 가설 ──` | **10D 상세** (bias/hazard/expected) + 지평 요약(5/20/60/120D) + 분화도 | **10D 중심 원칙** |
+| 4 | `── 시장 근거 ──` | 4축(매크로·가격·수급구조·심리) | `build_evidence_lines()` |
+| 5 | `── 진단 요약 ──` | 12셀 품질 (coverage/unknown 비율) | snapshot 결측 시 즉석 계산 fallback |
+| 6 | `── 전술 그룹 다음 스텝 ──` | asset_group별 state→expected(5D/10D) + hazard | `format_group_transition_lines()` |
+| 7 | `── 전술 ETF (SPY 대비 20일 상대강도) ──` | 그룹별 상위 ETF + RS 수치 | COUNTRY→COMMODITY→BOND→SECTOR 순 |
+
+**10D-centric 원칙**: `다음 스텝 가설` 섹션에서 10D bias/hazard/expected를 1차(상단)로 표시하고,
+나머지 지평(5D·20D·60D·120D)은 한 줄 요약으로 압축한다. 10D는 요약 줄에 포함하지 않는다.
+

@@ -7,6 +7,126 @@
 
 > 참고: changelog 과거 섹션은 작성 시점 원문을 보존한다.
 
+## v2026.02.27c — P1-1 지평별 bias 분화 품질 개선 (Gate A/B 반영)
+
+### feat(next-step): horizon 분화 로직 강화
+- `next_step` 지평별 계산에 임계/리스크/상태연령 보정 추가:
+  - horizon threshold: 5D/10D/20D/60D/120D = `0.35/0.30/0.25/0.20/0.15`
+  - hazard penalty (`hazard>=0.95`): `-0.10/-0.10/-0.08/-0.05/-0.05`
+  - state-age damping (`age<3`): 5/10D long 기여 50% 감쇠, 60/120D short 기여 50% 감쇠
+- `bias_20d` 실행축(state machine)과 하드게이트 semantics는 유지
+
+### feat(next-step): 진단 컬럼 3종 추가(nullable)
+- `horizon_bias_diversity_count`
+- `horizon_bias_diversity_ratio_60d`
+- `horizon_conf_spread`
+
+### gate(compat/repro): 리스크 A/B 방어 규칙 적용
+- Gate A(호환성): 기존 컬럼/타입/의미 변경 없이 nullable 컬럼만 추가
+- Gate B(재현성): `horizon_bias_diversity_ratio_60d`는 row 시점 기준 과거 60개 row만 사용(look-ahead 금지)
+
+### feat(signal): 다음 스텝 가설 출력 압축
+- SIGNAL `다음 스텝 가설`을 `10D 상세 + 나머지 지평 요약 + 분화도 진단 1줄`로 고정
+- snapshot 결측 시 `UNKNOWN/N/A` fail-open 유지
+
+## v2026.02.27b — v3.4.2a 체류 규칙 완화 실험
+
+### feat(next-step): v3.4.2a 실험 포트 메타 추가
+- snapshot nullable 필드 확장:
+  - `bias_candidate_20d`
+  - `cooldown_compressed_flag`, `cooldown_compressed_reason`
+  - `hard_gate_exit_assist_flag`, `hard_gate_exit_assist_reason`
+- 의미:
+  - 체류 완화 후보를 next_step에서 기록하고, 실제 적용은 소비자(backtest/paper preset=`v3.4.2a`)에서 수행
+
+### feat(backtest/paper): `v3.4.2a` preset 추가
+- `PRESET_REGISTRY`/`ALLOCATION_REGISTRY`에 `v3.4.2a` 등록
+- 적용 규칙(soft-only):
+  - `cooldown_compressed_flag=true` + `bias_state_source=HOLD_COOLDOWN`이면 `bias_candidate_20d` 적용
+  - `hard_gate_exit_assist_flag=true` + `bias=RISK_OFF_BIAS`이면 `NEUTRAL_BIAS` 1단 완화
+- 하드게이트 우선(`run_universe`, `risk_gate`) 불변 유지
+
+### feat(paper-result): 체류 완화 메타 노출 확장
+- PAPER_RESULT 게이트/강도 섹션에 아래 항목 추가(있을 때만):
+  - `Cooldown 압축`
+  - `Hard-gate Exit Assist`
+
+### docs(sync)
+- `next_step_signal_contract.md`: v3.4.2a 확장 포트/DoD/Change History 반영
+- `allocation_engine_contract.md`: v3.4.2a 규칙/DoD/Change History 반영
+- `paper_execution_ledger_contract.md`: v3.4.2a 체류 완화 규칙/DoD 반영
+- `operation_guide.md`, `README.md`: `--preset v3.4.2a` 설명 추가
+
+### backtest(compare): v3.4.1/v3.4.2-phase/v3.4.2a 재검증
+- 실행 전 `strategy_job --date 2026-02-25`로 `next_step_signal` 재생성(신규 메타 필드 반영) 후 비교 재실행.
+- 저장:
+  - `result/backtest_compare/compare_v341_v342phase_v342a_20260227.csv`
+  - `result/backtest_compare/diag_switch_cooldown_20260227.csv`
+  - `result/backtest_compare/diag_switch_fwd_returns_20260227.csv`
+  - `result/backtest_compare/diag_drawdown_source_mix_20260227.csv`
+  - `result/backtest_compare/diag_cooldown_compression_20260227.csv`
+- 핵심 결과:
+  - `v3.4.2a`는 장기/최근 모두 `v3.4.2-phase`와 성과 동일(액션 변화 미발생)
+  - 운영 기준은 `v3.4.1` 유지
+
+## v2026.02.27 — Phase-aware Bias 상태머신 도입 (v3.4.2-phase)
+
+### feat(next-step): `bias_20d` phase-aware state machine 적용
+- baseline 규칙 고정:
+  - `EXPANSION/LATE_CYCLE/UNKNOWN -> NEUTRAL_BIAS`
+  - `RECOVERY -> RISK_ON_BIAS` (회복기 참여 강화)
+  - `SLOWDOWN/RECESSION -> RISK_OFF_BIAS`
+- overlay 점수:
+  - `mid=RISK_ON:+2`, `mid=RISK_OFF:-2`
+  - `short=RELIEF:+1`, `short=PANIC:-2`
+  - `hazard_10d>=0.95:-1` (결측은 0, fail-open)
+- weekly cadence + 안정화:
+  - 월요일만 판정, 비월요일 hold
+  - hysteresis(진입 `>=+2`/`<=-2`, 해제 `<=0`/`>=0`)
+  - cooldown 5거래일
+- 하드게이트 우선:
+  - `run_universe=false`면 실행 관점 `RISK_OFF_BIAS` 우선
+
+### feat(schema/message): 상태머신 메타 4개 필드 추가
+- next_step snapshot 확장(nullable):
+  - `bias_state_source`
+  - `bias_switch_flag`
+  - `bias_switch_reason`
+  - `bias_cooldown_left`
+- SIGNAL/PAPER 메시지에 bias state 라인 추가:
+  - `source/switch/reason/cooldown`
+
+### feat(backtest): 실험 preset `v3.4.2-phase` 추가
+- `PRESET_REGISTRY` 및 `ALLOCATION_REGISTRY`에 `v3.4.2-phase` 등록
+- runner 모드 플래그:
+  - phase-aware bias는 `next_step` snapshot에서 소비
+  - runner 내부 monthly/shock/hazard 오버레이는 비활성화
+  - group gate는 유지
+
+### test(sync)
+- `test_next_step_engine.py`: RECOVERY baseline, weekly hold, hard gate 우선 검증 추가
+- `test_strategy_engine_dag_report.py`: bias state 라인 렌더/결측 fallback 검증 추가
+- `test_paper_trading_report.py`: PAPER 메시지 bias state 라인 검증 추가
+- `test_allocation_v3.py`: `v3.4.2-phase` dispatch 경로 검증 추가
+
+## v2026.02.26 — 계약/정합성/운영 안정화 배치 (P0-2~P0-5)
+
+### P0-2: backtest/report.py 원자 쓰기(임시 스테이징) 적용
+- `save_result()`를 임시 디렉토리(`{stem}_tmp_{run_id}`)에 먼저 기록 후 최종 경로로 이동하도록 변경
+- registry append는 아티팩트 이동 완료 후 실행되도록 순서 보정
+
+### P0-3: paper 경계 명문화 + SIGNAL 8섹션 운영 문서화
+- `paper_trading_alert_contract.md`에 canonical 구현 경로(`pipeline.paper.execution`) 명시
+- `backtest/paper_execution.py` shim 경계 유지 + 운영 가이드에 SIGNAL 8섹션 구조 반영
+
+### P0-4: Walk-forward Tier-1 임계값 유효화
+- `walk_forward` 기준을 `Sharpe >= 0.30`, `MDD >= -0.30`으로 보정(기존 0.0/ -0.35 대비 변별력 강화)
+- 계약 문서에 임계값 수치 앵커를 동기화
+
+### P0-5: EOD Observability 정합화 + BOND 풀 확장
+- Observability universe에 `HYG/LQD/SHY/TIP`를 추가해 BOND 전술 풀 정합화
+- 코드 주석/계약 테이블/테스트 수량 검증을 동일 기준으로 정렬
+
 ## v2026.02.26c — 전이예측 지평 재정의 (거래일 5축 통일)
 
 ### feat(next-step): 지평 체계 `5/10/20/60/120D`로 통일
@@ -17,13 +137,19 @@
   - `sojourn_prob_60d/120d`
   - `transition_hazard_60d/120d`
   - `transition_expected_5d/10d/20d/60d/120d`
-- 하위호환:
-  - `bias_1m/3m`, `confidence_1m/3m`, `transition_expected`는 deprecated alias로 1회 유지
+- Breaking:
+  - `bias_1m/3m`, `confidence_1m/3m`, `transition_expected` 제거
+  - 실행/소비 경로는 `bias_20d` 단일 기준으로 통일
 
 ### feat(signal/paper/backtest): 소비 키 `20D bias` 우선화
 - backtest/paper soft gate 입력을 `bias_20d` 우선으로 변경
-- `bias_1m`은 fallback alias로만 사용
+- `bias_1m` fallback alias 제거
 - SIGNAL `다음 스텝 가설`은 5축(5/10/20/60/120D) bias/hazard/expected 동시 출력
+
+### feat(migration): next_step 지평 마이그레이션 스크립트 추가
+- `scripts/migrate_next_step_horizons.py`
+  - `--dry-run`: 변경 대상/컬럼 계획 출력
+  - `--apply`: `1m->20d`, `3m->60d`, `transition_expected->transition_expected_20d` 매핑 후 구 컬럼 제거
 
 ### docs(sync)
 - 계약/운영 문서에서 지평 표기를 `5/10/20/60/120D`로 통일

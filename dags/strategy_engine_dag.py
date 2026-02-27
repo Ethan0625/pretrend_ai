@@ -30,6 +30,7 @@ from pretrend.pipeline.strategy_engine.report_context import (
     build_diagnostic_lines as _build_diagnostic_lines,
     build_evidence_lines as _build_evidence_lines,
     format_next_step_hazard_lines as _format_next_step_hazard_lines,
+    format_bias_state_line as _format_bias_state_line,
     format_group_transition_lines as _format_group_transition_lines,
     build_switch_lines as _build_switch_lines,
     safe_json_dict as _safe_json_dict,
@@ -330,6 +331,7 @@ def strategy_engine_pipeline():
             nrow = df_next.iloc[-1]
 
         lines += _format_next_step_hazard_lines(nrow if isinstance(nrow, dict) else dict(nrow))
+        lines += [_format_bias_state_line(nrow if isinstance(nrow, dict) else dict(nrow))]
 
         # ── 시장 근거 (4축) ──
         lines += [

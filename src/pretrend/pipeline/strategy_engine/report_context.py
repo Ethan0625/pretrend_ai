@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List
 
 
 def safe_json_dict(raw: Any) -> Dict[str, Any]:
@@ -164,15 +164,6 @@ def build_evidence_lines(
     ]
 
 
-def _bias_to_label(bias: str) -> str:
-    return {
-        "RISK_ON_BIAS": "위험선호 우세",
-        "RISK_OFF_BIAS": "위험회피 우세",
-        "NEUTRAL_BIAS": "중립",
-        "UNKNOWN": "판단불가",
-    }.get(bias, "판단불가")
-
-
 def format_transition_expected(expected: Any) -> str:
     """transition_expected를 사람이 읽기 쉬운 문장으로 변환한다."""
     raw = "UNKNOWN" if expected is None else str(expected)
@@ -226,20 +217,56 @@ def format_next_step_hazard_lines(nrow: Dict[str, Any] | None) -> List[str]:
         except Exception:
             return "N/A"
 
-    rows: List[str] = []
-    for h in (5, 10, 20, 60, 120):
-        rows.append(
-            f"🧭 {h}D: {str(nrow.get(f'bias_{h}d', 'UNKNOWN'))} "
-            f"({_pct_or_na(nrow.get(f'confidence_{h}d'))})"
-        )
-        rows.append(
-            f"⏱ {h}D 전환위험: {_pct_or_na(nrow.get(f'transition_hazard_{h}d'))}"
-        )
-        rows.append(
-            f"🔭 {h}D 예상 전이: "
-            f"{format_transition_expected(nrow.get(f'transition_expected_{h}d', 'UNKNOWN'))}"
-        )
+    rows: List[str] = [
+        f"🧭 10D: {str(nrow.get('bias_10d', 'UNKNOWN'))} ({_pct_or_na(nrow.get('confidence_10d'))})",
+        f"⏱ 10D 전환위험: {_pct_or_na(nrow.get('transition_hazard_10d'))}",
+        f"🔭 10D 예상 전이: {format_transition_expected(nrow.get('transition_expected_10d', 'UNKNOWN'))}",
+    ]
+
+    summary = []
+    for h in (5, 20, 60, 120):
+        summary.append(f"{h}D {str(nrow.get(f'bias_{h}d', 'UNKNOWN'))}({_pct_or_na(nrow.get(f'confidence_{h}d'))})")
+    rows.append("🧭 지평 요약: " + " · ".join(summary))
+
+    diversity_count = nrow.get("horizon_bias_diversity_count")
+    diversity_ratio = nrow.get("horizon_bias_diversity_ratio_60d")
+    conf_spread = nrow.get("horizon_conf_spread")
+    diversity_count_txt = "N/A"
+    conf_spread_txt = "N/A"
+    try:
+        if diversity_count is not None:
+            diversity_count_txt = f"{int(diversity_count)}/5"
+    except Exception:
+        diversity_count_txt = "N/A"
+    try:
+        if conf_spread is not None:
+            fv = float(conf_spread)
+            if fv == fv:
+                conf_spread_txt = f"{fv:.2f}"
+    except Exception:
+        conf_spread_txt = "N/A"
+    rows.append(
+        "🧪 분화도: "
+        f"diversity={diversity_count_txt}, "
+        f"recent60={_pct_or_na(diversity_ratio)}, "
+        f"conf_spread={conf_spread_txt}"
+    )
     return rows
+
+
+def format_bias_state_line(nrow: Dict[str, Any] | None) -> str:
+    nrow = nrow or {}
+    source = nrow.get("bias_state_source", "UNKNOWN")
+    switch_flag = "Y" if bool(nrow.get("bias_switch_flag", False)) else "N"
+    reason = nrow.get("bias_switch_reason", "UNKNOWN")
+    cooldown = nrow.get("bias_cooldown_left", "N/A")
+    return (
+        "🧩 bias state: "
+        f"source={source}, "
+        f"switch={switch_flag}, "
+        f"reason={reason}, "
+        f"cooldown={cooldown}"
+    )
 
 
 def format_group_transition_lines(rows: List[Dict[str, Any]] | None) -> List[str]:
@@ -289,83 +316,6 @@ def format_group_transition_lines(rows: List[Dict[str, Any]] | None) -> List[str
             f"10D:{state_icon.get(exp10, '⚪')}{exp10} ({hz10_txt})"
         )
     return out
-
-
-def _infer_bias_1m(
-    long_phase: str,
-    mid_regime: str,
-    short_signal: str,
-) -> Tuple[str, float]:
-    """1개월 가설: mid/short 비중을 높게 둔 간단한 결정론 규칙."""
-    score = 0
-    if mid_regime == "RISK_ON":
-        score += 2
-    elif mid_regime == "RISK_OFF":
-        score -= 2
-
-    if short_signal == "RELIEF":
-        score += 2
-    elif short_signal == "PANIC":
-        score -= 2
-
-    if long_phase in {"EXPANSION", "RECOVERY"}:
-        score += 1
-    elif long_phase in {"SLOWDOWN", "RECESSION"}:
-        score -= 1
-
-    if score >= 2:
-        return "RISK_ON_BIAS", min(0.85, 0.55 + 0.10 * score)
-    if score <= -2:
-        return "RISK_OFF_BIAS", min(0.85, 0.55 + 0.10 * abs(score))
-    return "NEUTRAL_BIAS", 0.50
-
-
-def _infer_bias_3m(
-    long_phase: str,
-    mid_regime: str,
-    short_signal: str,
-) -> Tuple[str, float]:
-    """3개월 가설: long/mid 비중을 높게 둔 간단한 결정론 규칙."""
-    score = 0
-    if long_phase in {"EXPANSION", "RECOVERY", "LATE_CYCLE"}:
-        score += 2
-    elif long_phase in {"SLOWDOWN", "RECESSION"}:
-        score -= 2
-
-    if mid_regime == "RISK_ON":
-        score += 2
-    elif mid_regime == "RISK_OFF":
-        score -= 2
-
-    if short_signal == "PANIC":
-        score -= 1
-    elif short_signal == "RELIEF":
-        score += 1
-
-    if score >= 2:
-        return "RISK_ON_BIAS", min(0.85, 0.55 + 0.08 * score)
-    if score <= -2:
-        return "RISK_OFF_BIAS", min(0.85, 0.55 + 0.08 * abs(score))
-    return "NEUTRAL_BIAS", 0.50
-
-
-def build_next_step_lines(
-    long_phase: str,
-    mid_regime: str,
-    short_signal: str,
-) -> List[str]:
-    """다음 스텝 가설(1m/3m)을 생성한다.
-
-    NOTE:
-    운영 경로(SIGNAL/PAPER 메시지)는 next_step_signal snapshot 단일소스를 사용한다.
-    본 함수는 개발/테스트용 fallback 계산 유틸로 유지한다.
-    """
-    b1, c1 = _infer_bias_1m(long_phase, mid_regime, short_signal)
-    b3, c3 = _infer_bias_3m(long_phase, mid_regime, short_signal)
-    return [
-        f"🧭 1M: {_bias_to_label(b1)} ({b1}, {c1:.0%})",
-        f"🧭 3M: {_bias_to_label(b3)} ({b3}, {c3:.0%})",
-    ]
 
 
 def build_diagnostic_lines(

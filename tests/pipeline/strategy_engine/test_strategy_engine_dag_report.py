@@ -7,7 +7,7 @@ from pretrend.pipeline.strategy_engine.report_context import (
     format_group_transition_lines as _format_group_transition_lines,
     format_transition_expected as _format_transition_expected,
     format_next_step_hazard_lines as _format_next_step_hazard_lines,
-    build_next_step_lines as _build_next_step_lines,
+    format_bias_state_line as _format_bias_state_line,
     build_switch_lines as _build_switch_lines,
 )
 
@@ -51,15 +51,6 @@ def test_switch_lines_when_normal_and_universe_enabled() -> None:
     assert lines[1] == "📈 전술 실행: 허용"
 
 
-def test_next_step_lines_render_1m_3m_hypothesis() -> None:
-    lines = _build_next_step_lines("EXPANSION", "RISK_ON", "RELIEF")
-    assert len(lines) == 2
-    assert lines[0].startswith("🧭 1M:")
-    assert lines[1].startswith("🧭 3M:")
-    assert "RISK_ON_BIAS" in lines[0]
-    assert "RISK_ON_BIAS" in lines[1]
-
-
 def test_diagnostic_lines_show_quality_and_coverage() -> None:
     long_detail = {"regime_mode": "tightening"}
     mid_detail = {"price_signal": "RISK_ON", "macro_signal": "NEUTRAL", "breadth_signal": "RISK_OFF"}
@@ -99,36 +90,48 @@ def test_next_step_hazard_lines_snapshot_present() -> None:
             "transition_expected_20d": "RECOVERY_NEUTRAL_RELIEF",
             "transition_expected_60d": "RECOVERY_NEUTRAL_RELIEF",
             "transition_expected_120d": "RECOVERY_NEUTRAL_RELIEF",
+            "horizon_bias_diversity_count": 3,
+            "horizon_bias_diversity_ratio_60d": 0.42,
+            "horizon_conf_spread": 0.3,
         }
     )
     text = "\n".join(lines)
-    assert "🧭 5D: NEUTRAL_BIAS (50%)" in text
     assert "🧭 10D: RISK_OFF_BIAS (71%)" in text
-    assert "🧭 20D: RISK_ON_BIAS (80%)" in text
-    assert "🧭 60D: NEUTRAL_BIAS (60%)" in text
-    assert "🧭 120D: RISK_OFF_BIAS (65%)" in text
-    assert "⏱ 5D 전환위험: 20%" in text
     assert "⏱ 10D 전환위험: 40%" in text
-    assert "⏱ 20D 전환위험: 60%" in text
-    assert "⏱ 60D 전환위험: 30%" in text
-    assert "⏱ 120D 전환위험: 10%" in text
     assert "🔭 10D 예상 전이: 장기 회복(RECOVERY) · 중기 혼조(NEUTRAL) · 단기 안도(RELIEF)" in text
+    assert "🧭 지평 요약: 5D NEUTRAL_BIAS(50%) · 20D RISK_ON_BIAS(80%) · 60D NEUTRAL_BIAS(60%) · 120D RISK_OFF_BIAS(65%)" in text
+    assert "🧪 분화도: diversity=3/5, recent60=42%, conf_spread=0.30" in text
 
 
 def test_next_step_hazard_lines_snapshot_missing_fail_open() -> None:
     lines = _format_next_step_hazard_lines(None)
     text = "\n".join(lines)
-    assert "🧭 5D: UNKNOWN (N/A)" in text
     assert "🧭 10D: UNKNOWN (N/A)" in text
-    assert "🧭 20D: UNKNOWN (N/A)" in text
-    assert "🧭 60D: UNKNOWN (N/A)" in text
-    assert "🧭 120D: UNKNOWN (N/A)" in text
-    assert "⏱ 5D 전환위험: N/A" in text
     assert "⏱ 10D 전환위험: N/A" in text
-    assert "⏱ 20D 전환위험: N/A" in text
-    assert "⏱ 60D 전환위험: N/A" in text
-    assert "⏱ 120D 전환위험: N/A" in text
-    assert "🔭 20D 예상 전이: UNKNOWN" in text
+    assert "🔭 10D 예상 전이: UNKNOWN" in text
+    assert "🧭 지평 요약: 5D UNKNOWN(N/A) · 20D UNKNOWN(N/A) · 60D UNKNOWN(N/A) · 120D UNKNOWN(N/A)" in text
+    assert "🧪 분화도: diversity=N/A, recent60=N/A, conf_spread=N/A" in text
+
+
+def test_bias_state_line_render_and_fallback() -> None:
+    line = _format_bias_state_line(
+        {
+            "bias_state_source": "OVERLAY",
+            "bias_switch_flag": True,
+            "bias_switch_reason": "MID_RISK_ON",
+            "bias_cooldown_left": 4,
+        }
+    )
+    assert "source=OVERLAY" in line
+    assert "switch=Y" in line
+    assert "reason=MID_RISK_ON" in line
+    assert "cooldown=4" in line
+
+    fb = _format_bias_state_line(None)
+    assert "source=UNKNOWN" in fb
+    assert "switch=N" in fb
+    assert "reason=UNKNOWN" in fb
+    assert "cooldown=N/A" in fb
 
 
 def test_format_transition_expected_human_readable() -> None:
@@ -165,3 +168,39 @@ def test_group_transition_lines_render_10d_summary() -> None:
 def test_group_transition_lines_missing_fail_open() -> None:
     lines = _format_group_transition_lines(None)
     assert lines == ["전술 그룹 전이 데이터 없음 (UNKNOWN/N/A)"]
+
+
+def test_next_step_hazard_lines_10d_primary_and_four_horizon_summary() -> None:
+    """10D가 1차 표시(첫 줄)이고 지평 요약에 5D/20D/60D/120D 4개가 포함됨을 검증한다.
+
+    10D-centric 원칙: 10D는 상단 상세 3줄에 나타나고 지평 요약 줄에는 포함되지 않는다.
+    """
+    lines = _format_next_step_hazard_lines(
+        {
+            "bias_10d": "RISK_ON_BIAS",
+            "confidence_10d": 0.80,
+            "transition_hazard_10d": 0.15,
+            "transition_expected_10d": "EXPANSION_RISK_ON_STABLE",
+            "bias_5d": "NEUTRAL_BIAS",
+            "confidence_5d": 0.55,
+            "bias_20d": "RISK_ON_BIAS",
+            "confidence_20d": 0.70,
+            "bias_60d": "NEUTRAL_BIAS",
+            "confidence_60d": 0.60,
+            "bias_120d": "RISK_ON_BIAS",
+            "confidence_120d": 0.65,
+        }
+    )
+    # 10D가 첫 번째 줄 (primary)
+    assert lines[0].startswith("🧭 10D:"), f"10D primary line expected at index 0, got: {lines[0]}"
+    assert "RISK_ON_BIAS" in lines[0]
+    # 10D 전환위험 두 번째 줄
+    assert lines[1].startswith("⏱ 10D 전환위험:"), f"10D hazard expected at index 1, got: {lines[1]}"
+    # 10D 예상 전이 세 번째 줄
+    assert lines[2].startswith("🔭 10D 예상 전이:"), f"10D expected at index 2, got: {lines[2]}"
+    # 지평 요약에 5D/20D/60D/120D 4개 포함 (10D 제외)
+    summary_line = next((line for line in lines if line.startswith("🧭 지평 요약:")), None)
+    assert summary_line is not None, "지평 요약 줄이 없음"
+    for horizon in ("5D", "20D", "60D", "120D"):
+        assert horizon in summary_line, f"{horizon} not in summary: {summary_line}"
+    assert "10D" not in summary_line, f"10D should not appear in summary line: {summary_line}"

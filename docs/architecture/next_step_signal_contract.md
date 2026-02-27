@@ -24,8 +24,9 @@
 - [6. 운영 게이트 규칙(Soft Gate)](#6-운영-게이트-규칙soft-gate)
 - [7. Hypothesis (v3.2 Extension)](#7-hypothesis-v32-extension)
 - [8. Hypothesis (v3.3 Duration/Transition MVP)](#8-hypothesis-v33-durationtransition-mvp)
-- [9. Invariants](#9-invariants)
-- [10. DoD](#10-dod)
+- [9. Hypothesis (v3.4.2-phase State Machine)](#9-hypothesis-v342-phase-state-machine)
+- [10. Invariants](#10-invariants)
+- [11. DoD](#11-dod)
 
 참조:
 - `docs/strategy_engine_design.md`
@@ -100,13 +101,18 @@
 | confidence_60d | FLOAT | Y | 0~1 |
 | bias_120d | TEXT | Y | `RISK_ON_BIAS`, `NEUTRAL_BIAS`, `RISK_OFF_BIAS`, `UNKNOWN` |
 | confidence_120d | FLOAT | Y | 0~1 |
-| bias_1m | TEXT | N | Deprecated alias (권장: `bias_20d`) |
-| confidence_1m | FLOAT | N | Deprecated alias (권장: `confidence_20d`) |
-| bias_3m | TEXT | N | Deprecated alias (권장: `bias_60d`) |
-| confidence_3m | FLOAT | N | Deprecated alias (권장: `confidence_60d`) |
 | bias_effective | TEXT | N | v3.2 확장 포트(실제 적용 bias, nullable) |
 | bias_override_flag | BOOLEAN | N | v3.2 확장 포트(override 발동 여부, nullable) |
 | bias_override_reason | TEXT | N | v3.2 확장 포트(`PANIC`, `RISK_OFF`, `NONE`, nullable) |
+| bias_state_source | TEXT | N | v3.4.2 확장 포트(`BASELINE`, `OVERLAY`, `HOLD_COOLDOWN`, `HARD_GATE`) |
+| bias_switch_flag | BOOLEAN | N | v3.4.2 확장 포트(이전 bias 대비 전환 여부) |
+| bias_switch_reason | TEXT | N | v3.4.2 확장 포트(`PHASE_BASELINE`, `MID_RISK_ON`, `SHORT_PANIC`, `COOLDOWN` 등) |
+| bias_cooldown_left | INT | N | v3.4.2 확장 포트(재전환 금지 잔여 거래일) |
+| bias_candidate_20d | TEXT | N | v3.4.2a 확장 포트(cooldown 압축 시 후보 bias) |
+| cooldown_compressed_flag | BOOLEAN | N | v3.4.2a 확장 포트(cooldown 압축 후보 여부) |
+| cooldown_compressed_reason | TEXT | N | v3.4.2a 확장 포트(`MID_RISK_ON`, `RELIEF_STREAK`, `NONE`) |
+| hard_gate_exit_assist_flag | BOOLEAN | N | v3.4.2a 확장 포트(run_universe 복귀 보조 완화 후보 여부) |
+| hard_gate_exit_assist_reason | TEXT | N | v3.4.2a 확장 포트(`RUN_UNIVERSE_RECOVERY_RELIEF`, `NONE`) |
 | state_age_days | INT | N | v3.3 확장 포트(현재 3-state 연속 일수) |
 | sojourn_prob_5d | FLOAT | N | v3.3 확장 포트(5거래일 지속 확률) |
 | sojourn_prob_10d | FLOAT | N | v3.3 확장 포트(10거래일 지속 확률) |
@@ -123,7 +129,6 @@
 | transition_expected_20d | TEXT | N | v3.3 확장 포트(20거래일 예상 다음 상태, nullable) |
 | transition_expected_60d | TEXT | N | v3.3 확장 포트(60거래일 예상 다음 상태, nullable) |
 | transition_expected_120d | TEXT | N | v3.3 확장 포트(120거래일 예상 다음 상태, nullable) |
-| transition_expected | TEXT | N | Deprecated alias (권장: `transition_expected_20d`) |
 | evidence_axis_macro | TEXT | Y | 매크로/정책 서술 |
 | evidence_axis_price | TEXT | Y | 가격 서술 |
 | evidence_axis_flow | TEXT | Y | 수급/구조 서술 |
@@ -132,6 +137,9 @@
 | evidence_unknown_ratio | FLOAT | Y | 0~1 |
 | diag_12slot_coverage | FLOAT | Y | 0~1 |
 | diag_12slot_quality | TEXT | Y | `양호`, `경고` |
+| horizon_bias_diversity_count | INT | N | 5개 지평 bias의 고유값 개수(1~5), 진단 전용 |
+| horizon_bias_diversity_ratio_60d | FLOAT | N | row 시점 기준 과거 60개 row에서 `diversity_count>=2` 비율(0~1) |
+| horizon_conf_spread | FLOAT | N | 지평별 confidence 최대-최소 스프레드(0~1) |
 | source_run_id | TEXT | Y | 생성 run 식별자 |
 
 저장 경로(SOT):
@@ -148,8 +156,10 @@ History Grain/Key:
 
 운영 메시지 소비 규칙(SIGNAL/PAPER):
 - `bias_5d/10d/20d/60d/120d`, `confidence_*`, `transition_hazard_*`, `transition_expected_*`는 snapshot에서 직접 소비한다.
+- 실행 기준 bias는 `bias_20d` 단일 경로를 사용한다.
 - 운영 메시지 경로에서 상태 기반 즉석 재계산은 금지한다.
 - snapshot 결측 시 표시용 fail-open(`UNKNOWN/N/A`)만 허용한다.
+- SIGNAL 출력은 `10D 상세 + (5D/20D/60D/120D 요약) + diversity 진단`으로 압축한다.
 
 ## 5. Axis×Horizon Evidence Matrix (4x3)
 ### 책임
@@ -206,7 +216,37 @@ History Grain/Key:
 - 소표본/결측 시 nullable 허용(fail-open)하며 기존 bias 흐름을 유지한다.
 - `transition_expected_*`는 설명용 필드이며 실행 명령이 아니다.
 
-## 9. Invariants
+## 9. Hypothesis (v3.4.2-phase State Machine)
+### 책임
+- `bias_20d` 실행축에 phase-aware 상태머신을 추가해 회복기 참여/하락기 방어 균형을 보강한다.
+
+### Non-goals
+- 5/10/60/120D bias까지 상태머신으로 확장
+- 하드게이트 의미 변경
+
+- baseline:
+  - `EXPANSION/LATE_CYCLE/UNKNOWN -> NEUTRAL_BIAS`
+  - `RECOVERY -> RISK_ON_BIAS`
+  - `SLOWDOWN/RECESSION -> RISK_OFF_BIAS`
+- overlay score:
+  - `mid_regime=RISK_ON:+2`, `RISK_OFF:-2`
+  - `short_signal=RELIEF:+1`, `PANIC:-2`
+  - `transition_hazard_10d >= 0.95: -1` (결측은 0, fail-open)
+- weekly cadence:
+  - 월요일만 판정, 비월요일은 기존 bias 유지
+- hysteresis/cooldown:
+  - 진입 임계 `>=+2`/`<=-2`, 해제 임계 `<=0`/`>=0`
+  - 전환 후 5거래일 재전환 금지(`HOLD_COOLDOWN`)
+- hard gate:
+  - `run_universe=false` 시 실행 관점 `RISK_OFF_BIAS` 우선
+
+v3.4.2a (체류 완화 실험, 소비자 적용):
+- 상태머신 자체는 유지하고, 소비자(backtest/paper preset `v3.4.2a`)에서 soft-only 완화를 적용한다.
+- `cooldown_compressed_flag=true` + `bias_state_source=HOLD_COOLDOWN`이면 후보 bias(`bias_candidate_20d`)를 적용할 수 있다.
+- `hard_gate_exit_assist_flag=true` + 현재 bias=`RISK_OFF_BIAS`이면 `NEUTRAL_BIAS` 1단 완화를 허용한다.
+- 위 보정은 실행 강도 조절용이며 하드 게이트를 대체하지 않는다.
+
+## 10. Invariants
 ### 책임
 - 설명 가능성과 fail-open 동작을 보장한다.
 
@@ -217,9 +257,12 @@ History Grain/Key:
 - 근거 결측/파싱 실패 시 기본 문구(`영향 근거 없음`)로 대체한다.
 - 12셀 진단은 quality 표시로 압축되며, 실행 신호를 직접 대체하지 않는다.
 - `evidence_unknown_ratio = 1 - diag_12slot_coverage` 제약을 유지한다.
+- `horizon_bias_diversity_ratio_60d`는 row 시점 기준 과거 60개 row만 사용해야 하며 look-ahead를 금지한다.
 - 본 출력은 규칙 기반이며, numeric tuning/ML 학습 로직을 포함하지 않는다.
+- `bias_20d`는 월요일 판정 + 비월요일 hold + cooldown 제약을 따른다(v3.4.2 확장).
+- 하드게이트(`run_universe`)는 phase-aware 상태머신보다 우선한다.
 
-## 10. DoD
+## 11. DoD
 ### 책임
 - 계약 기반 검증 기준을 제공한다.
 
@@ -238,6 +281,11 @@ History Grain/Key:
 - **NSS10**: v3.3 확장 포트(`state_age_days`, `sojourn_prob_*`, `transition_hazard_*`, `transition_expected_*`) nullable/하위호환 검증
 - **NSS11**: `transition_hazard_hd = 1 - sojourn_prob_hd` 수치 일관성 검증(결측 제외)
 - **NSS12**: history key(`trade_date`, `decision_date_ref`) 중복 방지 및 재현성 검증
+- **NSS13**: `RECOVERY -> RISK_ON_BIAS` baseline 매핑 및 월요일 판정 규칙 검증
+- **NSS14**: cooldown 중 재전환 금지 + `run_universe=false` 하드게이트 우선 검증
+- **NSS15**: 신규 진단 컬럼(3개)이 nullable + 하위호환으로 추가됨을 검증(기존 컬럼 변경 금지)
+- **NSS16**: 동일 입력 재실행 시 `horizon_bias_diversity_ratio_60d` 결과 동일 + 미래 row 추가 시 과거 row 값 불변을 검증
+- **NSS15**: v3.4.2a 확장 포트(`cooldown_compressed_*`, `hard_gate_exit_assist_*`) nullable/하위호환 검증
 
 ---
 
@@ -247,4 +295,6 @@ History Grain/Key:
 | 2026-02-25 | v3.3 Duration/Transition MVP 확장 포트(5/10/20d) 추가 | docs/changelog.md |
 | 2026-02-25 | v3.1/v3.2 운영 반영: v3.2를 기존 계약의 확장 가설로 추가하고 extension fields(nullable) 정의 | docs/changelog.md |
 | 2026-02-25 | 전이예측을 운용 게이트 입력으로 승격(Soft Gate 규칙/공통 snapshot 경로 명시) | docs/changelog.md |
+| 2026-02-27 | v3.4.2-phase 상태머신 확장: RECOVERY baseline 상향 + weekly cadence + hysteresis/cooldown + 메타 필드 4종 | docs/changelog.md |
+| 2026-02-27 | v3.4.2a 체류 완화 실험 포트 추가: cooldown compression 후보 + hard-gate exit assist 후보 | docs/changelog.md |
 | 2026-02-24 | Next Step Signal 계약 신규 추가: 3-state + 4축 근거 + 12셀 진단 KPI 계층 정의 | docs/changelog.md |
