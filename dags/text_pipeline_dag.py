@@ -11,6 +11,7 @@ from airflow.decorators import dag, task
 from pretrend.pipeline.text.bronze_ingest import run_text_bronze_ingest
 from pretrend.pipeline.text.config import TextPipelineConfig
 from pretrend.pipeline.text.gold_build import run_text_gold_build
+from pretrend.pipeline.text.gold_llm_build import run_text_gold_llm_build
 from pretrend.pipeline.text.silver_build import run_text_silver_build
 
 
@@ -29,18 +30,19 @@ def _build_text_cfg() -> TextPipelineConfig:
     cfg.bronze_root = data_root / "bronze" / "text"
     cfg.silver_root = data_root / "silver" / "text"
     cfg.gold_root = data_root / "gold" / "text"
+    cfg.gold_llm_root = data_root / "gold" / "text"
     return cfg
 
 
 @dag(
     dag_id="text_pipeline_dag",
-    description="Text Pipeline Bronze(SEC+Fed)→Silver→Gold E2E",
+    description="Text Pipeline Bronze(SEC+Fed)→Silver→Gold→Gold LLM E2E",
     default_args=DEFAULT_ARGS,
     start_date=pendulum.datetime(2026, 1, 1, tz="Asia/Seoul"),
     schedule_interval="30 9 * * *",
     catchup=False,
     max_active_runs=1,
-    tags=["pretrend", "text", "bronze", "silver", "gold"],
+    tags=["pretrend", "text", "bronze", "silver", "gold", "llm"],
 )
 def text_pipeline():
     @task(task_id="run_text_bronze_ingest")
@@ -105,9 +107,28 @@ def text_pipeline():
             "error": result.error,
         }
 
+    @task(task_id="run_text_gold_llm_build")
+    def run_text_gold_llm_build_task(gold_summary: Dict[str, Any]) -> Dict[str, Any]:
+        """Gold LLM annotation (observer-only, fail-open)."""
+        start_dt = date.fromisoformat(str(gold_summary["start_date"]))
+        end_dt = date.fromisoformat(str(gold_summary["end_date"]))
+        cfg = _build_text_cfg()
+        result = run_text_gold_llm_build(start_date=start_dt, end_date=end_dt, cfg=cfg)
+        return {
+            "start_date": start_dt.isoformat(),
+            "end_date": end_dt.isoformat(),
+            "docs_input": int(result.docs_input),
+            "docs_processed": int(result.docs_processed),
+            "docs_skipped": int(result.docs_skipped),
+            "feature_rows": int(result.feature_rows),
+            "coverage_ratio": float(result.coverage_ratio),
+            "error": result.error,
+        }
+
     bronze = run_text_bronze_ingest_task()
     silver = run_text_silver_build_task(bronze)
-    run_text_gold_build_task(silver)
+    gold = run_text_gold_build_task(silver)
+    run_text_gold_llm_build_task(gold)
 
 
 text_pipeline_dag = text_pipeline()

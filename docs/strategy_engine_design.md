@@ -322,6 +322,20 @@ mid_regime Top-N:
 - LLM 도입 시 적용 범위는 `문장 요약/해석`에 한정한다(신호 판정/게이트/allocation 입력 금지).
 - LLM 해석 경로 장애 시 결정론 문구로 즉시 fallback 해야 하며, Strategy/Paper 파이프라인 성공 상태를 유지한다.
 
+### 연결 조건 (Gate H)
+아래 조건을 모두 충족하기 전까지 Text feature는 Strategy 입력에 연결하지 않는다.
+1. `text_pipeline_dag` 30거래일 연속 운영
+2. rule-based 3종 `coverage_ratio` 중앙값 > `0.5`
+3. Text feature 유무 AB 백테스트 비교 수행
+4. 연결 인터페이스를 별도 계약으로 확정
+   - Axis Feature 보조 입력
+   - 또는 5th axis 신설
+
+### Telegram Phase 1.5
+- LLM 반영 가능 범위는 `시장 근거` 섹션 1~2줄로 제한한다.
+- `시장 컨텍스트`, `다음 스텝 가설`, `진단 요약`은 규칙 기반 유지다.
+- Strategy/Paper/Backtest 입력값은 여전히 비LLM 경로가 권위 기준이다.
+
 ### 스냅샷 저장 (Reserved)
 - `data/strategy/text_signals/decision_date=YYYY-MM-DD/*.parquet`
 
