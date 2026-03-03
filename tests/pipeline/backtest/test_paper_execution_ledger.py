@@ -27,7 +27,7 @@ def test_schd_sell_is_blocked_on_decrease() -> None:
         ]
     )
 
-    ledger, _, _ = simulate_paper_execution(
+    ledger, _, _, _ = simulate_paper_execution(
         config=cfg,
         exposure_df=exposure,
         prices_df=prices,
@@ -56,7 +56,7 @@ def test_weekday_rule_blocks_monday_increase_execution() -> None:
         ]
     )
 
-    ledger, _, _ = simulate_paper_execution(
+    ledger, _, _, _ = simulate_paper_execution(
         config=cfg,
         exposure_df=exposure,
         prices_df=prices,
@@ -99,7 +99,7 @@ def test_tactical_universe_is_reflected_when_policy_allows() -> None:
         ]
     )
 
-    ledger, _, _ = simulate_paper_execution(
+    ledger, _, _, _ = simulate_paper_execution(
         config=cfg,
         exposure_df=exposure,
         prices_df=prices,

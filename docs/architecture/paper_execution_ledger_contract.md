@@ -182,18 +182,36 @@
 - **PEL11**: v3.4.2a cooldown 압축 플래그(`cooldown_compressed_*`) 및 hard-gate exit assist 플래그(`hard_gate_exit_assist_*`) 반영 검증
 
 ## 10. Level 2 운영 가드레일
-- 본 섹션은 Level 2(Paper + Alert) 운영 경계만 정의하며, 자동 주문 실행(Level 3)은 범위 밖이다.
-- 중단 조건(운영 즉시 일시정지):
-  - `portfolio_daily.nav < initial_capital * 0.70`
-  - `short_signal=PANIC` 연속 5거래일 이상
-- 수동 승인 지점(운영자 확인 후 재개):
-  - `DECREASE`가 3회 연속 발생한 뒤 첫 재진입(`INCREASE`) 시도 구간
-  - Hard gate가 `run_universe=false -> true`로 복귀한 첫 주간 판단
-- 복귀 조건(일시정지 해제):
-  - 최근 5거래일 NAV가 중단 임계(`0.70 * initial_capital`)를 상회 유지
-  - `PANIC` 연속 상태가 해소되고(`RELIEF` 또는 `STABLE` 전환), 운영자 승인 완료
-- 기록 의무:
-  - 중단/복귀/승인 이벤트는 RUN_LOG 또는 운영 로그에 날짜/사유/조치 결과를 남긴다.
+본 섹션은 Level 2(Paper + Alert) 운영 경계를 정의한다. 자동 주문 실행(Level 3)은 범위 밖이다.
+
+### 임계값 (백테스트 실증 기반)
+
+2006~2024 전체 구간(DCA $300/월) 백테스트에서 도출:
+| 조건 | 임계값 | 근거 |
+|------|--------|------|
+| NAV / total_invested_capital | < 0.85 | 누적 투입원금 대비 -15% 손실 |
+| (NAV - peak_NAV) / peak_NAV  | < -0.20 | ATH 대비 -20% 낙폭 (v3.4.2a 최악: -19.08%) |
+| PANIC streak | >= 5 | 경고만 (hard stop 아님) |
+
+### 발동 시 동작
+- INCREASE 실행 차단 (Tuesday 매수 스킵)
+- DECREASE는 허용 (추가 손실 방지 위한 매도는 진행)
+- DCA 현금 주입 유지 (누적 투입원금 계산 유지)
+- Paper 시뮬레이션은 계속 진행 (루프 중단 없음)
+- `portfolio_daily`에 `guardrail_paused=True` 컬럼 기록
+- Telegram `risk_warnings`에 `🚨 Level 2 가드레일 발동` 포함
+
+### 복귀 조건 (자동)
+- NAV / total_invested_capital >= 0.90 AND ATH 대비 낙폭 >= -0.15
+- 자동 복귀 시 `guardrail_paused=False`로 전환, INCREASE 재개
+
+### 수동 승인 지점 (운영자 확인)
+- DECREASE 3회 연속 후 첫 INCREASE 시도 구간 (Telegram 경고 포함)
+- `run_universe` 하드게이트 복귀 직후 첫 주간 (기존 규칙 유지)
+
+### 기록 의무
+- `guardrail_paused` / `guardrail_nav_breach` / `guardrail_peak_dd_breach` / `guardrail_panic_streak` / `peak_nav` 컬럼이 `portfolio_daily`에 매일 기록됨
+- 발동/복귀 이벤트는 Telegram `risk_warnings` 섹션에 자동 포함
 
 ---
 

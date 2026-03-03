@@ -35,7 +35,7 @@ def test_nav_daily_and_cumulative_pnl_are_computed() -> None:
         ]
     )
 
-    _, _, pf = simulate_paper_execution(
+    _, _, pf, _ = simulate_paper_execution(
         config=cfg,
         exposure_df=exposure,
         prices_df=prices,
@@ -70,7 +70,7 @@ def test_monthly_dca_reflected_in_total_invested_capital() -> None:
         ]
     )
 
-    _, _, pf = simulate_paper_execution(
+    _, _, pf, _ = simulate_paper_execution(
         config=cfg,
         exposure_df=exposure,
         prices_df=prices,

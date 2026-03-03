@@ -27,7 +27,7 @@ def test_positions_include_required_fields_and_gain_pct() -> None:
         ]
     )
 
-    _, positions, _ = simulate_paper_execution(
+    _, positions, _, _ = simulate_paper_execution(
         config=cfg,
         exposure_df=exposure,
         prices_df=prices,

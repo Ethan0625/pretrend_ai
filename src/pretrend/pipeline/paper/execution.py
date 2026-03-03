@@ -12,6 +12,12 @@ from pretrend.pipeline.backtest.portfolio import Portfolio, Trade
 from pretrend.pipeline.backtest.rebalancer import compute_target_weights
 from .io import load_next_step_for_date
 
+_GUARDRAIL_TC_RATIO: float = 0.85
+_GUARDRAIL_PEAK_DD: float = -0.20
+_GUARDRAIL_PANIC_WARN: int = 5
+_GUARDRAIL_RESUME_TC_RATIO: float = 0.90
+_GUARDRAIL_RESUME_PEAK_DD: float = -0.15
+
 
 @dataclass
 class StagedSellPlan:
@@ -333,8 +339,8 @@ def simulate_paper_execution(
     next_step_df: Optional[pd.DataFrame] = None,
     group_transition_df: Optional[pd.DataFrame] = None,
     enable_predictor_gate: bool = True,
-) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    """Run EOD paper simulation and return ledger/positions/portfolio frames."""
+) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, Dict[str, Any]]:
+    """Run EOD paper simulation and return ledger/positions/portfolio frames + guardrail status."""
     if exposure_df is None or exposure_df.empty:
         cols_ledger = [
             "trade_date", "symbol", "action", "shares", "price_eod", "amount", "sequence_id",
@@ -346,9 +352,25 @@ def simulate_paper_execution(
         ]
         cols_portfolio = [
             "trade_date", "cash", "invested_value", "nav", "total_invested_capital", "daily_pnl", "cumulative_pnl",
+            "guardrail_paused", "guardrail_nav_breach", "guardrail_peak_dd_breach",
+            "guardrail_panic_streak", "peak_nav",
             "source_job", "decision_date", "simulation_date",
         ]
-        return pd.DataFrame(columns=cols_ledger), pd.DataFrame(columns=cols_positions), pd.DataFrame(columns=cols_portfolio)
+        return (
+            pd.DataFrame(columns=cols_ledger),
+            pd.DataFrame(columns=cols_positions),
+            pd.DataFrame(columns=cols_portfolio),
+            {
+                "paused": False,
+                "paused_since": None,
+                "nav_breach": False,
+                "peak_dd_breach": False,
+                "panic_streak": 0,
+                "peak_nav": float(initial_capital),
+                "last_nav": float(initial_capital),
+                "last_total_invested": float(initial_capital),
+            },
+        )
 
     df = exposure_df.copy()
     df["trade_date"] = pd.to_datetime(df["trade_date"]).dt.date
@@ -366,6 +388,10 @@ def simulate_paper_execution(
     prev_nav: Optional[float] = None
     relief_streak: int = 0
     group_gate_active: bool = False
+    peak_nav: float = float(initial_capital)
+    paused: bool = False
+    paused_since: Optional[date] = None
+    panic_streak_guardrail: int = 0
 
     for _, row in df.iterrows():
         td: date = row["trade_date"]
@@ -446,7 +472,7 @@ def simulate_paper_execution(
                 staged_sell = None
 
         # Tuesday: INCREASE only (buy-focused)
-        elif weekday == 1 and action == "INCREASE":
+        elif weekday == 1 and action == "INCREASE" and not paused:
             executed_trades = _rebalance_to_target(
                 portfolio,
                 prices,
@@ -501,6 +527,26 @@ def simulate_paper_execution(
         snap = portfolio.snapshot(prices)
         invested_value = float(snap["invested"])
         nav = float(snap["total"])
+        peak_nav = max(peak_nav, nav)
+        peak_dd = (nav - peak_nav) / peak_nav if peak_nav > 0 else 0.0
+        nav_tc_ratio = nav / total_invested_capital if total_invested_capital > 0 else 1.0
+        nav_breach = nav_tc_ratio < _GUARDRAIL_TC_RATIO
+        peak_breach = peak_dd < _GUARDRAIL_PEAK_DD
+
+        if nav_breach or peak_breach:
+            if not paused:
+                paused = True
+                paused_since = td
+        elif paused:
+            if nav_tc_ratio >= _GUARDRAIL_RESUME_TC_RATIO and peak_dd >= _GUARDRAIL_RESUME_PEAK_DD:
+                paused = False
+                paused_since = None
+
+        short_sig_for_panic = "UNKNOWN"
+        if policy_row is not None:
+            short_sig_for_panic = str(policy_row.get("short_signal", "UNKNOWN"))
+        panic_streak_guardrail = panic_streak_guardrail + 1 if short_sig_for_panic == "PANIC" else 0
+
         daily_pnl = None if prev_nav in (None, 0.0) else (nav / prev_nav - 1.0)
         cumulative_pnl = (nav - total_invested_capital) / total_invested_capital if total_invested_capital > 0 else None
 
@@ -513,6 +559,11 @@ def simulate_paper_execution(
                 "total_invested_capital": float(total_invested_capital),
                 "daily_pnl": daily_pnl,
                 "cumulative_pnl": cumulative_pnl,
+                "guardrail_paused": paused,
+                "guardrail_nav_breach": nav_breach,
+                "guardrail_peak_dd_breach": peak_breach,
+                "guardrail_panic_streak": panic_streak_guardrail,
+                "peak_nav": peak_nav,
                 "source_job": source_job,
                 "decision_date": decision_date,
                 "simulation_date": simulation_date,
@@ -551,4 +602,16 @@ def simulate_paper_execution(
     ledger_df = pd.DataFrame(ledger_rows)
     positions_df = pd.DataFrame(pos_rows)
     portfolio_df = pd.DataFrame(pf_rows)
-    return ledger_df, positions_df, portfolio_df
+    guardrail_status = {
+        "paused": paused,
+        "paused_since": paused_since.isoformat() if paused_since else None,
+        "nav_breach": bool(pf_rows[-1]["guardrail_nav_breach"]) if pf_rows else False,
+        "peak_dd_breach": bool(pf_rows[-1]["guardrail_peak_dd_breach"]) if pf_rows else False,
+        "panic_streak": int(panic_streak_guardrail),
+        "peak_nav": float(peak_nav),
+        "last_nav": float(pf_rows[-1]["nav"]) if pf_rows else float(initial_capital),
+        "last_total_invested": (
+            float(pf_rows[-1]["total_invested_capital"]) if pf_rows else float(initial_capital)
+        ),
+    }
+    return ledger_df, positions_df, portfolio_df, guardrail_status

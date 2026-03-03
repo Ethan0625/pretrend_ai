@@ -40,7 +40,7 @@ def test_soft_gate_risk_off_reduces_tactical_to_zero() -> None:
         [{"trade_date": date(2026, 1, 6), "bias_20d": "RISK_OFF_BIAS"}]
     )
 
-    ledger, _, _ = simulate_paper_execution(
+    ledger, _, _, _ = simulate_paper_execution(
         config=cfg,
         exposure_df=exposure,
         prices_df=_base_prices(),
@@ -74,7 +74,7 @@ def test_hard_gate_precedes_soft_gate_when_run_universe_false() -> None:
         [{"trade_date": date(2026, 1, 6), "bias_20d": "RISK_ON_BIAS"}]
     )
 
-    ledger, _, _ = simulate_paper_execution(
+    ledger, _, _, _ = simulate_paper_execution(
         config=cfg,
         exposure_df=exposure,
         prices_df=_base_prices(),
@@ -115,7 +115,7 @@ def test_group_transition_weak_sector_reduces_sector_tactical() -> None:
         ]
     )
 
-    ledger, _, _ = simulate_paper_execution(
+    ledger, _, _, _ = simulate_paper_execution(
         config=cfg,
         exposure_df=exposure,
         prices_df=_base_prices(),
@@ -207,7 +207,7 @@ def test_v342a_exit_assist_relaxes_risk_off_bias_to_neutral() -> None:
             }
         ]
     )
-    ledger, _, _ = simulate_paper_execution(
+    ledger, _, _, _ = simulate_paper_execution(
         config=cfg,
         exposure_df=exposure,
         prices_df=_base_prices(),
@@ -221,3 +221,184 @@ def test_v342a_exit_assist_relaxes_risk_off_bias_to_neutral() -> None:
     )
     # assist 적용 시 RISK_OFF(슬롯0) 대신 NEUTRAL(슬롯1)로 완화되어 전술 매수가 가능해야 한다.
     assert not ledger[ledger["symbol"] == "XLE"].empty
+
+
+def test_guardrail_nav_breach_blocks_increase() -> None:
+    cfg = BacktestConfig(start_date=date(2026, 1, 6), end_date=date(2026, 1, 13))
+    exposure = pd.DataFrame(
+        [
+            {"trade_date": date(2026, 1, 6), "action": "INCREASE", "next_invested_ratio": 0.60, "delta_ratio": 0.60},
+            {"trade_date": date(2026, 1, 7), "action": "HOLD", "next_invested_ratio": 0.60, "delta_ratio": 0.0},
+            {"trade_date": date(2026, 1, 12), "action": "HOLD", "next_invested_ratio": 0.60, "delta_ratio": 0.0},
+            {"trade_date": date(2026, 1, 13), "action": "INCREASE", "next_invested_ratio": 0.80, "delta_ratio": 0.20},
+        ]
+    )
+    prices = pd.DataFrame(
+        [
+            {"trade_date": date(2026, 1, 6), "symbol": "SPY", "adj_close": 100.0},
+            {"trade_date": date(2026, 1, 6), "symbol": "SCHD", "adj_close": 50.0},
+            {"trade_date": date(2026, 1, 6), "symbol": "IAU", "adj_close": 20.0},
+            {"trade_date": date(2026, 1, 7), "symbol": "SPY", "adj_close": 40.0},
+            {"trade_date": date(2026, 1, 7), "symbol": "SCHD", "adj_close": 20.0},
+            {"trade_date": date(2026, 1, 7), "symbol": "IAU", "adj_close": 8.0},
+            {"trade_date": date(2026, 1, 12), "symbol": "SPY", "adj_close": 40.0},
+            {"trade_date": date(2026, 1, 12), "symbol": "SCHD", "adj_close": 20.0},
+            {"trade_date": date(2026, 1, 12), "symbol": "IAU", "adj_close": 8.0},
+            {"trade_date": date(2026, 1, 13), "symbol": "SPY", "adj_close": 40.0},
+            {"trade_date": date(2026, 1, 13), "symbol": "SCHD", "adj_close": 20.0},
+            {"trade_date": date(2026, 1, 13), "symbol": "IAU", "adj_close": 8.0},
+        ]
+    )
+
+    ledger, _, pf, gs = simulate_paper_execution(
+        config=cfg,
+        exposure_df=exposure,
+        prices_df=prices,
+        source_job="paper_trading_dag",
+        decision_date=date(2026, 1, 13),
+        simulation_date=date(2026, 1, 13),
+    )
+
+    jan13 = ledger[ledger["trade_date"] == date(2026, 1, 13)]
+    assert jan13.empty
+    assert gs["paused"] is True
+    assert gs["nav_breach"] is True
+    assert bool(pf.iloc[-1]["guardrail_paused"]) is True
+
+
+def test_guardrail_peak_dd_breach_blocks_increase() -> None:
+    cfg = BacktestConfig(start_date=date(2026, 1, 6), end_date=date(2026, 1, 13))
+    exposure = pd.DataFrame(
+        [
+            {"trade_date": date(2026, 1, 6), "action": "INCREASE", "next_invested_ratio": 1.00, "delta_ratio": 1.00},
+            {"trade_date": date(2026, 1, 7), "action": "HOLD", "next_invested_ratio": 1.00, "delta_ratio": 0.0},
+            {"trade_date": date(2026, 1, 12), "action": "HOLD", "next_invested_ratio": 1.00, "delta_ratio": 0.0},
+            {"trade_date": date(2026, 1, 13), "action": "INCREASE", "next_invested_ratio": 1.00, "delta_ratio": 0.0},
+        ]
+    )
+    prices = pd.DataFrame(
+        [
+            {"trade_date": date(2026, 1, 6), "symbol": "SPY", "adj_close": 100.0},
+            {"trade_date": date(2026, 1, 6), "symbol": "SCHD", "adj_close": 50.0},
+            {"trade_date": date(2026, 1, 6), "symbol": "IAU", "adj_close": 20.0},
+            {"trade_date": date(2026, 1, 7), "symbol": "SPY", "adj_close": 75.0},
+            {"trade_date": date(2026, 1, 7), "symbol": "SCHD", "adj_close": 37.5},
+            {"trade_date": date(2026, 1, 7), "symbol": "IAU", "adj_close": 15.0},
+            {"trade_date": date(2026, 1, 12), "symbol": "SPY", "adj_close": 75.0},
+            {"trade_date": date(2026, 1, 12), "symbol": "SCHD", "adj_close": 37.5},
+            {"trade_date": date(2026, 1, 12), "symbol": "IAU", "adj_close": 15.0},
+            {"trade_date": date(2026, 1, 13), "symbol": "SPY", "adj_close": 75.0},
+            {"trade_date": date(2026, 1, 13), "symbol": "SCHD", "adj_close": 37.5},
+            {"trade_date": date(2026, 1, 13), "symbol": "IAU", "adj_close": 15.0},
+        ]
+    )
+
+    ledger, _, _, gs = simulate_paper_execution(
+        config=cfg,
+        exposure_df=exposure,
+        prices_df=prices,
+        source_job="paper_trading_dag",
+        decision_date=date(2026, 1, 13),
+        simulation_date=date(2026, 1, 13),
+    )
+
+    assert ledger[ledger["trade_date"] == date(2026, 1, 13)].empty
+    assert gs["paused"] is True
+    assert gs["peak_dd_breach"] is True
+
+
+def test_guardrail_auto_resume_allows_increase() -> None:
+    cfg = BacktestConfig(start_date=date(2026, 1, 6), end_date=date(2026, 1, 13))
+    exposure = pd.DataFrame(
+        [
+            {"trade_date": date(2026, 1, 6), "action": "INCREASE", "next_invested_ratio": 0.60, "delta_ratio": 0.60},
+            {"trade_date": date(2026, 1, 7), "action": "HOLD", "next_invested_ratio": 0.60, "delta_ratio": 0.0},
+            {"trade_date": date(2026, 1, 12), "action": "HOLD", "next_invested_ratio": 0.60, "delta_ratio": 0.0},
+            {"trade_date": date(2026, 1, 13), "action": "INCREASE", "next_invested_ratio": 0.80, "delta_ratio": 0.20},
+        ]
+    )
+    prices = pd.DataFrame(
+        [
+            {"trade_date": date(2026, 1, 6), "symbol": "SPY", "adj_close": 100.0},
+            {"trade_date": date(2026, 1, 6), "symbol": "SCHD", "adj_close": 50.0},
+            {"trade_date": date(2026, 1, 6), "symbol": "IAU", "adj_close": 20.0},
+            {"trade_date": date(2026, 1, 7), "symbol": "SPY", "adj_close": 40.0},
+            {"trade_date": date(2026, 1, 7), "symbol": "SCHD", "adj_close": 20.0},
+            {"trade_date": date(2026, 1, 7), "symbol": "IAU", "adj_close": 8.0},
+            {"trade_date": date(2026, 1, 12), "symbol": "SPY", "adj_close": 95.0},
+            {"trade_date": date(2026, 1, 12), "symbol": "SCHD", "adj_close": 47.5},
+            {"trade_date": date(2026, 1, 12), "symbol": "IAU", "adj_close": 19.0},
+            {"trade_date": date(2026, 1, 13), "symbol": "SPY", "adj_close": 95.0},
+            {"trade_date": date(2026, 1, 13), "symbol": "SCHD", "adj_close": 47.5},
+            {"trade_date": date(2026, 1, 13), "symbol": "IAU", "adj_close": 19.0},
+        ]
+    )
+
+    ledger, _, _, gs = simulate_paper_execution(
+        config=cfg,
+        exposure_df=exposure,
+        prices_df=prices,
+        source_job="paper_trading_dag",
+        decision_date=date(2026, 1, 13),
+        simulation_date=date(2026, 1, 13),
+    )
+
+    assert gs["paused"] is False
+    assert not ledger[ledger["trade_date"] == date(2026, 1, 13)].empty
+
+
+def test_guardrail_panic_streak_warning_does_not_block() -> None:
+    cfg = BacktestConfig(start_date=date(2026, 1, 5), end_date=date(2026, 1, 13))
+    exposure = pd.DataFrame(
+        [
+            {"trade_date": date(2026, 1, 5), "action": "HOLD", "next_invested_ratio": 0.60, "delta_ratio": 0.0},
+            {"trade_date": date(2026, 1, 6), "action": "HOLD", "next_invested_ratio": 0.60, "delta_ratio": 0.0},
+            {"trade_date": date(2026, 1, 7), "action": "HOLD", "next_invested_ratio": 0.60, "delta_ratio": 0.0},
+            {"trade_date": date(2026, 1, 8), "action": "HOLD", "next_invested_ratio": 0.60, "delta_ratio": 0.0},
+            {"trade_date": date(2026, 1, 9), "action": "HOLD", "next_invested_ratio": 0.60, "delta_ratio": 0.0},
+            {"trade_date": date(2026, 1, 12), "action": "HOLD", "next_invested_ratio": 0.60, "delta_ratio": 0.0},
+            {"trade_date": date(2026, 1, 13), "action": "INCREASE", "next_invested_ratio": 0.80, "delta_ratio": 0.20},
+        ]
+    )
+    prices = pd.DataFrame(
+        [
+            {"trade_date": date(2026, 1, 5), "symbol": "SPY", "adj_close": 100.0},
+            {"trade_date": date(2026, 1, 5), "symbol": "SCHD", "adj_close": 50.0},
+            {"trade_date": date(2026, 1, 5), "symbol": "IAU", "adj_close": 20.0},
+            {"trade_date": date(2026, 1, 6), "symbol": "SPY", "adj_close": 100.0},
+            {"trade_date": date(2026, 1, 6), "symbol": "SCHD", "adj_close": 50.0},
+            {"trade_date": date(2026, 1, 6), "symbol": "IAU", "adj_close": 20.0},
+            {"trade_date": date(2026, 1, 7), "symbol": "SPY", "adj_close": 100.0},
+            {"trade_date": date(2026, 1, 7), "symbol": "SCHD", "adj_close": 50.0},
+            {"trade_date": date(2026, 1, 7), "symbol": "IAU", "adj_close": 20.0},
+            {"trade_date": date(2026, 1, 8), "symbol": "SPY", "adj_close": 100.0},
+            {"trade_date": date(2026, 1, 8), "symbol": "SCHD", "adj_close": 50.0},
+            {"trade_date": date(2026, 1, 8), "symbol": "IAU", "adj_close": 20.0},
+            {"trade_date": date(2026, 1, 9), "symbol": "SPY", "adj_close": 100.0},
+            {"trade_date": date(2026, 1, 9), "symbol": "SCHD", "adj_close": 50.0},
+            {"trade_date": date(2026, 1, 9), "symbol": "IAU", "adj_close": 20.0},
+            {"trade_date": date(2026, 1, 12), "symbol": "SPY", "adj_close": 100.0},
+            {"trade_date": date(2026, 1, 12), "symbol": "SCHD", "adj_close": 50.0},
+            {"trade_date": date(2026, 1, 12), "symbol": "IAU", "adj_close": 20.0},
+            {"trade_date": date(2026, 1, 13), "symbol": "SPY", "adj_close": 100.0},
+            {"trade_date": date(2026, 1, 13), "symbol": "SCHD", "adj_close": 50.0},
+            {"trade_date": date(2026, 1, 13), "symbol": "IAU", "adj_close": 20.0},
+        ]
+    )
+    policy = pd.DataFrame(
+        [{"trade_date": td, "run_universe": True, "risk_gate": True, "short_signal": "PANIC"} for td in exposure["trade_date"]]
+    )
+
+    ledger, _, _, gs = simulate_paper_execution(
+        config=cfg,
+        exposure_df=exposure,
+        prices_df=prices,
+        source_job="paper_trading_dag",
+        decision_date=date(2026, 1, 13),
+        simulation_date=date(2026, 1, 13),
+        policy_df=policy,
+    )
+
+    assert gs["panic_streak"] >= 5
+    assert gs["paused"] is False
+    assert not ledger[ledger["trade_date"] == date(2026, 1, 13)].empty

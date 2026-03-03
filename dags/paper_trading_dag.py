@@ -15,7 +15,7 @@ from typing import Any, Dict, List
 import pendulum
 from airflow.decorators import dag, task
 from pretrend.pipeline.backtest.config import BacktestConfig
-from pretrend.pipeline.paper.execution import simulate_paper_execution
+from pretrend.pipeline.paper.execution import _GUARDRAIL_PANIC_WARN, simulate_paper_execution
 from pretrend.pipeline.paper.report import (
     build_paper_result_payload,
     format_paper_result_message,
@@ -127,7 +127,7 @@ def paper_trading_pipeline():
             preset_name="v3.4.2a",
         )
 
-        ledger_df, positions_df, portfolio_df = simulate_paper_execution(
+        ledger_df, positions_df, portfolio_df, guardrail_status = simulate_paper_execution(
             config=cfg,
             exposure_df=exposure_df if exposure_df is not None else None,
             prices_df=prices_df,
@@ -156,6 +156,12 @@ def paper_trading_pipeline():
             "source_job": source_job,
             "status": "ok",
             "paper_start_date": paper_start.isoformat(),
+            "guardrail_paused": guardrail_status["paused"],
+            "guardrail_paused_since": guardrail_status["paused_since"],
+            "guardrail_panic_streak": guardrail_status["panic_streak"],
+            "guardrail_nav_breach": guardrail_status["nav_breach"],
+            "guardrail_peak_dd_breach": guardrail_status["peak_dd_breach"],
+            "guardrail_peak_nav": guardrail_status["peak_nav"],
             **cap,
         }
 
@@ -277,6 +283,24 @@ def paper_trading_pipeline():
 
         if action == "DECREASE" and any(p.get("symbol") == "SCHD" for p in top_positions):
             risk_warnings.append("SCHD 매도 금지 정책 적용 중")
+
+        guardrail_paused = bool(meta.get("guardrail_paused", False))
+        guardrail_since = meta.get("guardrail_paused_since")
+        guardrail_panic = int(meta.get("guardrail_panic_streak", 0))
+        guardrail_nav_breach = bool(meta.get("guardrail_nav_breach", False))
+        guardrail_peak_breach = bool(meta.get("guardrail_peak_dd_breach", False))
+        if guardrail_paused:
+            reasons: List[str] = []
+            if guardrail_nav_breach:
+                reasons.append("누적투입 -15% 미달")
+            if guardrail_peak_breach:
+                reasons.append("ATH -20% 낙폭 초과")
+            risk_warnings.append(
+                f"🚨 Level 2 가드레일 발동 ({', '.join(reasons)}) — INCREASE 차단 중"
+                + (f", 발동일: {guardrail_since}" if guardrail_since else "")
+            )
+        elif guardrail_panic >= _GUARDRAIL_PANIC_WARN:
+            risk_warnings.append(f"⚠️ PANIC {guardrail_panic}거래일 연속")
 
         policy_row = None
         if policy_df is not None and not policy_df.empty and "trade_date" in policy_df.columns:
