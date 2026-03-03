@@ -27,6 +27,7 @@ logger = logging.getLogger(__name__)
 
 _COMPANY_TICKERS_URL = "https://www.sec.gov/files/company_tickers.json"
 _SUBMISSIONS_URL = "https://data.sec.gov/submissions/CIK{cik:010d}.json"
+_SUBMISSIONS_BASE = "https://data.sec.gov/submissions/"
 _ARCHIVE_URL = "https://www.sec.gov/Archives/edgar/data/{cik}/{acc_clean}/{primary_doc}"
 
 FORM_TYPES = frozenset({"8-K", "10-Q", "10-K"})
@@ -93,11 +94,13 @@ class SECEdgarAdapter(TextSourceAdapter):
     def fetch(self, start_dt: date, end_dt: date) -> Iterable[RawDoc]:
         """지정 기간 내 8-K/10-Q/10-K 공시를 수집하여 RawDoc 반환."""
         cik_map = self._get_cik_map()
-        for ticker in self._seed_tickers:
+        total = len(self._seed_tickers)
+        for idx, ticker in enumerate(self._seed_tickers, start=1):
             cik = cik_map.get(ticker)
             if cik is None:
                 logger.debug("CIK not found for ticker %s — skipping", ticker)
                 continue
+            logger.info("SEC fetch [%d/%d] ticker=%s cik=%d", idx, total, ticker, cik)
             yield from self._fetch_filings_for_cik(ticker, cik, start_dt, end_dt)
 
     # ------------------------------------------------------------------
@@ -178,24 +181,9 @@ class SECEdgarAdapter(TextSourceAdapter):
     def _fetch_filings_for_cik(
         self, ticker: str, cik: int, start_dt: date, end_dt: date
     ) -> Iterable[RawDoc]:
-        """submissions API로 공시 목록 조회 → 기간 필터 → 본문 수집."""
-        url = _SUBMISSIONS_URL.format(cik=cik)
-        resp = self._get(url)
-        if resp is None:
-            return
-
-        data = resp.json()
-        recent = data.get("filings", {}).get("recent", {})
-        if not recent:
-            return
-
-        forms = recent.get("form", [])
-        filing_dates = recent.get("filingDate", [])
-        accessions = recent.get("accessionNumber", [])
-        primary_docs = recent.get("primaryDocument", [])
-
-        for form, filing_date_str, accession, primary_doc in zip(
-            forms, filing_dates, accessions, primary_docs
+        """submissions API (recent + paginated files) 전체 조회 → 기간 필터 → 본문 수집."""
+        for form, filing_date_str, accession, primary_doc in self._iter_all_filings(
+            cik, start_dt=start_dt, end_dt=end_dt
         ):
             if form not in FORM_TYPES:
                 continue
@@ -218,6 +206,88 @@ class SECEdgarAdapter(TextSourceAdapter):
             )
             if doc is not None:
                 yield doc
+
+    @staticmethod
+    def _iter_filings_from_block(
+        block: dict,
+    ) -> Iterable[tuple[str, str, str, str]]:
+        """columnar filing block에서 핵심 filing 컬럼을 추출."""
+        forms = block.get("form", [])
+        filing_dates = block.get("filingDate", [])
+        accessions = block.get("accessionNumber", [])
+        primary_docs = block.get("primaryDocument", [])
+        return zip(forms, filing_dates, accessions, primary_docs)
+
+    def _iter_all_filings(
+        self,
+        cik: int,
+        start_dt: Optional[date] = None,
+        end_dt: Optional[date] = None,
+    ) -> Iterable[tuple[str, str, str, str]]:
+        """submissions API의 recent + files 페이지를 모두 순회."""
+        url = _SUBMISSIONS_URL.format(cik=cik)
+        resp = self._get(url)
+        if resp is None:
+            return
+
+        data = resp.json()
+        filings = data.get("filings", {})
+        recent = filings.get("recent", {})
+        files = filings.get("files", [])
+
+        logger.info(
+            "SEC %010d: recent=%d filings, %d pagination files",
+            cik,
+            len(recent.get("form", [])),
+            len(files),
+        )
+
+        if recent:
+            yield from self._iter_filings_from_block(recent)
+
+        for file_entry in files:
+            file_name = file_entry.get("name")
+            if not file_name:
+                continue
+
+            filing_from = file_entry.get("filingFrom")
+            filing_to = file_entry.get("filingTo")
+            if start_dt is not None and end_dt is not None and filing_from and filing_to:
+                try:
+                    page_start = date.fromisoformat(filing_from)
+                    page_end = date.fromisoformat(filing_to)
+                except ValueError:
+                    page_start = None
+                    page_end = None
+                if (
+                    page_start is not None
+                    and page_end is not None
+                    and (page_end < start_dt or page_start > end_dt)
+                ):
+                    logger.debug(
+                        "Skip pagination %s: range [%s, %s] outside [%s, %s]",
+                        file_name,
+                        filing_from,
+                        filing_to,
+                        start_dt,
+                        end_dt,
+                    )
+                    continue
+
+            page_url = _SUBMISSIONS_BASE + file_name
+            page_resp = self._get(page_url)
+            if page_resp is None:
+                logger.warning("Pagination file fetch failed: %s", page_url)
+                continue
+
+            page_data = page_resp.json()
+            logger.debug(
+                "SEC %010d: page %s -> %d filings",
+                cik,
+                file_name,
+                len(page_data.get("form", [])),
+            )
+            yield from self._iter_filings_from_block(page_data)
 
     def _download_filing(
         self,
