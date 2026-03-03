@@ -66,8 +66,17 @@ def test_quality_flags_body_too_short():
 
 def test_quality_flags_has_html_markup():
     body = "<html><body>content</body></html>"
-    flags = _compute_quality_flags("content" * 20, "en", body)
+    flags = _compute_quality_flags("<html>content</html>" * 20, "en", body)
     assert "has_html_markup" in flags
+
+
+def test_quality_flags_html_body_stripped_clean():
+    flags = _compute_quality_flags(
+        "The Federal Reserve raised rates by 25bp. " * 4,
+        "en",
+        "<html><body>The Federal Reserve raised rates by 25bp.</body></html>",
+    )
+    assert flags == "ok"
 
 
 # ---------------------------------------------------------------------------

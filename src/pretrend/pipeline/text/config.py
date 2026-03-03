@@ -47,6 +47,16 @@ class TextPipelineConfig:
 
     # Gold
     gold_root: Path = field(default_factory=lambda: DATA_ROOT / "gold" / "text")
+    gold_llm_root: Path = field(default_factory=lambda: DATA_ROOT / "gold" / "text")
+
+    # Gold LLM (Observer only)
+    ollama_base_url: str = field(
+        default_factory=lambda: os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+    )
+    ollama_model: str = field(
+        default_factory=lambda: os.getenv("OLLAMA_MODEL", "llama3.1:latest")
+    )
+    ollama_timeout: int = 30
 
     @classmethod
     def default(cls) -> "TextPipelineConfig":

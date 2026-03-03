@@ -12,6 +12,7 @@ from pretrend.pipeline.text.adapters.base import RawDoc
 from pretrend.pipeline.text.bronze_ingest import run_text_bronze_ingest
 from pretrend.pipeline.text.config import TextPipelineConfig
 from pretrend.pipeline.text.gold_build import run_text_gold_build
+from pretrend.pipeline.text.gold_llm_build import run_text_gold_llm_build
 from pretrend.pipeline.text.silver_build import run_text_silver_build
 
 
@@ -194,3 +195,117 @@ def test_silver_failopen_no_bronze_data(tmp_path):
     assert result.success, "Bronze 없어도 Silver 빌드 성공"
     assert result.docs_input == 0
     assert result.docs_output == 0
+
+
+def _write_silver_doc(tmp_path, event_date: str = "2026-02-20", n: int = 1) -> TextPipelineConfig:
+    silver_root = tmp_path / "silver" / "text"
+    partition_dir = silver_root / "text_enriched" / f"event_date={event_date}"
+    partition_dir.mkdir(parents=True, exist_ok=True)
+    rows = []
+    for i in range(n):
+        rows.append(
+            {
+                "doc_id": f"doc-{i}",
+                "source": "fed_fomc",
+                "canonical_url": f"https://example.com/doc-{i}",
+                "event_date": event_date,
+                "title": f"sample-{i}",
+                "clean_text": "The Federal Reserve may hike rates." * 5,
+                "asset_scope": "macro",
+                "quality_flags": "ok",
+                "lang": "en",
+                "enricher_version": "v0",
+                "published_at": pd.Timestamp(f"{event_date}T00:00:00+00:00"),
+            }
+        )
+    pd.DataFrame(rows).to_parquet(partition_dir / f"silver_{event_date.replace('-', '')}.parquet", index=False)
+    return TextPipelineConfig(
+        data_root=tmp_path,
+        bronze_root=tmp_path / "bronze" / "text",
+        silver_root=silver_root,
+        gold_root=tmp_path / "gold" / "text",
+        gold_llm_root=tmp_path / "gold" / "text",
+    )
+
+
+def test_gold_llm_ollama_unavailable_does_not_block_pipeline(tmp_path, monkeypatch):
+    cfg = _write_silver_doc(tmp_path)
+    monkeypatch.setattr("pretrend.pipeline.text.gold_llm_build._check_ollama_available", lambda *_a, **_kw: False)
+
+    llm_result = run_text_gold_llm_build(
+        start_date=date(2026, 2, 20),
+        end_date=date(2026, 2, 20),
+        cfg=cfg,
+    )
+    assert llm_result.success
+    assert llm_result.docs_processed == 0
+
+    gold_result = run_text_gold_build(
+        start_date=date(2026, 2, 20),
+        end_date=date(2026, 2, 20),
+        cfg=cfg,
+    )
+    assert gold_result.success
+    assert list((cfg.gold_root / "text_daily_features").rglob("*.parquet"))
+
+
+def test_gold_llm_partial_doc_failure_continues(tmp_path, monkeypatch):
+    cfg = _write_silver_doc(tmp_path, n=3)
+    monkeypatch.setattr("pretrend.pipeline.text.gold_llm_build._check_ollama_available", lambda *_a, **_kw: True)
+    seen = {"count": 0}
+
+    def _mock_chat(*_a, **_kw):
+        seen["count"] += 1
+        if seen["count"] == 2:
+            raise TimeoutError("mock timeout")
+        return '{"summary":"ok","tone":"hawkish","topics":["sp500"],"tags":["hike"],"confidence":0.7}'
+
+    monkeypatch.setattr("pretrend.pipeline.text.gold_llm_build._ollama_chat", _mock_chat)
+
+    result = run_text_gold_llm_build(
+        start_date=date(2026, 2, 20),
+        end_date=date(2026, 2, 20),
+        cfg=cfg,
+    )
+    assert result.success
+    assert result.docs_input == 3
+    assert result.docs_processed == 2
+    assert result.docs_skipped == 1
+    assert result.coverage_ratio == pytest.approx(2 / 3)
+
+
+def test_gold_llm_json_parse_failure_skips_doc(tmp_path, monkeypatch):
+    cfg = _write_silver_doc(tmp_path, n=2)
+    monkeypatch.setattr("pretrend.pipeline.text.gold_llm_build._check_ollama_available", lambda *_a, **_kw: True)
+    seen = {"count": 0}
+
+    def _mock_chat(*_a, **_kw):
+        seen["count"] += 1
+        if seen["count"] == 1:
+            return "not valid json {{"
+        return '{"summary":"ok","tone":"neutral","topics":[],"tags":[],"confidence":0.6}'
+
+    monkeypatch.setattr("pretrend.pipeline.text.gold_llm_build._ollama_chat", _mock_chat)
+
+    result = run_text_gold_llm_build(
+        start_date=date(2026, 2, 20),
+        end_date=date(2026, 2, 20),
+        cfg=cfg,
+    )
+    assert result.success
+    assert result.docs_processed == 1
+    assert result.docs_skipped == 1
+
+
+def test_gold_llm_no_parquet_when_ollama_down(tmp_path, monkeypatch):
+    cfg = _write_silver_doc(tmp_path)
+    monkeypatch.setattr("pretrend.pipeline.text.gold_llm_build._check_ollama_available", lambda *_a, **_kw: False)
+
+    result = run_text_gold_llm_build(
+        start_date=date(2026, 2, 20),
+        end_date=date(2026, 2, 20),
+        cfg=cfg,
+    )
+
+    assert result.success
+    assert not list((cfg.gold_llm_root / "text_llm_features").rglob("*.parquet"))

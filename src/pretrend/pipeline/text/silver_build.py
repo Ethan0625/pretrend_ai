@@ -81,7 +81,8 @@ def _compute_quality_flags(clean_text: str, lang: str, body: str) -> str:
         flags.append("body_too_short")
     if len(clean_text) > 500_000:
         flags.append("body_too_long")
-    if "<html" in body.lower() or "<!doctype" in body.lower():
+    # clean_text에 마크업이 남아있는 경우만 경고한다.
+    if "<html" in clean_text.lower() or "<!doctype" in clean_text.lower():
         flags.append("has_html_markup")
     return ",".join(flags) if flags else "ok"
 

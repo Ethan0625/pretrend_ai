@@ -18,7 +18,9 @@ import pandas as pd
 
 from pretrend.pipeline.text.adapters.base import RawDoc, TextSourceAdapter, make_doc_id
 from pretrend.pipeline.text.adapters.fed_fomc import FedFomcAdapter
+from pretrend.pipeline.text.adapters.fed_fomc_archive import FedFomcArchiveAdapter
 from pretrend.pipeline.text.adapters.sec_edgar import SECEdgarAdapter
+from pretrend.pipeline.text.adapters.sec_edgar_index import SECEdgarIndexAdapter
 from pretrend.pipeline.text.config import TextPipelineConfig
 
 logger = logging.getLogger(__name__)
@@ -66,7 +68,17 @@ def _build_adapter(source: str, cfg: TextPipelineConfig) -> TextSourceAdapter:
             rss_url=cfg.fed_rss_url,
             request_delay_sec=cfg.fed_request_delay_sec,
         )
-    raise ValueError(f"Unknown source: {source!r}. Available: sec, fed")
+    if source == "sec_index":
+        return SECEdgarIndexAdapter(
+            user_agent=cfg.sec_user_agent,
+            request_delay_sec=cfg.sec_request_delay_sec,
+        )
+    if source == "fomc_archive":
+        return FedFomcArchiveAdapter(
+            request_delay_sec=cfg.fed_request_delay_sec,
+            user_agent=cfg.sec_user_agent,
+        )
+    raise ValueError(f"Unknown source: {source!r}. Available: sec, fed, sec_index, fomc_archive")
 
 
 def _docs_to_df(docs: List[RawDoc]) -> pd.DataFrame:

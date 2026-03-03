@@ -7,6 +7,93 @@
 
 > 참고: changelog 과거 섹션은 작성 시점 원문을 보존한다.
 
+## v2026.03.03b — P1 text: LLM Observer 활성화 + 백필 경로 확장
+
+### feat(text-dag): `text_pipeline_dag` 추가
+- `dags/text_pipeline_dag.py` 신규 추가
+- `bronze(sec+fed) -> silver -> gold` 3단계 체인을 Airflow DAG로 고정
+
+### feat(text-llm): Gold LLM Observer v1 구현
+- `src/pretrend/pipeline/text/gold_llm_build.py` 추가
+- Ollama 로컬(`llama3.1:latest`) 기반 `gold.text_llm_features` 저장 경로 구현
+- fail-open 원칙 유지:
+  - Ollama 미실행/응답 오류 시 rule-based Gold는 그대로 동작
+  - LLM 산출물만 skip
+
+### fix(text-silver): `has_html_markup` 판정 완화
+- `silver_build.py`의 `has_html_markup` 검사를 Bronze `body`가 아닌 Silver `clean_text` 기준으로 변경
+- HTML 원문이더라도 정제가 정상 완료된 문서는 `quality_flags="ok"`로 처리
+
+### feat(text-backfill): SEC Index / FOMC Archive 백필 경로 추가
+- `sec_edgar_index.py`, `fed_fomc_archive.py`, `backfill.py` 추가
+- Bronze 백필 source:
+  - `sec_index`
+  - `fomc_archive`
+- 실데이터 검증:
+  - `data/bronze/text/sec_index`: `2006-12-31 ~ 2024-06-03`
+  - `data/bronze/text/fomc_archive`: `2006-12-31 ~ 2024-06-03`
+  - `data/gold/text/text_daily_features`: `2006-01-01 ~ 2026-02-20`
+
+### test(text): LLM / fail-open / backfill 커버리지 확장
+- `tests/pipeline/text/test_text_llm.py` 추가
+- `tests/pipeline/text/test_text_backfill.py` 추가
+- `tests/pipeline/text/test_text_failopen.py`에 LLM 장애 시나리오 추가
+- 전체 회귀:
+  - `526 passed, 4 skipped`
+
+## v2026.03.03a — P1 paper: Level 2 guardrail 코드 구현
+
+### feat(paper): Level 2 guardrail 상태 추적 및 매수 차단
+- `simulate_paper_execution()` 반환값을 `ledger, positions, portfolio, guardrail_status`로 확장
+- `portfolio_daily`에 아래 컬럼 추가:
+  - `guardrail_paused`
+  - `guardrail_nav_breach`
+  - `guardrail_peak_dd_breach`
+  - `guardrail_panic_streak`
+  - `peak_nav`
+
+### rules(paper): 실증 기반 임계값 적용
+- 발동:
+  - `NAV / total_invested_capital < 0.85`
+  - `peak drawdown < -20%`
+- 복귀:
+  - `NAV / total_invested_capital >= 0.90`
+  - `drawdown >= -15%`
+- `PANIC streak >= 5`는 경고 전용으로 유지
+
+### feat(alert): PAPER_RESULT risk warning 연동
+- `dags/paper_trading_dag.py`에서 guardrail 메타를 Telegram warning으로 연결
+- `🚨 Level 2 가드레일 발동` / `⚠️ PANIC n거래일 연속` 문구 노출
+
+### test(paper): guardrail 회귀 검증 추가
+- NAV breach / peak DD breach / auto resume / panic warning 시나리오 추가
+- 관련 테스트:
+  - `tests/pipeline/paper/test_execution_soft_gate.py`
+  - `tests/pipeline/backtest/test_paper_execution_nav.py`
+  - `tests/pipeline/backtest/test_paper_execution_positions.py`
+  - `tests/pipeline/backtest/test_paper_execution_ledger.py`
+
+## v2026.02.28a — P1 fix: paper 원자쓰기·커버리지·계약 앵커 일괄 반영 (commit ce965c3)
+
+### fix(paper/io): INV-IDEMP-01 atomic write 복구
+- `save_decision_partition()`에 `_tmp_{uuid}` 경유 + `Path.replace()` / `shutil.move()` fallback 적용
+- 프로세스 중단 시 최종 파티션에 부분 파일 잔존 불가 보장
+
+### test(paper): io/report 단위 테스트 신규 추가
+- `tests/pipeline/paper/test_paper_io.py` 추가 (3건):
+  - 원자쓰기 경로 검증 / 빈 입력 None 반환 / 파티션 경로 구조 검증
+- `tests/pipeline/paper/test_paper_report.py` 추가 (4건):
+  - 필수 필드 검증 / 최소 payload 생성 / 누락 필드 예외 / enum 케이스
+
+### docs(group-transition): pos_ratio 임계값 계약 앵커
+- `docs/architecture/group_transition_signal_contract.md §6`에 수치 기준 명시:
+  - STRONG: `pos_ratio >= 0.5`, WEAK: `pos_ratio < 0.4`, UNKNOWN: `rs_values < 2`
+- `tests/pipeline/strategy_engine/test_group_transition_engine.py`에 경계/fallback 테스트 2건 추가
+
+### docs(paper-ledger): Level 2 운영 가드레일 신설
+- `docs/architecture/paper_execution_ledger_contract.md`에 `§10 Level 2 운영 가드레일` 추가
+- 중단 조건(NAV < initial_capital × 0.70) / 수동 승인 지점 / 복귀 조건 / 기록 의무 고정
+
 ## v2026.02.27d — P2-1 Universe-Stock(U0~U3) 계약 초안 정합화
 
 ### docs(universe): Research 확장 포트 명문화
