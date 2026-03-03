@@ -34,6 +34,7 @@
 - [11. 버전 관리](#11-버전-관리)
 - [12. v1+ 확장 체크리스트 (Gate D)](#12-v1-확장-체크리스트-gate-d)
 - [13. LLM Observer Layer — v1 계약 (Gate D)](#13-llm-observer-layer--v1-계약-gate-d)
+- [14. 운영 경계 정책 (v1)](#14-운영-경계-정책-v1)
 - [Change History](#change-history)
 
 참조:
@@ -356,7 +357,7 @@ Silver (clean_text)
 | `confidence` | float | Y | LLM 자체 confidence [0.0, 1.0]. 미제공 시 0.5 기본값 |
 | `feature_version` | str | Y | `v1` |
 | `model_id` | str | Y | 예: `llama3.1:latest` |
-| `prompt_version` | str | Y | 프롬프트 템플릿 버전 (예: `text_annotation_v1`) |
+| `prompt_version` | str | Y | 프롬프트 템플릿 버전 (예: `text_annotation_v2`) |
 | `coverage_ratio` | float | Y | 해당 날짜 Ollama 호출 성공률 (0~1) |
 | `staleness_days` | int | Y | 마지막 성공 처리 기준 경과 일수 |
 
@@ -365,7 +366,7 @@ Silver (clean_text)
 {
   "summary": "The Federal Reserve signaled a 25bp rate hike amid persistent inflation.",
   "tone": "hawkish",
-  "topics": ["us_treasury_long", "financials"],
+  "topics": ["fed_policy", "inflation", "us_treasury_long"],
   "tags": ["hike", "guidance_change"],
   "confidence": 0.87
 }
@@ -373,17 +374,33 @@ Silver (clean_text)
 
 **응답 규칙**:
 - `tone`: `hawkish` | `dovish` | `neutral` — allowlist 외 값은 `neutral`로 강제
-- `topics`: §3.1 Topic Allowlist 내 값만 허용. 최대 3개. allowlist 외 값 제거
-- `tags`: §3.2 Tag Allowlist 내 값만 허용. 최대 5개. allowlist 외 값 제거
+- `topics`: Topic Taxonomy 내 item만 허용. 최대 3개. 저장 시 `feature_str`는 `[{"category": "...", "item": "..."}]`
+- `tags`: Tag Taxonomy 내 item만 허용. 최대 5개. 저장 시 `feature_str`는 `[{"category": "...", "item": "..."}]`
 - `confidence`: LLM 제공 시 파싱, 미제공 시 0.5 기본값
 
 ### 13.5 프롬프트 설계 원칙
 
 - **출력 포맷**: JSON strict — Ollama `format="json"` 파라미터 활용
-- **시스템 프롬프트**: 역할 정의 + 출력 스키마 명시 + allowlist 명시 (할루시네이션 억제)
+- **시스템 프롬프트**: 역할 정의 + 출력 스키마 명시 + Topic/Tag item 목록 명시 (할루시네이션 억제)
 - **입력 길이 제한**: `clean_text[:4096]` — llama3.1 8k 컨텍스트 기준 절반 예약
 - **이중 방어**: allowlist 외 값 → LLM 프롬프트 제한 + 클라이언트 파싱 시 필터링
 - **비결정성 허용**: LLM 응답은 non-deterministic. 운영 KPI §13.7로 분포 모니터링
+
+**Topic Taxonomy (6 categories / 39 items)**:
+- `index`: `sp500`, `nasdaq100`, `dow30`, `russell2000`, `us_dividend`
+- `country`: `south_korea`, `china`, `japan`, `india`
+- `commodity`: `gold`, `gold_miners`, `silver`, `crude_oil`, `oil_producers`, `natural_gas`, `agriculture`
+- `bond`: `us_treasury_long`, `high_yield_bond`, `investment_grade_bond`, `short_treasury`, `tips`
+- `sector`: `energy_sector`, `financials`, `regional_banks`, `semiconductor`, `information_tech`, `health_care`, `materials`, `consumer_discretionary`, `consumer_staples`, `communication_services`, `real_estate`, `utilities`, `nuclear_energy`, `industrials`
+- `macro`: `fed_policy`, `inflation`, `employment`, `treasury_yield`
+
+**Tag Taxonomy (6 categories / 27 items)**:
+- `policy_action`: `hike`, `cut`, `pause`, `pivot`, `qe`, `qt`
+- `forward_guidance`: `guidance_change`, `guidance_raise`, `guidance_cut`
+- `fiscal_trade`: `fiscal_stimulus`, `regulation_change`, `tariff`
+- `credit_event`: `downgrade`, `default`, `spread_widening`, `liquidity_crunch`, `bank_run`, `bailout`
+- `corporate_event`: `earnings_miss`, `earnings_beat`, `layoff`, `bankruptcy`
+- `market_regime`: `crash`, `correction`, `capitulation`, `volatility_spike`, `risk_off`, `risk_on`
 
 ### 13.6 Fail-open 정책
 
@@ -442,9 +459,99 @@ Silver (clean_text)
 
 ---
 
+## 14. 운영 경계 정책 (v1)
+
+### 14.1 Gold Rule-Based Feature (3종)
+
+| Feature | 소비자 | 역할 | 연결 시점 |
+| --- | --- | --- | --- |
+| `filing_risk_burst` | 저장 전용 (v0) | 8-K 공시 빈도 이상 탐지 | Strategy v1+ 예약 |
+| `macro_hawkish_score` | 저장 전용 (v0) | FOMC 기조 수치화 | Strategy v1+ 예약 |
+| `policy_uncertainty_idx` | 저장 전용 (v0) | 파생 불확실성 지수 | Strategy v1+ 예약 |
+
+**불변식**:
+- v0 Strategy Engine(7-stage)은 Text Gold feature를 소비하지 않는다.
+- Text feature 결측/장애가 `INCREASE/DECREASE/HOLD` 판정에 영향을 주어서는 안 된다.
+
+**Strategy 연결 Gate (Gate H)**:
+1. 최소 30거래일 연속 운영 데이터 확보 (`text_pipeline_dag` 가동 후)
+2. rule-based 3종 모두 `coverage_ratio` 중앙값 > `0.5`
+3. Text feature 유무 AB 백테스트 비교 수행
+4. 연결 방식은 별도 계약으로 확정:
+   - 기존 Axis Feature 보조 입력
+   - 또는 별도 5th axis 신설
+
+### 14.2 Gold LLM Feature (4종)
+
+| Feature | 소비자 | 역할 |
+| --- | --- | --- |
+| `llm_tone` | 저장 전용 (Phase 1) | 문서별 hawkish/dovish/neutral |
+| `llm_topics` | 저장 전용 (Phase 1) | 문서별 주제 태그 |
+| `llm_tags` | 저장 전용 (Phase 1) | 문서별 이벤트 태그 |
+| `llm_summary` | 저장 전용 (Phase 1) | 문서별 1줄 요약 |
+
+**Phase 1 정책**:
+- Observer-only. 저장만 수행하고 Strategy/Paper/Backtest는 소비하지 않는다.
+
+**Phase 1.5 정책**:
+- DAG 안정화 후 Telegram 리포트에 당일 텍스트 요약을 추가할 수 있다.
+- 이 단계에서도 신호 판정/게이트/allocation 입력은 금지한다.
+
+### 14.3 Telegram 반영 범위 (Phase 1.5)
+
+**적용 섹션**:
+- `시장 근거 (Market Evidence)`에 1~2줄 추가
+  - 당일 `llm_tone` 분포 요약
+  - 당일 `llm_tags` 상위 태그 요약
+
+예시:
+- `Fed 문서 2건: hawkish 1, neutral 1`
+- `주요 태그: hike, guidance_change`
+
+**적용하지 않는 섹션**:
+- `시장 컨텍스트`
+- `다음 스텝 가설`
+- `진단 요약`
+
+이 섹션들은 기존 규칙 기반 유지가 원칙이다.
+
+**Fail-open**:
+- LLM feature가 없으면 해당 줄만 생략한다.
+- 기존 메시지 구조와 신호 의미는 유지한다.
+
+**구현 위치**:
+- `report_context.py`의 해석/문장 선택 helper 확장
+
+### 14.4 Backtest 연결 조건
+
+**현재**:
+- Backtest runner는 Strategy snapshot만 소비한다.
+- Text Gold를 독립적으로 로드하지 않는다.
+
+**연결 전제 (Gate H 충족 후)**:
+1. Strategy Engine이 먼저 Text feature를 소비하기 시작해야 한다.
+2. Backtest runner는 Text Gold를 독립 로드하지 않는다.
+3. Text feature 유무에 따른 AB 백테스트는 Gate H 의사결정 자료로만 사용한다.
+
+즉, 연결 순서는 `Text -> Strategy -> Backtest` 단방향으로 고정한다.
+
+### 14.5 Airflow 스케줄 정책
+
+| DAG | 스케줄 | LLM task |
+| --- | --- | --- |
+| `text_pipeline_dag` | 09:30 UTC daily | Gold LLM task 포함 (P1-19) |
+
+**의존성**:
+- `text_pipeline_dag`는 `strategy_engine_dag`(10:00 UTC)보다 30분 먼저 실행한다.
+- 단, v0에서 Strategy가 Text를 소비하지 않으므로 hard dependency는 아니다.
+- 현재 단계에서는 운영 순서 정렬 목적의 soft ordering만 가진다.
+
+---
+
 ## Change History
 | Date | Summary | References |
 | --- | --- | --- |
+| 2026-03-03 | §14 운영 경계 정책 추가: rule-based/LLM feature의 observer-only 범위, Telegram Phase 1.5 반영 범위, Gate H 조건(30거래일/coverage>0.5/AB 비교), Backtest 단방향 연결 규칙 명시 | docs/changelog.md |
 | 2026-03-03 | §13 LLM Observer Layer v1 계약 추가: Ollama 로컬(llama3.1:latest), gold_llm_build.py 위치, 출력 스키마, fail-open, Gate D 충족 현황, Phase 1.5 Telegram 정책 초안 | docs/changelog.md |
 | 2026-02-27 | v1+ 확장 체크리스트(Gate D) 추가: Rate-limit/ToS/Secret + fail-open Strategy 독립성 + 운영 준비 항목 명시 | docs/changelog.md |
 | 2026-02-20 | 수집 전략 v1 확정 반영: Bronze 멱등키 `(source, source_doc_id)` + 신규 필드 추가, Silver LLM → Reserved(v1+) + v0 필수 필드(asset_scope/quality_flags), Gold long 포맷 + 초기 3개 feature, Fail-open 정책 + 품질 KPI 섹션 추가 | docs/changelog.md |

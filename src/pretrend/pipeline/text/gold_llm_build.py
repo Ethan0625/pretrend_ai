@@ -3,11 +3,13 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import uuid
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
 
@@ -17,29 +19,80 @@ from pretrend.pipeline.text.gold_build import _load_silver
 logger = logging.getLogger(__name__)
 
 _FEATURE_VERSION = "v1"
-_PROMPT_VERSION = "text_annotation_v1"
+_PROMPT_VERSION = "text_annotation_v2"
 _TONE_VALUE = {"hawkish": 1.0, "dovish": -1.0, "neutral": 0.0}
 _TONE_ALLOWLIST = frozenset({"hawkish", "dovish", "neutral"})
-_TOPIC_ALLOWLIST = frozenset(
-    {
-        "sp500", "nasdaq100", "dow30", "russell2000", "us_dividend",
-        "south_korea", "china", "japan", "india",
-        "gold", "silver", "crude_oil", "natural_gas", "agriculture",
-        "us_treasury_long",
+TOPIC_TAXONOMY: Dict[str, List[str]] = {
+    "index": ["sp500", "nasdaq100", "dow30", "russell2000", "us_dividend"],
+    "country": ["south_korea", "china", "japan", "india"],
+    "commodity": [
+        "gold", "gold_miners", "silver", "crude_oil", "oil_producers",
+        "natural_gas", "agriculture",
+    ],
+    "bond": [
+        "us_treasury_long", "high_yield_bond", "investment_grade_bond",
+        "short_treasury", "tips",
+    ],
+    "sector": [
         "energy_sector", "financials", "regional_banks", "semiconductor",
         "information_tech", "health_care", "materials",
         "consumer_discretionary", "consumer_staples", "communication_services",
-        "real_estate", "utilities", "nuclear_energy",
-    }
-)
-_TAG_ALLOWLIST = frozenset(
-    {
-        "hike", "cut", "qe", "qt", "guidance_change", "fiscal_stimulus", "regulation_change",
-        "downgrade", "default", "spread_widening", "liquidity_crunch", "bank_run", "bailout",
-        "earnings_miss", "earnings_beat", "guidance_raise", "guidance_cut", "layoff", "bankruptcy",
-        "crash", "capitulation", "volatility_spike", "risk_off", "risk_on",
-    }
-)
+        "real_estate", "utilities", "nuclear_energy", "industrials",
+    ],
+    "macro": ["fed_policy", "inflation", "employment", "treasury_yield"],
+}
+TAG_TAXONOMY: Dict[str, List[str]] = {
+    "policy_action": ["hike", "cut", "pause", "pivot", "qe", "qt"],
+    "forward_guidance": ["guidance_change", "guidance_raise", "guidance_cut"],
+    "fiscal_trade": ["fiscal_stimulus", "regulation_change", "tariff"],
+    "credit_event": [
+        "downgrade", "default", "spread_widening",
+        "liquidity_crunch", "bank_run", "bailout",
+    ],
+    "corporate_event": ["earnings_miss", "earnings_beat", "layoff", "bankruptcy"],
+    "market_regime": [
+        "crash", "correction", "capitulation",
+        "volatility_spike", "risk_off", "risk_on",
+    ],
+}
+_TAG_DESCRIPTIONS: Dict[str, str] = {
+    "hike": "raising interest rates",
+    "cut": "lowering interest rates",
+    "pause": "maintaining current interest rate levels",
+    "pivot": "shifting monetary policy direction",
+    "qe": "quantitative easing or asset purchases",
+    "qt": "quantitative tightening or balance sheet reduction",
+    "guidance_change": "change in forward guidance language",
+    "guidance_raise": "raising economic or earnings outlook",
+    "guidance_cut": "lowering economic or earnings outlook",
+    "fiscal_stimulus": "government spending or tax policy stimulus",
+    "regulation_change": "new or changed financial regulation",
+    "tariff": "trade tariffs or import duties",
+    "downgrade": "credit or rating downgrade",
+    "default": "debt default or missed payment",
+    "spread_widening": "credit spread widening",
+    "liquidity_crunch": "tightening liquidity conditions",
+    "bank_run": "bank deposit withdrawals or banking crisis",
+    "bailout": "government or institutional rescue package",
+    "earnings_miss": "company earnings below expectations",
+    "earnings_beat": "company earnings above expectations",
+    "layoff": "workforce reduction or job cuts",
+    "bankruptcy": "company filing for bankruptcy",
+    "crash": "sharp market decline",
+    "correction": "moderate market pullback (10-20%)",
+    "capitulation": "panic selling or market surrender",
+    "volatility_spike": "sharp increase in market volatility",
+    "risk_off": "flight to safety or risk aversion",
+    "risk_on": "increased risk appetite",
+}
+_TOPIC_ALLOWLIST = frozenset(item for items in TOPIC_TAXONOMY.values() for item in items)
+_TOPIC_TO_CATEGORY: Dict[str, str] = {
+    item: category for category, items in TOPIC_TAXONOMY.items() for item in items
+}
+_TAG_ALLOWLIST = frozenset(item for items in TAG_TAXONOMY.values() for item in items)
+_TAG_TO_CATEGORY: Dict[str, str] = {
+    item: category for category, items in TAG_TAXONOMY.items() for item in items
+}
 _GOLD_LLM_COLUMNS = [
     "trade_date",
     "doc_id",
@@ -53,10 +106,22 @@ _GOLD_LLM_COLUMNS = [
     "coverage_ratio",
     "staleness_days",
 ]
+_TAG_LIST_WITH_DESC = "\n".join(
+    f"- {tag}: {_TAG_DESCRIPTIONS[tag]}"
+    for tag in sorted(_TAG_ALLOWLIST)
+)
 _SYSTEM_PROMPT = (
     "You are a financial document analyst. Analyze the given document and return a JSON object "
-    'with exactly these fields: "summary", "tone", "topics", "tags", "confidence". '
-    'Tone must be one of "hawkish", "dovish", "neutral". '
+    'with exactly these fields: "summary", "tone", "topics", "tags", "confidence".\n\n'
+    'Tone must be one of: "hawkish", "dovish", "neutral".\n\n'
+    "Topics must be selected ONLY from this list (pick up to 3 most relevant):\n"
+    + ", ".join(sorted(_TOPIC_ALLOWLIST))
+    + "\n\n"
+    "Tags MUST be selected from the list below. "
+    "Most financial documents will match at least 1-2 tags. "
+    "Select the most relevant (up to 5):\n"
+    + _TAG_LIST_WITH_DESC
+    + "\n\n"
     "Return ONLY valid JSON."
 )
 
@@ -96,13 +161,43 @@ def _check_ollama_available(base_url: str) -> bool:
         return False
 
 
+_CONTENT_MARKERS = [
+    "for release",
+    "the federal open market",
+    "the committee",
+    "information received",
+    "recent indicators",
+    "statement regarding",
+]
+_MULTISPACE_RE = re.compile(r"\s{3,}")
+
+
+def _prepare_text_for_llm(text: str, max_chars: int = 4096) -> str:
+    """LLM 입력 전 보일러플레이트 스킵 + 잘림.
+
+    콘텐츠 마커가 발견되면 그 200 chars 앞부터 시작하여
+    웹사이트 네비게이션 등 무의미한 앞부분을 건너뛴다.
+    마커가 없으면 원문 그대로 사용한다.
+    """
+    lower = text.lower()
+    best_pos = -1
+    for marker in _CONTENT_MARKERS:
+        idx = lower.find(marker)
+        if idx >= 0 and (best_pos < 0 or idx < best_pos):
+            best_pos = idx
+    if best_pos > 200:
+        text = text[best_pos - 200:]
+    cleaned = _MULTISPACE_RE.sub(" ", text).strip()
+    return cleaned[:max_chars]
+
+
 def _ollama_chat(text: str, model: str, base_url: str, timeout: int) -> str:
     client = _get_ollama_client(base_url)
     response = client.chat(
         model=model,
         messages=[
             {"role": "system", "content": _SYSTEM_PROMPT},
-            {"role": "user", "content": text[:4096]},
+            {"role": "user", "content": _prepare_text_for_llm(text)},
         ],
         format="json",
         options={"temperature": 0.1},
@@ -125,15 +220,23 @@ def _filter_response(parsed: dict) -> dict:
     if tone not in _TONE_ALLOWLIST:
         tone = "neutral"
 
-    topics = parsed.get("topics", [])
-    if not isinstance(topics, list):
-        topics = []
-    topics = [str(t) for t in topics[:3] if str(t) in _TOPIC_ALLOWLIST]
+    topics_raw = parsed.get("topics", [])
+    if not isinstance(topics_raw, list):
+        topics_raw = []
+    topics = [
+        {"category": _TOPIC_TO_CATEGORY[str(t)], "item": str(t)}
+        for t in topics_raw[:3]
+        if str(t) in _TOPIC_ALLOWLIST
+    ]
 
-    tags = parsed.get("tags", [])
-    if not isinstance(tags, list):
-        tags = []
-    tags = [str(t) for t in tags[:5] if str(t) in _TAG_ALLOWLIST]
+    tags_raw = parsed.get("tags", [])
+    if not isinstance(tags_raw, list):
+        tags_raw = []
+    tags = [
+        {"category": _TAG_TO_CATEGORY[str(t)], "item": str(t)}
+        for t in tags_raw[:5]
+        if str(t) in _TAG_ALLOWLIST
+    ]
 
     confidence = parsed.get("confidence", 0.5)
     try:
@@ -220,39 +323,85 @@ def _to_long_format(
     ]
 
 
+def _annotate_one(
+    doc_id: str,
+    event_date: str,
+    clean_text: str,
+    model: str,
+    base_url: str,
+    timeout: int,
+) -> Tuple[str, List[dict]]:
+    """단일 문서 LLM 호출 → long-format rows 반환. (thread-safe)"""
+    raw = _ollama_chat(clean_text, model, base_url, timeout)
+    parsed = _parse_llm_response(raw)
+    if parsed is None:
+        logger.warning("LLM JSON parse failed: doc_id=%s", doc_id)
+        return doc_id, []
+    filtered = _filter_response(parsed)
+    return doc_id, _to_long_format(
+        doc_id=doc_id,
+        trade_date=event_date,
+        filtered=filtered,
+        model_id=model,
+        prompt_version=_PROMPT_VERSION,
+    )
+
+
 def _batch_annotate(
     docs_df: pd.DataFrame,
     model: str,
     base_url: str,
     timeout: int,
+    max_workers: int = 1,
 ) -> List[dict]:
     rows: List[dict] = []
     if docs_df.empty:
         return rows
-    for _, rec in docs_df.iterrows():
-        try:
-            raw = _ollama_chat(str(rec["clean_text"]), model, base_url, timeout)
-            parsed = _parse_llm_response(raw)
-            if parsed is None:
-                logger.warning("LLM JSON parse failed: doc_id=%s", rec.get("doc_id"))
-                continue
-            filtered = _filter_response(parsed)
-            rows.extend(
-                _to_long_format(
-                    doc_id=str(rec["doc_id"]),
-                    trade_date=str(rec["event_date"]),
-                    filtered=filtered,
-                    model_id=model,
-                    prompt_version=_PROMPT_VERSION,
+
+    tasks = [
+        (str(rec["doc_id"]), str(rec["event_date"]), str(rec["clean_text"]))
+        for _, rec in docs_df.iterrows()
+    ]
+
+    if max_workers <= 1:
+        for doc_id, event_date, clean_text in tasks:
+            try:
+                _, doc_rows = _annotate_one(
+                    doc_id, event_date, clean_text, model, base_url, timeout,
                 )
-            )
-        except Exception as exc:
-            logger.warning("LLM annotate skipped: doc_id=%s error=%s", rec.get("doc_id"), exc)
-            continue
+                rows.extend(doc_rows)
+            except Exception as exc:
+                logger.warning("LLM annotate skipped: doc_id=%s error=%s", doc_id, exc)
+        return rows
+
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        futures = {
+            pool.submit(
+                _annotate_one, doc_id, event_date, clean_text,
+                model, base_url, timeout,
+            ): doc_id
+            for doc_id, event_date, clean_text in tasks
+        }
+        done_count = 0
+        for future in as_completed(futures):
+            doc_id = futures[future]
+            done_count += 1
+            try:
+                _, doc_rows = future.result()
+                rows.extend(doc_rows)
+            except Exception as exc:
+                logger.warning("LLM annotate skipped: doc_id=%s error=%s", doc_id, exc)
+            if done_count % 50 == 0:
+                logger.info("LLM progress: %d / %d docs", done_count, len(tasks))
     return rows
 
 
 def _write_gold_llm_partition(df: pd.DataFrame, gold_root: Path) -> List[Path]:
+    """source별 파티션 분리 저장.
+
+    파일명: gold_llm_{source}_{YYYYMM}.parquet
+    source_filter로 특정 source만 실행해도 다른 source 파일이 보존된다.
+    """
     paths: List[Path] = []
     if df.empty:
         return paths
@@ -261,13 +410,15 @@ def _write_gold_llm_partition(df: pd.DataFrame, gold_root: Path) -> List[Path]:
     x["year"] = x["trade_date"].dt.year
     x["month"] = x["trade_date"].dt.month
     x["trade_date"] = x["trade_date"].dt.strftime("%Y-%m-%d")
-    for (year, month), group in x.groupby(["year", "month"]):
+    if "_source" not in x.columns:
+        x["_source"] = "unknown"
+    for (year, month, source), group in x.groupby(["year", "month", "_source"]):
         partition_dir = gold_root / "text_llm_features" / f"year={year}" / f"month={month:02d}"
         partition_dir.mkdir(parents=True, exist_ok=True)
-        filename = f"gold_llm_{year}{month:02d}.parquet"
+        filename = f"gold_llm_{source}_{year}{month:02d}.parquet"
         out_path = partition_dir / filename
         tmp_path = partition_dir / f".tmp_{uuid.uuid4().hex}_{filename}"
-        out_df = group.drop(columns=["year", "month"]).reset_index(drop=True)
+        out_df = group.drop(columns=["year", "month", "_source"]).reset_index(drop=True)
         out_df.to_parquet(tmp_path, index=False, compression="snappy")
         tmp_path.rename(out_path)
         paths.append(out_path)
@@ -278,6 +429,8 @@ def run_text_gold_llm_build(
     start_date: date,
     end_date: date,
     cfg: Optional[TextPipelineConfig] = None,
+    source_filter: Optional[str] = None,
+    max_workers: int = 1,
 ) -> TextGoldLlmResult:
     if cfg is None:
         cfg = TextPipelineConfig.default()
@@ -302,6 +455,8 @@ def run_text_gold_llm_build(
         )
 
     docs_df = silver_df[silver_df.get("quality_flags", "ok") == "ok"].copy()
+    if source_filter and "source" in docs_df.columns:
+        docs_df = docs_df[docs_df["source"] == source_filter]
     docs_input = int(len(docs_df))
     if docs_input == 0:
         return TextGoldLlmResult(
@@ -312,11 +467,16 @@ def run_text_gold_llm_build(
             coverage_ratio=0.0,
         )
 
+    logger.info(
+        "LLM build: %d docs, source_filter=%s, max_workers=%d",
+        docs_input, source_filter, max_workers,
+    )
     rows = _batch_annotate(
         docs_df=docs_df,
         model=cfg.ollama_model,
         base_url=cfg.ollama_base_url,
         timeout=int(cfg.ollama_timeout),
+        max_workers=max_workers,
     )
     docs_processed = int(len({r["doc_id"] for r in rows}))
     docs_skipped = int(max(docs_input - docs_processed, 0))
@@ -335,6 +495,10 @@ def run_text_gold_llm_build(
     if not out_df.empty:
         out_df["coverage_ratio"] = coverage_ratio
         out_df["staleness_days"] = 0
+        # doc_id → source 매핑 (source별 파티션 분리용)
+        if "source" in docs_df.columns:
+            doc_source_map = docs_df.set_index("doc_id")["source"].to_dict()
+            out_df["_source"] = out_df["doc_id"].map(doc_source_map).fillna("unknown")
         _write_gold_llm_partition(out_df, cfg.gold_llm_root)
 
     return TextGoldLlmResult(

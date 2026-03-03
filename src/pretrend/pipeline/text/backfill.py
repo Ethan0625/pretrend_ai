@@ -5,6 +5,11 @@
         --source sec_index,fomc_archive \
         --start 2006-01-01 --end 2024-06-03 \
         --chunk-years 1
+
+    # Gold LLM 포함 (Ollama 필요):
+    python -m pretrend.pipeline.text.backfill \
+        --source sec --start 2006-01-01 --end 2024-06-03 \
+        --chunk-years 1 --gold-llm --max-workers 4
 """
 from __future__ import annotations
 
@@ -16,6 +21,7 @@ from typing import Iterable, List
 from pretrend.pipeline.text.bronze_ingest import run_text_bronze_ingest
 from pretrend.pipeline.text.config import TextPipelineConfig
 from pretrend.pipeline.text.gold_build import run_text_gold_build
+from pretrend.pipeline.text.gold_llm_build import run_text_gold_llm_build
 from pretrend.pipeline.text.silver_build import run_text_silver_build
 
 logger = logging.getLogger(__name__)
@@ -47,6 +53,9 @@ def run_text_backfill(
     end_dt: date,
     chunk_years: int,
     cfg: TextPipelineConfig | None = None,
+    gold_llm: bool = False,
+    gold_llm_max_workers: int = 1,
+    gold_llm_source_filter: str | None = None,
 ) -> None:
     if cfg is None:
         cfg = TextPipelineConfig.default()
@@ -84,6 +93,25 @@ def run_text_backfill(
     logger.info("Backfill gold: [%s, %s]", start_dt, end_dt)
     run_text_gold_build(start_date=start_dt, end_date=end_dt, cfg=cfg)
 
+    if gold_llm:
+        logger.info(
+            "Backfill gold_llm: [%s, %s] source_filter=%s max_workers=%d",
+            start_dt, end_dt, gold_llm_source_filter, gold_llm_max_workers,
+        )
+        for chunk_start, chunk_end in _iter_year_chunks(start_dt, end_dt, chunk_years):
+            result = run_text_gold_llm_build(
+                start_date=chunk_start,
+                end_date=chunk_end,
+                cfg=cfg,
+                source_filter=gold_llm_source_filter,
+                max_workers=gold_llm_max_workers,
+            )
+            logger.info(
+                "[%s~%s] gold_llm input=%d processed=%d rows=%d",
+                chunk_start, chunk_end, result.docs_input,
+                result.docs_processed, result.feature_rows,
+            )
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Text backfill runner")
@@ -91,6 +119,9 @@ def main() -> None:
     parser.add_argument("--start", required=True, help="YYYY-MM-DD")
     parser.add_argument("--end", required=True, help="YYYY-MM-DD")
     parser.add_argument("--chunk-years", type=int, default=1, help="Chunk size in years")
+    parser.add_argument("--gold-llm", action="store_true", help="Gold LLM 스텝 포함 (Ollama 필요)")
+    parser.add_argument("--max-workers", type=int, default=1, help="Gold LLM 병렬 workers")
+    parser.add_argument("--llm-source-filter", default=None, help="Gold LLM source 필터 (예: sec_edgar)")
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -105,6 +136,9 @@ def main() -> None:
         end_dt=_parse_date(args.end),
         chunk_years=args.chunk_years,
         cfg=TextPipelineConfig.default(),
+        gold_llm=args.gold_llm,
+        gold_llm_max_workers=args.max_workers,
+        gold_llm_source_filter=args.llm_source_filter,
     )
 
 
