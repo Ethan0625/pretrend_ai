@@ -337,6 +337,12 @@ mid_regime Top-N:
 - 1차 AB 결과(`v2` vs `v2_text`, 2006-01-03~2024-06-03)는 `XIRR -0.41%p`, `MDD -6.27%p`, `Sharpe -0.047`로 나타났고, 현재 운영 판정은 `observer-only 유지`다.
 - 세부 계약은 `docs/architecture/text_strategy_connection_contract.md`를 따른다.
 
+용어 정리:
+- `llm_feature`: text snapshot만 기반으로 저장된 LLM 산출물
+- `llm_summary`: `llm_feature` 내부의 text-only 문서 요약 필드
+- `interpretation_summary`: signal snapshot + text snapshot을 함께 읽어 만드는 상위 해석문
+- `interpretation_summary`는 Telegram/리포트 출력 전용이며, 전략 입력으로 사용하지 않는다.
+
 ### Telegram Phase 1.5
 - LLM 반영 가능 범위는 `시장 근거` 섹션 1~2줄로 제한한다.
 - `시장 컨텍스트`, `다음 스텝 가설`, `진단 요약`은 규칙 기반 유지다.

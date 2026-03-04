@@ -1,4 +1,11 @@
-"""Telegram 시장 컨텍스트/근거/다음 스텝 렌더링 헬퍼."""
+"""Telegram 시장 컨텍스트/근거/다음 스텝 렌더링 헬퍼.
+
+용어:
+- llm_feature: text snapshot만 기반으로 생성된 LLM 산출물 묶음
+- llm_summary: llm_feature 내부의 text-only 요약 필드
+- interpretation_summary: signal snapshot + text snapshot을 결합해 만든
+  상위 해석 문장(리포트/Telegram 전용)
+"""
 from __future__ import annotations
 
 import json
@@ -20,17 +27,26 @@ def safe_json_dict(raw: Any) -> Dict[str, Any]:
     return {}
 
 
-def select_interpretation_text(deterministic_text: str, llm_text: Any) -> str:
-    """LLM 해석 문구 선택(fail-open).
+def build_interpretation_summary(deterministic_text: str, llm_text: Any) -> str:
+    """상위 해석 문구(interpretation_summary) 선택(fail-open).
 
     - llm_text가 유효 문자열이면 사용
     - 그 외에는 결정론 문구(deterministic_text)로 fallback
+
+    주의:
+    - 여기서 다루는 것은 text-only `llm_summary` 필드가 아니라
+      signal + text 결합 해석용 상위 문장이다.
     """
     if isinstance(llm_text, str):
         stripped = llm_text.strip()
         if stripped:
             return stripped
     return deterministic_text
+
+
+def select_interpretation_text(deterministic_text: str, llm_text: Any) -> str:
+    """Backward-compatible alias for interpretation summary selection."""
+    return build_interpretation_summary(deterministic_text, llm_text)
 
 
 def build_context_lines(long_phase: str, mid_regime: str, short_signal: str) -> List[str]:
@@ -178,7 +194,11 @@ def build_evidence_lines(
 
 
 def build_text_overlay_lines(text_row: Dict[str, Any] | None) -> List[str]:
-    """Text overlay evidence lines for Telegram market evidence section."""
+    """Text overlay evidence lines for Telegram market evidence section.
+
+    이 함수는 text overlay snapshot과 text-only llm_feature를 요약해 보여준다.
+    signal + text 결합 해석문(interpretation_summary)을 생성하는 역할은 하지 않는다.
+    """
     if not text_row:
         return []
 

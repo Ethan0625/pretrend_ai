@@ -3,7 +3,7 @@
 ## Document Status
 | Item | Value |
 | --- | --- |
-| Status | Accepted (Implemented, not promoted) |
+| Status | Accepted (Permanent observer-only) |
 | Effective Date | 2026-03-04 |
 | Last Updated | 2026-03-04 |
 | Change Tracking | docs/changelog.md |
@@ -82,6 +82,11 @@ Grain:
 - `llm_tags`
 - `llm_summary` (Telegram/설명 전용, 전략 입력 직접 사용 금지)
 
+용어 고정:
+- `llm_feature`: `llm_tone`, `llm_topics`, `llm_tags`, `llm_summary`를 포함한 text-only LLM 산출물
+- `llm_summary`: `llm_feature` 내부의 문서 요약 필드
+- `interpretation_summary`: signal snapshot + text snapshot(+ llm_feature) 결합 해석문
+
 ### 4.3 Derived Snapshot
 P3-3 구현 시 아래 snapshot을 추가한다.
 
@@ -110,6 +115,7 @@ Grain:
 - Text overlay는 **trade_date 단위**로만 계산한다.
 - `llm_summary`는 overlay 계산에서 제외하고 Telegram 설명에만 사용한다.
 - Lookback은 거래일 기준으로 고정한다.
+- `interpretation_summary`는 저장 레이어 기본 산출물이 아니며, Telegram/리포트 단계에서만 생성한다.
 
 ### 5.2 Rule-based feature 집계
 - `macro_hawkish_score`, `filing_risk_burst`, `policy_uncertainty_idx`는 해당 `trade_date` 값 그대로 사용한다.
@@ -128,7 +134,8 @@ Grain:
   - 상위 5개를 `top_tags_json`으로 저장
 - `llm_summary`:
   - overlay 계산에는 사용하지 않음
-  - Telegram Phase 1.5에서 최신 1건만 선택 사용 가능
+  - Telegram/리포트의 `interpretation_summary` 작성 시 참고 가능한 text-only 요약 필드
+  - 최신 1건만 선택 사용 가능
 
 ### 5.4 비거래일 문서 처리
 - `text_observability_contract.md §4`의 이벤트 정렬 규칙을 따른다.
@@ -204,6 +211,7 @@ Grain:
 원칙:
 - Text 부재는 기존 4축/3-state 동작을 깨지 않는다.
 - `UNKNOWN`은 overlay no-op과 동일하게 취급한다.
+- `interpretation_summary`는 observer-only 출력이며 전략 입력으로 승격하지 않는다.
 
 ## 9. AB Backtest 비교 프로토콜
 
@@ -261,7 +269,7 @@ Grain:
 | Sharpe | `1.69` | `1.64` | `-0.05` 미만 |
 | Trade Count | `5093` | `5180` | `+87` |
 
-### 11.3 판정
+### 11.3 P3-3 판정
 - 구현은 **완료**
 - 운영 승격은 **보류**
 
@@ -269,9 +277,40 @@ Grain:
 - `§9.4` 채택 기준 중 `MDD 악화 > 3%p` 조건에 걸린다.
 - 따라서 현 시점 Text overlay는 `observer-only`를 유지하고, 운영 preset 승격은 하지 않는다.
 
+### 11.4 P3-3b 재설계 실험 (2026-03-04)
+
+P3-3a 진단에서 `RISK_ON` overlay가 MDD 악화의 주범임을 확인한 후, 최소 재설계 실험군 2개를 추가 비교했다.
+
+| preset | XIRR | MDD | Sharpe | v2 대비 |
+| --- | --- | --- | --- | --- |
+| `v2` (baseline) | `+7.74%` | `-15.65%` | `1.691` | — |
+| `v2_text` (P3-3) | `+7.33%` | `-21.92%` | `1.644` | 악화 |
+| `v2_text_riskoff` | `+7.71%` | `-15.65%` | `1.690` | ≈0 |
+| `v2_text_riskoff_guarded` | `+7.74%` | `-15.65%` | `1.691` | ≈0 |
+
+- `v2_text_riskoff`: `RISK_ON` 제거, `RISK_OFF=-0.05`
+- `v2_text_riskoff_guarded`: `RISK_ON` 제거, `RISK_OFF=-0.025`, `confidence>=0.7`
+
+### 11.5 최종 판정: 영구 observer-only
+
+- **결론**: 현재 text signal은 alpha를 보유하지 않는다.
+  - `RISK_ON`을 켜면 MDD가 6%p 악화된다.
+  - `RISK_OFF`만 남기면 사실상 no-op이다 (XIRR/Sharpe delta ≈ 0).
+  - 고신뢰 필터(`confidence>=0.7`)까지 적용하면 매매 변경이 5건에 불과하다.
+- **판정**: Text overlay는 **영구 observer-only**로 확정한다.
+- **유지 범위**:
+  - `text_pipeline_dag`: 유지 (Ollama 로컬, 비용 $0)
+  - `text_overlay_signal` snapshot 생성: 유지 (observability)
+  - Telegram 시장 근거 섹션 text evidence 표시: 유지
+- **제거 범위**:
+  - Backtest preset (`v2_text`, `v2_text_riskoff`, `v2_text_riskoff_guarded`): 제거
+  - `compute_allocation_v2_text()`: 제거
+- **재검토 조건**: 차별화된 신호원(실시간 뉴스, 컨센서스 서프라이즈 등)이 추가될 경우 재실험
+
 ## 12. Change History
 | Date | Summary |
 | --- | --- |
 | 2026-03-04 | P3-2 설계 초안 작성. Overlay Signal 방안 확정, 집계/3-state/fail-open/AB 비교 프로토콜 고정 |
 | 2026-03-04 | P3-3 구현 착수 기준으로 snapshot 컬럼명을 `text_signal_state/*` 계열로 확정하고 Gate H 시간조건을 제거 |
 | 2026-03-04 | P3-3 구현/AB 비교 완료. `v2_text` 운영 승격 보류(observer-only 유지) |
+| 2026-03-04 | P3-3b 재설계 실험 완료. text signal alpha 부재 확인. 영구 observer-only 확정, backtest preset 제거 |

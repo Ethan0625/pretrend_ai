@@ -311,6 +311,9 @@ def strategy_engine_pipeline():
             lines += ["", "⚠️ 단기 공황 — 매도 동결"]
 
         # ── 시장 컨텍스트 (3줄 + 설명) ──
+        # Telegram report는 저장된 signal snapshot과 text snapshot을 함께 읽어
+        # 상위 해석문(interpretation_summary)을 표시할 수 있다.
+        # 이는 text-only `llm_summary` 필드와 다른 레이어다.
         lines += [
             "",
             "── 시장 컨텍스트 ──",

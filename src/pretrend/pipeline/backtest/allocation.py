@@ -183,58 +183,6 @@ def compute_allocation_v2(current: float, policy_row: pd.Series, config) -> dict
     )
 
 
-def compute_allocation_v2_text(current: float, policy_row: pd.Series, config) -> dict:
-    """v2 + text overlay soft adjustment (+/- 0.05).
-
-    Text signal은 policy_selection snapshot에 저장된 overlay sidecar 결과를 사용한다.
-    hard gate 의미는 기존 v2와 동일하게 유지한다.
-    """
-    long_phase = str(policy_row.get("long_phase", "UNKNOWN"))
-    mid_regime = str(policy_row.get("mid_regime", "UNKNOWN"))
-    risk_gate = bool(policy_row.get("risk_gate", True))
-    run_universe = bool(policy_row.get("run_universe", True))
-    text_signal = str(policy_row.get("text_signal_state", "UNKNOWN"))
-    text_conf = float(policy_row.get("text_signal_confidence", 0.0) or 0.0)
-
-    m = config.target_ratio_map_v2
-    target = None
-    for key in [
-        (long_phase, mid_regime),
-        (long_phase, "UNKNOWN"),
-        ("UNKNOWN", mid_regime),
-        ("UNKNOWN", "UNKNOWN"),
-    ]:
-        val = m.get(key, _SENTINEL)
-        if val is not _SENTINEL:
-            target = val
-            break
-    if target is None:
-        target = 0.40
-
-    if text_conf < float(getattr(config, "text_min_confidence", 0.0)):
-        text_signal = "UNKNOWN"
-
-    text_adj = {
-        "RISK_ON": float(getattr(config, "text_risk_on_adjust", 0.05)),
-        "NEUTRAL": 0.00,
-        "RISK_OFF": float(getattr(config, "text_risk_off_adjust", -0.05)),
-        "UNKNOWN": 0.00,
-    }.get(text_signal, 0.00)
-    if not run_universe and text_adj > 0:
-        text_adj = 0.0
-
-    target = max(0.0, min(1.0, float(target) + text_adj))
-    return _apply_delta(
-        current=current,
-        target=target,
-        adj_limit=config.allocation_adjustment_limit,
-        step_size=config.allocation_step_size,
-        risk_gate=risk_gate,
-        run_universe=run_universe,
-        notes_prefix=f"phase:{long_phase},mid:{mid_regime},text:{text_signal},",
-    )
-
-
 def compute_allocation_v3(current: float, policy_row: pd.Series, config) -> dict:
     """v3: f(long_phase, mid_regime, next_step_bias) target-seeking.
 
@@ -293,9 +241,6 @@ ALLOCATION_REGISTRY: Dict[str, Callable] = {
     "v0": compute_allocation_v0,
     "v1": compute_allocation_v1,
     "v2": compute_allocation_v2,
-    "v2_text": compute_allocation_v2_text,
-    "v2_text_riskoff": compute_allocation_v2_text,
-    "v2_text_riskoff_guarded": compute_allocation_v2_text,
     "v3": compute_allocation_v3,
     "v3.1": compute_allocation_v3,
     "v3.2": compute_allocation_v3,

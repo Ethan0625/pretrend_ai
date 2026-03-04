@@ -357,6 +357,11 @@ Silver (clean_text)
 
 ### 13.4 LLM 출력 스키마 — `gold.text_llm_features`
 
+용어 고정:
+- `llm_feature`: text snapshot만 기반으로 생성된 LLM 산출물 묶음
+- `llm_summary`: `llm_feature` 내부의 text-only 요약 필드
+- `interpretation_summary`: signal snapshot + text snapshot 결합 해석문(본 계약 범위 밖, Telegram/리포트 레이어)
+
 | 컬럼 | 타입 | 필수 | 설명 |
 | --- | --- | --- | --- |
 | `trade_date` | date | Y | 거래일 (§4 이벤트 정렬 기준) |
@@ -388,6 +393,7 @@ Silver (clean_text)
 - `topics`: Topic Taxonomy 내 item만 허용. 최대 3개. 저장 시 `feature_str`는 `[{"category": "...", "item": "..."}]`
 - `tags`: Tag Taxonomy 내 item만 허용. 최대 5개. 저장 시 `feature_str`는 `[{"category": "...", "item": "..."}]`
 - `confidence`: LLM 제공 시 파싱, 미제공 시 0.5 기본값
+- `summary`: text-only 문서 요약이며, 시장 signal과 결합된 상위 해석문을 의미하지 않는다
 
 ### 13.5 프롬프트 설계 원칙
 
@@ -533,6 +539,10 @@ Silver (clean_text)
 
 ### 14.3 Telegram 반영 범위 (Phase 1.5)
 
+용어:
+- Telegram에서 사람이 읽는 최종 문장은 `interpretation_summary`로 부른다.
+- `interpretation_summary`는 저장된 `llm_summary`를 포함할 수 있지만, 동일 개념이 아니다.
+
 **적용 섹션**:
 - `시장 근거 (Market Evidence)`에 1~2줄 추가
   - 당일 `llm_tone` 분포 요약
@@ -554,7 +564,7 @@ Silver (clean_text)
 - 기존 메시지 구조와 신호 의미는 유지한다.
 
 **구현 위치**:
-- `report_context.py`의 해석/문장 선택 helper 확장
+- `report_context.py`의 `interpretation_summary` 선택 helper 확장
 
 ### 14.4 Backtest 연결 조건
 

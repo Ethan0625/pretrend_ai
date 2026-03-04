@@ -4,6 +4,7 @@ from pretrend.pipeline.strategy_engine.report_context import (
     build_context_lines as _build_context_lines,
     build_diagnostic_lines as _build_diagnostic_lines,
     build_evidence_lines as _build_evidence_lines,
+    build_interpretation_summary as _build_interpretation_summary,
     build_text_overlay_lines as _build_text_overlay_lines,
     format_group_transition_lines as _format_group_transition_lines,
     format_transition_expected as _format_transition_expected,
@@ -234,3 +235,9 @@ def test_select_interpretation_text_fallback() -> None:
     assert _select_interpretation_text(deterministic, "  LLM 해석  ") == "LLM 해석"
     assert _select_interpretation_text(deterministic, None) == deterministic
     assert _select_interpretation_text(deterministic, "   ") == deterministic
+
+
+def test_build_interpretation_summary_uses_llm_text_or_falls_back() -> None:
+    deterministic = "signal + text 결합 해석"
+    assert _build_interpretation_summary(deterministic, "  상위 해석문  ") == "상위 해석문"
+    assert _build_interpretation_summary(deterministic, None) == deterministic

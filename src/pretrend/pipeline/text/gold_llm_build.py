@@ -1,4 +1,9 @@
-"""Text Gold LLM Build — Ollama 기반 Observer-only annotation."""
+"""Text Gold LLM Build — Ollama 기반 Observer-only annotation.
+
+이 모듈의 산출물은 text snapshot만 기반으로 한 `llm_feature`다.
+여기서 생성하는 `llm_summary`는 문서 요약 필드이며,
+signal snapshot + text snapshot 결합 해석문(interpretation_summary)이 아니다.
+"""
 from __future__ import annotations
 
 import json
@@ -139,7 +144,8 @@ _SYSTEM_PROMPT = (
     '"tone":"hawkish","topics":["fed_policy"],"tags":["hike"],"confidence":0.9}\n'
     '{"summary":"The Committee maintained the target range at 5.25-5.5%","tone":"neutral",'
     '"topics":["fed_policy"],"tags":["pause"],"confidence":0.9}\n\n'
-    "Return ONLY valid JSON."
+    'Return ONLY valid JSON. The "summary" field is a text-only document summary, '
+    "not a market interpretation."
 )
 
 
