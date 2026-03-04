@@ -216,6 +216,7 @@ def test_run_gold_llm_build_with_mock_ollama(tmp_path, monkeypatch) -> None:
     assert set(df.columns) == {
         "trade_date",
         "doc_id",
+        "source",
         "feature_name",
         "feature_value",
         "feature_str",

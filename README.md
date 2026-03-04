@@ -106,6 +106,13 @@ Strategy Engine은 **정책·전략 상태에 따라 변경 가능한 계산 결
   * `next_step_history`(year/month partition, key=`trade_date+decision_date_ref`)로 전이예측 feature 선저장
   * backtest/walk-forward/paper 결과를 표준 아티팩트 + registry(parquet partition)로 저장
   * 동일 조건 비교를 “재실행 없이 조회” 가능하도록 운영
+* 📝 **Text Pipeline + LLM Observer**
+  * `text_pipeline_dag`: `Bronze -> Silver -> Gold(rule) -> Gold LLM` 4단계 운영
+  * Gold LLM은 Ollama 로컬 기반 observer-only 계층이며 `text_annotation_v2` taxonomy 구조를 사용
+  * 백필 경로:
+    - FOMC Archive / SEC Index Bronze 백필
+    - `gold_llm_backfill.py`로 FOMC/SEC Gold LLM 백필
+  * SEC EDGAR adapter는 `filings.recent` + `filings.files`를 모두 순회해 과거 filing coverage를 확장
 * 🧮 **거시 지표 기반 Macro Feature 생성**
 
   * FRED 연동
@@ -121,6 +128,7 @@ Strategy Engine은 **정책·전략 상태에 따라 변경 가능한 계산 결
   * 로컬 실행 + DAG 기반 재현성 확보
 
 > ❌ 자동매매, 모델 학습, 실시간 추론은 **현재 범위에 포함되지 않는다.**
+> ❌ Text LLM feature는 현재 **Strategy/Paper/Backtest 실행 입력에 직접 연결되지 않는다**. Gate H 충족 전까지 observer-only다.
 
 ---
 
@@ -258,6 +266,7 @@ pip install pyarrow  # 또는 fastparquet
 pytest -q
 # 특정 케이스만
 pytest -q tests/pipeline/test_eod_silver_writer_idempotency.py
+pytest -q tests/pipeline/text/
 pytest -q tests/pipeline/test_macro_silver_writer.py
 ```
 

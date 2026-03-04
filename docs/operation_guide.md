@@ -30,6 +30,30 @@
 - EOD Gold 테스트 실행:
   - `conda run -n pytest-pretrend pytest tests/pipeline/test_gold_eod_features.py -v`
 
+## Text Pipeline 실행
+- 단일 실행:
+  - `PYTHONPATH=src python -m pretrend.pipeline.text.text_job --stage all --source sec,fed --date 2026-02-18`
+- DAG 구조:
+  - `text_pipeline_dag = Bronze(sec+fed) -> Silver -> Gold(rule) -> Gold LLM`
+- Gold LLM 백필:
+  - `PYTHONPATH=src python -m pretrend.pipeline.text.gold_llm_backfill --source fed_fomc --start 2006-01-01 --end 2026-12-31 --max-workers 4`
+  - `PYTHONPATH=src python -m pretrend.pipeline.text.gold_llm_backfill --source sec_edgar --start 2006-01-01 --end 2026-12-31 --max-workers 4`
+- Bronze/Silver 백필:
+  - `PYTHONPATH=src python -m pretrend.pipeline.text.backfill --source sec_index,fomc_archive --start 2006-01-01 --end 2024-06-03 --chunk-years 1`
+- Text 테스트:
+  - `conda run -n pytest-pretrend pytest tests/pipeline/text/ -v`
+
+### Text 운영 경계
+- rule-based Gold 3종(`macro_hawkish_score`, `filing_risk_burst`, `policy_uncertainty_idx`)은 저장/관측 활성 상태다.
+- Gold LLM 4종(`llm_tone`, `llm_topics`, `llm_tags`, `llm_summary`)은 observer-only다.
+- Gate H 충족 전까지 Text feature는 Strategy/Paper/Backtest 실행 입력으로 직접 연결하지 않는다.
+- Telegram 반영은 Phase 1.5에서 `시장 근거` 보조 문구만 허용한다.
+
+### SEC 수동 검증 주의
+- `SECEdgarAdapter`는 `filings.recent + filings.files`를 모두 순회한다.
+- 다만 live SEC 수동 검증은 네트워크/DNS가 가능한 환경에서만 의미가 있다.
+- 현재 로컬 분석 환경에서 DNS가 차단되면 `company_tickers.json` 조회가 실패할 수 있다.
+
 ## Strategy Engine 실행
 - Strategy Engine v0 단일 실행:
   - `PYTHONPATH=src python -m pretrend.pipeline.strategy_engine.strategy_job --date 2024-06-03 --invested-ratio 0.10`

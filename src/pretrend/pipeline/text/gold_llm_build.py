@@ -96,6 +96,7 @@ _TAG_TO_CATEGORY: Dict[str, str] = {
 _GOLD_LLM_COLUMNS = [
     "trade_date",
     "doc_id",
+    "source",
     "feature_name",
     "feature_value",
     "feature_str",
@@ -122,6 +123,22 @@ _SYSTEM_PROMPT = (
     "Select the most relevant (up to 5):\n"
     + _TAG_LIST_WITH_DESC
     + "\n\n"
+    "IMPORTANT tag selection rules:\n"
+    '- If the document mentions raising rates, increasing the federal funds rate, '
+    'or raising the interest rate paid on reserve balances → use "hike"\n'
+    '- If the document mentions lowering or cutting rates → use "cut"\n'
+    '- If the document mentions maintaining, keeping, or holding rates unchanged → use "pause"\n'
+    '- Implementation notes, directives, and operational details about rate changes '
+    "count as the corresponding policy action (hike/cut/pause)\n"
+    '- If the document discusses balance sheet reduction or runoff → use "qt"\n'
+    '- If the document discusses asset purchases or reinvestment → use "qe"\n\n'
+    "Examples:\n"
+    '{"summary":"The Fed raised the federal funds rate by 25bp to 4.5%","tone":"hawkish",'
+    '"topics":["fed_policy","inflation"],"tags":["hike"],"confidence":0.95}\n'
+    '{"summary":"The Board voted to raise the interest rate paid on reserve balances to 4.4%",'
+    '"tone":"hawkish","topics":["fed_policy"],"tags":["hike"],"confidence":0.9}\n'
+    '{"summary":"The Committee maintained the target range at 5.25-5.5%","tone":"neutral",'
+    '"topics":["fed_policy"],"tags":["pause"],"confidence":0.9}\n\n'
     "Return ONLY valid JSON."
 )
 
@@ -206,13 +223,34 @@ def _ollama_chat(text: str, model: str, base_url: str, timeout: int) -> str:
 
 
 def _parse_llm_response(raw_json: str) -> Optional[dict]:
+    # Try direct parse first
     try:
         parsed = json.loads(raw_json)
+        if isinstance(parsed, dict):
+            return parsed
     except Exception:
-        return None
-    if not isinstance(parsed, dict):
-        return None
-    return parsed
+        pass
+    # Extract JSON from markdown code block (```json ... ``` or ``` ... ```)
+    import re
+    m = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", raw_json, re.DOTALL)
+    if m:
+        try:
+            parsed = json.loads(m.group(1))
+            if isinstance(parsed, dict):
+                return parsed
+        except Exception:
+            pass
+    # Try finding first { ... } block
+    start = raw_json.find("{")
+    end = raw_json.rfind("}")
+    if start >= 0 and end > start:
+        try:
+            parsed = json.loads(raw_json[start:end + 1])
+            if isinstance(parsed, dict):
+                return parsed
+        except Exception:
+            pass
+    return None
 
 
 def _filter_response(parsed: dict) -> dict:
@@ -265,61 +303,33 @@ def _to_long_format(
     filtered: dict,
     model_id: str,
     prompt_version: str,
+    source: str = "unknown",
 ) -> List[dict]:
     confidence = float(filtered.get("confidence", 0.5))
+    base = {
+        "trade_date": trade_date,
+        "doc_id": doc_id,
+        "source": source,
+        "confidence": confidence,
+        "feature_version": _FEATURE_VERSION,
+        "model_id": model_id,
+        "prompt_version": prompt_version,
+        "coverage_ratio": 0.0,
+        "staleness_days": 0,
+    }
     return [
-        {
-            "trade_date": trade_date,
-            "doc_id": doc_id,
-            "feature_name": "llm_tone",
-            "feature_value": _TONE_VALUE.get(str(filtered.get("tone", "neutral")), 0.0),
-            "feature_str": None,
-            "confidence": confidence,
-            "feature_version": _FEATURE_VERSION,
-            "model_id": model_id,
-            "prompt_version": prompt_version,
-            "coverage_ratio": 0.0,
-            "staleness_days": 0,
-        },
-        {
-            "trade_date": trade_date,
-            "doc_id": doc_id,
-            "feature_name": "llm_topics",
-            "feature_value": 0.0,
-            "feature_str": json.dumps(filtered.get("topics", []), ensure_ascii=True),
-            "confidence": confidence,
-            "feature_version": _FEATURE_VERSION,
-            "model_id": model_id,
-            "prompt_version": prompt_version,
-            "coverage_ratio": 0.0,
-            "staleness_days": 0,
-        },
-        {
-            "trade_date": trade_date,
-            "doc_id": doc_id,
-            "feature_name": "llm_tags",
-            "feature_value": 0.0,
-            "feature_str": json.dumps(filtered.get("tags", []), ensure_ascii=True),
-            "confidence": confidence,
-            "feature_version": _FEATURE_VERSION,
-            "model_id": model_id,
-            "prompt_version": prompt_version,
-            "coverage_ratio": 0.0,
-            "staleness_days": 0,
-        },
-        {
-            "trade_date": trade_date,
-            "doc_id": doc_id,
-            "feature_name": "llm_summary",
-            "feature_value": 0.0,
-            "feature_str": str(filtered.get("summary", "")),
-            "confidence": confidence,
-            "feature_version": _FEATURE_VERSION,
-            "model_id": model_id,
-            "prompt_version": prompt_version,
-            "coverage_ratio": 0.0,
-            "staleness_days": 0,
-        },
+        {**base, "feature_name": "llm_tone",
+         "feature_value": _TONE_VALUE.get(str(filtered.get("tone", "neutral")), 0.0),
+         "feature_str": None},
+        {**base, "feature_name": "llm_topics",
+         "feature_value": 0.0,
+         "feature_str": json.dumps(filtered.get("topics", []), ensure_ascii=True)},
+        {**base, "feature_name": "llm_tags",
+         "feature_value": 0.0,
+         "feature_str": json.dumps(filtered.get("tags", []), ensure_ascii=True)},
+        {**base, "feature_name": "llm_summary",
+         "feature_value": 0.0,
+         "feature_str": str(filtered.get("summary", ""))},
     ]
 
 
@@ -327,6 +337,7 @@ def _annotate_one(
     doc_id: str,
     event_date: str,
     clean_text: str,
+    source: str,
     model: str,
     base_url: str,
     timeout: int,
@@ -344,6 +355,7 @@ def _annotate_one(
         filtered=filtered,
         model_id=model,
         prompt_version=_PROMPT_VERSION,
+        source=source,
     )
 
 
@@ -358,16 +370,22 @@ def _batch_annotate(
     if docs_df.empty:
         return rows
 
+    has_source = "source" in docs_df.columns
     tasks = [
-        (str(rec["doc_id"]), str(rec["event_date"]), str(rec["clean_text"]))
+        (
+            str(rec["doc_id"]),
+            str(rec["event_date"]),
+            str(rec["clean_text"]),
+            str(rec["source"]) if has_source else "unknown",
+        )
         for _, rec in docs_df.iterrows()
     ]
 
     if max_workers <= 1:
-        for doc_id, event_date, clean_text in tasks:
+        for doc_id, event_date, clean_text, source in tasks:
             try:
                 _, doc_rows = _annotate_one(
-                    doc_id, event_date, clean_text, model, base_url, timeout,
+                    doc_id, event_date, clean_text, source, model, base_url, timeout,
                 )
                 rows.extend(doc_rows)
             except Exception as exc:
@@ -377,10 +395,10 @@ def _batch_annotate(
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
         futures = {
             pool.submit(
-                _annotate_one, doc_id, event_date, clean_text,
+                _annotate_one, doc_id, event_date, clean_text, source,
                 model, base_url, timeout,
             ): doc_id
-            for doc_id, event_date, clean_text in tasks
+            for doc_id, event_date, clean_text, source in tasks
         }
         done_count = 0
         for future in as_completed(futures):
@@ -410,15 +428,15 @@ def _write_gold_llm_partition(df: pd.DataFrame, gold_root: Path) -> List[Path]:
     x["year"] = x["trade_date"].dt.year
     x["month"] = x["trade_date"].dt.month
     x["trade_date"] = x["trade_date"].dt.strftime("%Y-%m-%d")
-    if "_source" not in x.columns:
-        x["_source"] = "unknown"
-    for (year, month, source), group in x.groupby(["year", "month", "_source"]):
+    if "source" not in x.columns:
+        x["source"] = "unknown"
+    for (year, month, source), group in x.groupby(["year", "month", "source"]):
         partition_dir = gold_root / "text_llm_features" / f"year={year}" / f"month={month:02d}"
         partition_dir.mkdir(parents=True, exist_ok=True)
         filename = f"gold_llm_{source}_{year}{month:02d}.parquet"
         out_path = partition_dir / filename
         tmp_path = partition_dir / f".tmp_{uuid.uuid4().hex}_{filename}"
-        out_df = group.drop(columns=["year", "month", "_source"]).reset_index(drop=True)
+        out_df = group.drop(columns=["year", "month"]).reset_index(drop=True)
         out_df.to_parquet(tmp_path, index=False, compression="snappy")
         tmp_path.rename(out_path)
         paths.append(out_path)
@@ -495,10 +513,6 @@ def run_text_gold_llm_build(
     if not out_df.empty:
         out_df["coverage_ratio"] = coverage_ratio
         out_df["staleness_days"] = 0
-        # doc_id → source 매핑 (source별 파티션 분리용)
-        if "source" in docs_df.columns:
-            doc_source_map = docs_df.set_index("doc_id")["source"].to_dict()
-            out_df["_source"] = out_df["doc_id"].map(doc_source_map).fillna("unknown")
         _write_gold_llm_partition(out_df, cfg.gold_llm_root)
 
     return TextGoldLlmResult(

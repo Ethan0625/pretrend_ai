@@ -7,6 +7,36 @@
 
 > 참고: changelog 과거 섹션은 작성 시점 원문을 보존한다.
 
+## v2026.03.04a — P1 text: SEC Gold LLM 백필 완료 + SEC 페이지네이션 보강
+
+### feat(text-backfill): SEC 8-K Gold LLM v2 백필 완료
+- `gold_llm_backfill.py --source sec_edgar`로 SEC 2006~2026 Gold LLM 백필 완료
+- 최종 집계:
+  - `rows=40044`
+  - `doc_ids=10011`
+  - `prompt_version=text_annotation_v2`
+- 품질 분포:
+  - `llm_topics` 비율 95.4%
+  - `llm_tags` 비율 6.3%
+
+### feat(text-sec): SEC submissions 페이지네이션 지원
+- `src/pretrend/pipeline/text/adapters/sec_edgar.py`가 `filings.recent`뿐 아니라 `filings.files`도 순회하도록 확장
+- `date-range outside page` skip 최적화와 pagination fetch failure skip 로직 추가
+- 공개 인터페이스(`fetch`, `source_name`)와 rate-limit(`0.11s delay`)는 유지
+
+### test(text-sec): SEC adapter 페이지네이션 테스트 추가
+- `tests/pipeline/text/test_sec_edgar_adapter.py` 신규 추가
+- 검증 항목:
+  - recent only
+  - recent + paginated file
+  - pagination file fetch failure skip
+  - date-range outside skip
+  - old filing from pagination included
+
+### note(text-sec): live SEC 수동 검증
+- mock/unit 수준 검증은 완료
+- live SEC 수동 검증은 현재 환경 DNS 제한으로 별도 네트워크 가능한 환경에서 재확인 필요
+
 ## v2026.03.03b — P1 text: LLM Observer 활성화 + 백필 경로 확장
 
 ### feat(text-dag): `text_pipeline_dag` 추가
