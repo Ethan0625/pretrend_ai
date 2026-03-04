@@ -128,7 +128,7 @@ Strategy Engine은 **정책·전략 상태에 따라 변경 가능한 계산 결
   * 로컬 실행 + DAG 기반 재현성 확보
 
 > ❌ 자동매매, 모델 학습, 실시간 추론은 **현재 범위에 포함되지 않는다.**
-> ❌ Text LLM feature는 현재 **Strategy/Paper/Backtest 실행 입력에 직접 연결되지 않는다**. Gate H 충족 전까지 observer-only다.
+> ❌ Text LLM feature는 현재 **Strategy/Paper/Backtest 실행 입력에 직접 연결되지 않는다**. 이 경계는 영구 observer-only 원칙으로 유지한다.
 
 ---
 

@@ -46,8 +46,11 @@
 ### Text 운영 경계
 - rule-based Gold 3종(`macro_hawkish_score`, `filing_risk_burst`, `policy_uncertainty_idx`)은 저장/관측 활성 상태다.
 - Gold LLM 4종(`llm_tone`, `llm_topics`, `llm_tags`, `llm_summary`)은 observer-only다.
-- Gate H 충족 전까지 Text feature는 Strategy/Paper/Backtest 실행 입력으로 직접 연결하지 않는다.
-- Telegram 반영은 Phase 1.5에서 `시장 근거` 보조 문구만 허용한다.
+- Text feature는 Strategy/Paper/Backtest 실행 입력으로 직접 연결하지 않는다(영구 observer-only).
+- Telegram 반영은 Phase 1.5에서 `시장 근거` 보조 문구와 `interpretation_summary` 생성까지만 허용한다.
+- 용어:
+  - `llm_summary`: text-only 문서 요약 필드
+  - `interpretation_summary`: signal snapshot + text snapshot 결합 해석문
 
 ### SEC 수동 검증 주의
 - `SECEdgarAdapter`는 `filings.recent + filings.files`를 모두 순회한다.

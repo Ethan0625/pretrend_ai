@@ -506,20 +506,10 @@ Silver (clean_text)
 - v0 Strategy Engine(7-stage)은 Text Gold feature를 소비하지 않는다.
 - Text feature 결측/장애가 `INCREASE/DECREASE/HOLD` 판정에 영향을 주어서는 안 된다.
 
-**Strategy 연결 Gate (Gate H)**:
-1. 최소 30거래일 연속 운영 데이터 확보 (`text_pipeline_dag` 가동 후)
-2. rule-based 3종 모두 `coverage_ratio` 중앙값 > `0.5`
-3. Text feature 유무 AB 백테스트 비교 수행
-4. 연결 방식은 별도 계약으로 확정:
-   - 기존 Axis Feature 보조 입력
-   - 또는 별도 5th axis 신설
-
-**Gate H 운영 카운트 앵커**:
-- 카운트 시작일: `2026-03-03` (`text_pipeline_dag` 첫 scheduled success run 기준)
-- 확인 근거:
-  - `scheduled__2026-03-02T00:30:00+00:00` -> 4 task all `success`
-  - `scheduled__2026-03-03T00:30:00+00:00` -> 4 task all `success`
-- 예상 Gate H 충족일: `2026-04-15` (30거래일 기준 추정)
+**Strategy 연결 경계 (현행)**:
+1. Text feature는 observer-only로 유지한다.
+2. Strategy/Paper/Backtest 실행 입력으로 직접 연결하지 않는다.
+3. 연결 실험은 별도 계약/실험 문서로만 다루며, 본 계약의 운영 경계를 바꾸지 않는다.
 
 ### 14.2 Gold LLM Feature (4종)
 
@@ -534,7 +524,7 @@ Silver (clean_text)
 - Observer-only. 저장만 수행하고 Strategy/Paper/Backtest는 소비하지 않는다.
 
 **Phase 1.5 정책**:
-- DAG 안정화 후 Telegram 리포트에 당일 텍스트 요약을 추가할 수 있다.
+- Telegram 리포트에 당일 텍스트 요약과 `interpretation_summary`를 추가할 수 있다.
 - 이 단계에서도 신호 판정/게이트/allocation 입력은 금지한다.
 
 ### 14.3 Telegram 반영 범위 (Phase 1.5)
@@ -572,10 +562,10 @@ Silver (clean_text)
 - Backtest runner는 Strategy snapshot만 소비한다.
 - Text Gold를 독립적으로 로드하지 않는다.
 
-**연결 전제 (Gate H 충족 후)**:
-1. Strategy Engine이 먼저 Text feature를 소비하기 시작해야 한다.
+**연결 전제 (실험 전용)**:
+1. Strategy Engine이 먼저 Text feature를 observer-only로 읽을 수는 있다.
 2. Backtest runner는 Text Gold를 독립 로드하지 않는다.
-3. Text feature 유무에 따른 AB 백테스트는 Gate H 의사결정 자료로만 사용한다.
+3. Text feature 유무에 따른 AB 백테스트는 observer-only 정책의 검증 자료로만 사용한다.
 
 즉, 연결 순서는 `Text -> Strategy -> Backtest` 단방향으로 고정한다.
 
@@ -597,7 +587,8 @@ Silver (clean_text)
 | --- | --- | --- |
 | 2026-03-04 | §13.4 Gold LLM 스키마에 `source` 컬럼 추가. §13.5 프롬프트 정책 명시 (tag selection rules, few-shot, parser 방어). §3 Topic/Tag Taxonomy를 코드 TOPIC_TAXONOMY/TAG_TAXONOMY와 정합 동기화. §2.1 SEC filing 유형(8-K/10-K/10-Q) 및 활용 정책 명시 | gold_llm_build.py |
 | 2026-03-04 | SEC `filings.files` 페이지네이션 지원 명시: `sec_edgar` source는 `recent + files` 순회, date-range skip 최적화와 live SEC 검증 주의사항 추가 | docs/changelog.md |
-| 2026-03-03 | §14 운영 경계 정책 추가: rule-based/LLM feature의 observer-only 범위, Telegram Phase 1.5 반영 범위, Gate H 조건(30거래일/coverage>0.5/AB 비교), Backtest 단방향 연결 규칙 명시 | docs/changelog.md |
+| 2026-03-04 | §14 운영 경계를 영구 observer-only 원칙으로 정리하고 `interpretation_summary`를 Telegram/리포트 전용 해석문으로 명시 | docs/changelog.md |
+| 2026-03-03 | §14 운영 경계 정책 추가: rule-based/LLM feature의 observer-only 범위, Telegram Phase 1.5 반영 범위, Backtest 단방향 연결 규칙 명시 | docs/changelog.md |
 | 2026-03-03 | §13 LLM Observer Layer v1 계약 추가: Ollama 로컬(llama3.1:latest), gold_llm_build.py 위치, 출력 스키마, fail-open, Gate D 충족 현황, Phase 1.5 Telegram 정책 초안 | docs/changelog.md |
 | 2026-02-27 | v1+ 확장 체크리스트(Gate D) 추가: Rate-limit/ToS/Secret + fail-open Strategy 독립성 + 운영 준비 항목 명시 | docs/changelog.md |
 | 2026-02-20 | 수집 전략 v1 확정 반영: Bronze 멱등키 `(source, source_doc_id)` + 신규 필드 추가, Silver LLM → Reserved(v1+) + v0 필수 필드(asset_scope/quality_flags), Gold long 포맷 + 초기 3개 feature, Fail-open 정책 + 품질 KPI 섹션 추가 | docs/changelog.md |

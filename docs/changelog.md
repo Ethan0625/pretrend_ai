@@ -7,6 +7,17 @@
 
 > 참고: changelog 과거 섹션은 작성 시점 원문을 보존한다.
 
+## v2026.03.04e — P3-6 prep: observer-only 용어/운영 경계 정리
+
+### refactor(text-terms): `llm_feature` vs `interpretation_summary` 구분 고정
+- `llm_feature`는 text-only LLM 산출물 묶음으로 유지
+- `llm_summary`는 `llm_feature` 내부의 문서 요약 필드로 한정
+- `interpretation_summary`는 signal snapshot + text snapshot 결합 해석문으로 고정
+
+### docs(text): observer-only 경계 영구화
+- `README.md`, `docs/operation_guide.md`, `.agent/*` 기준 문구를 영구 observer-only 원칙으로 정리
+- `text_observability_contract.md §14`는 Gate H 임시 조건 대신 현행 운영 경계 기준으로 갱신
+
 ## v2026.03.04d — P3-3 AB 판정: Text overlay 운영 승격 보류
 
 ### result(backtest): `v2` vs `v2_text` 1차 비교 완료

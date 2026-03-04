@@ -25,17 +25,25 @@ from typing import Any, Dict, List, Optional
 import pendulum
 from airflow.decorators import dag, task
 from pretrend.pipeline.notify.telegram_sender import send_telegram_fail_open
+from pretrend.pipeline.strategy_engine.io import load_gold_text
 from pretrend.pipeline.strategy_engine.report_context import (
+    apply_report_llm_overrides as _apply_report_llm_overrides,
     build_context_lines as _build_context_lines,
     build_diagnostic_lines as _build_diagnostic_lines,
     build_evidence_lines as _build_evidence_lines,
-    build_text_overlay_lines as _build_text_overlay_lines,
+    build_text_window_lines as _build_text_window_lines,
+    generate_report_llm_overrides as _generate_report_llm_overrides,
     format_next_step_hazard_lines as _format_next_step_hazard_lines,
     format_bias_state_line as _format_bias_state_line,
     format_group_transition_lines as _format_group_transition_lines,
     build_switch_lines as _build_switch_lines,
     safe_json_dict as _safe_json_dict,
 )
+from pretrend.pipeline.strategy_engine.text_features.aggregator import (
+    aggregate_text_features,
+    prepare_text_feature_groups,
+)
+from pretrend.pipeline.text.config import TextPipelineConfig
 
 
 DEFAULT_ARGS: Dict[str, Any] = {
@@ -217,6 +225,38 @@ def strategy_engine_pipeline():
         df_next = _load_snapshot(strategy_root, "next_step_signal", decision_date)
         df_group = _load_snapshot(strategy_root, "group_transition_signal", decision_date)
         df_text = _load_snapshot(strategy_root, "text_overlay_signal", decision_date)
+        df_gold_text = load_gold_text(data_root, end_date=decision_date)
+
+        text_windows: Dict[str, Dict[str, Any]] = {}
+        if not df_gold_text.empty:
+            try:
+                normalized_text, grouped_text, grouped_dates = prepare_text_feature_groups(df_gold_text)
+                text_windows = {
+                    "short": aggregate_text_features(
+                        normalized_text,
+                        decision_date,
+                        lookback=5,
+                        all_trade_dates=grouped_dates,
+                        grouped_by_trade_date=grouped_text,
+                    ).to_dict(),
+                    "mid": aggregate_text_features(
+                        normalized_text,
+                        decision_date,
+                        lookback=20,
+                        all_trade_dates=grouped_dates,
+                        grouped_by_trade_date=grouped_text,
+                    ).to_dict(),
+                    "long": aggregate_text_features(
+                        normalized_text,
+                        decision_date,
+                        lookback=60,
+                        all_trade_dates=grouped_dates,
+                        grouped_by_trade_date=grouped_text,
+                    ).to_dict(),
+                }
+            except Exception as exc:
+                logger.warning("[SIGNAL] text window aggregation failed: %s", exc)
+                text_windows = {}
 
         # ── Market Position ──
         long_phase = mid_regime = short_signal = "UNKNOWN"
@@ -318,7 +358,33 @@ def strategy_engine_pipeline():
             "",
             "── 시장 컨텍스트 ──",
         ]
-        lines += _build_context_lines(long_phase, mid_regime, short_signal)
+        context_lines = _build_context_lines(
+            long_phase,
+            mid_regime,
+            short_signal,
+            long_detail=long_detail,
+            mid_detail=mid_detail,
+            short_detail=short_detail,
+            text_windows=text_windows or None,
+        )
+        evidence_lines = _build_evidence_lines(long_detail, mid_detail, short_detail)
+        text_section_lines = _build_text_window_lines(text_windows)
+        report_cfg = TextPipelineConfig.default()
+        llm_overrides = _generate_report_llm_overrides(
+            long_phase=long_phase,
+            mid_regime=mid_regime,
+            short_signal=short_signal,
+            context_lines=context_lines,
+            evidence_lines=evidence_lines,
+            text_lines=text_section_lines,
+            model=os.getenv("REPORT_LLM_MODEL", report_cfg.ollama_model),
+            base_url=os.getenv("REPORT_LLM_BASE_URL", report_cfg.ollama_base_url),
+            timeout=int(os.getenv("REPORT_LLM_TIMEOUT", str(report_cfg.ollama_timeout))),
+        )
+        context_lines, evidence_lines, text_section_lines = _apply_report_llm_overrides(
+            context_lines, evidence_lines, text_section_lines, llm_overrides
+        )
+        lines += context_lines
         lines += _build_switch_lines(risk_gate=risk_gate, run_universe=run_universe)
 
         # ── 다음 스텝 가설 (5/10/20/60/120D bias+hazard+expected) ──
@@ -343,10 +409,9 @@ def strategy_engine_pipeline():
             "",
             "── 시장 근거 ──",
         ]
-        lines += _build_evidence_lines(long_detail, mid_detail, short_detail)
-        if not df_text.empty:
-            trow = dict(df_text.iloc[-1])
-            lines += _build_text_overlay_lines(trow)
+        lines += evidence_lines
+        if text_section_lines:
+            lines += text_section_lines
 
         # ── 진단 요약 (12셀 품질) ──
         lines += [

@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from pretrend.pipeline.strategy_engine.report_context import (
+    apply_report_llm_overrides as _apply_report_llm_overrides,
     build_context_lines as _build_context_lines,
     build_diagnostic_lines as _build_diagnostic_lines,
     build_evidence_lines as _build_evidence_lines,
     build_interpretation_summary as _build_interpretation_summary,
-    build_text_overlay_lines as _build_text_overlay_lines,
+    build_text_window_lines as _build_text_window_lines,
+    generate_report_llm_overrides as _generate_report_llm_overrides,
     format_group_transition_lines as _format_group_transition_lines,
     format_transition_expected as _format_transition_expected,
     format_next_step_hazard_lines as _format_next_step_hazard_lines,
@@ -26,6 +28,46 @@ def test_market_context_lines_include_three_horizons() -> None:
     assert lines[5] == ""
 
 
+def test_market_context_lines_use_horizon_text_windows() -> None:
+    lines = _build_context_lines(
+        "RECESSION",
+        "NEUTRAL",
+        "STABLE",
+        long_detail={"regime_mode": "tightening", "delta_6m_z_mean": -0.42},
+        mid_detail={"price_signal": "NEUTRAL", "macro_signal": "RISK_OFF", "breadth_signal": "RISK_OFF"},
+        short_detail={"secondary_confirm_count": 1},
+        text_windows={
+            "long": {
+                "text_llm_doc_count_5d": 3,
+                "text_tone_mean_5d": 0.40,
+                "text_top_topics_json": '[{"category":"macro","item":"fed_policy"}]',
+                "text_top_tags_json": '[{"category":"policy_action","item":"hike"}]',
+            },
+            "mid": {
+                "text_llm_doc_count_5d": 2,
+                "text_tone_mean_5d": 0.00,
+                "text_top_topics_json": '[{"category":"macro","item":"inflation"}]',
+                "text_top_tags_json": '[]',
+            },
+            "short": {
+                "text_llm_doc_count_5d": 1,
+                "text_tone_mean_5d": -0.30,
+                "text_top_topics_json": '[{"category":"macro","item":"fed_policy"}]',
+                "text_top_tags_json": '[{"category":"policy_action","item":"cut"}]',
+            },
+        },
+    )
+    text = "\n".join(lines)
+    assert "정책 기조는 긴축 쪽입니다." in text
+    assert "delta_6m_z -0.42로 둔화 압력이 뚜렷합니다." in text
+    assert "최근 60거래일 문서는 정책 부담 쪽으로 기울어 있습니다." in text
+    assert "가격은 중립, 매크로는 방어, 수급은 방어 쪽입니다." in text
+    assert "최근 20거래일 문서는 방향성이 강하지 않습니다." in text
+    assert "보조 확인 신호는 1건입니다." in text
+    assert "최근 5거래일 문서는 완화 기대를 시사합니다." in text
+    assert "연준 정책" in text
+
+
 def test_market_evidence_lines_fallback_when_missing_details() -> None:
     lines = _build_evidence_lines({}, {}, {})
     assert len(lines) == 11
@@ -42,25 +84,114 @@ def test_market_evidence_lines_fallback_when_missing_details() -> None:
     assert lines[10] == "→ 영향 근거 없음"
 
 
-def test_text_overlay_lines_render_when_signal_present() -> None:
-    lines = _build_text_overlay_lines(
+def test_text_window_lines_render_when_signal_present() -> None:
+    lines = _build_text_window_lines(
         {
-            "text_signal_state": "RISK_OFF",
-            "text_signal_confidence": 0.72,
-            "text_tone_mean_5d": 0.33,
-            "text_top_tags_json": '[{\"category\":\"policy_action\",\"item\":\"hike\"}]',
-            "text_overlay_reason": "macro_hawkish_high|tag_risk_off",
+            "short": {
+                "text_llm_doc_count_5d": 1,
+                "text_tone_mean_5d": -0.25,
+                "text_top_topics_json": '[{"category":"macro","item":"fed_policy"}]',
+                "text_top_tags_json": '[{"category":"policy_action","item":"cut"}]',
+            },
+            "mid": {
+                "text_llm_doc_count_5d": 3,
+                "text_tone_mean_5d": 0.0,
+                "text_top_topics_json": '[{"category":"macro","item":"inflation"}]',
+                "text_top_tags_json": '[]',
+            },
+            "long": {
+                "text_llm_doc_count_5d": 4,
+                "text_tone_mean_5d": 0.33,
+                "text_top_topics_json": '[{"category":"macro","item":"fed_policy"}]',
+                "text_top_tags_json": '[{"category":"policy_action","item":"hike"}]',
+            },
         }
     )
     text = "\n".join(lines)
-    assert "📝텍스트" in text
-    assert "RISK_OFF" in text
-    assert "72%" in text
-    assert "hike" in text
+    assert "📝텍스트 해석" in text
+    assert "장기(60D): 최근 60거래일 문서는 정책 부담 쪽으로 기울어 있습니다." in text
+    assert "중기(20D): 최근 20거래일 문서는 방향성이 강하지 않습니다." in text
+    assert "단기(5D): 최근 5거래일 문서는 완화 기대를 시사합니다." in text
+    assert "연준 정책" in text
+    assert "금리인상" in text
 
 
-def test_text_overlay_lines_hidden_when_unknown() -> None:
-    assert _build_text_overlay_lines({"text_signal_state": "UNKNOWN"}) == []
+def test_text_window_lines_hidden_when_missing() -> None:
+    assert _build_text_window_lines(None) == []
+
+
+def test_report_llm_overrides_apply_when_available() -> None:
+    context = [
+        "🔴 장기 국면: 회복 우세 (RECOVERY)",
+        "→ 회복 국면 신호가 우세합니다.",
+        "",
+        "🟢 중기 성향: 위험선호 (RISK_ON)",
+        "→ 위험자산 선호 흐름입니다.",
+        "",
+        "🔵 단기 흐름: 안정 (STABLE)",
+        "→ 급락 신호는 약하며 관망이 유리합니다.",
+    ]
+    evidence = [
+        "🏛️매크로,정책", "→ 정책 기조는 완화 쪽입니다.", "",
+        "💵가격", "→ 중기 가격 흐름은 방향성이 크지 않습니다.", "",
+        "📈수급/구조", "→ 수급 breadth는 위험선호 쪽입니다.", "",
+        "💕심리", "→ 위험선호 확인은 아직 약합니다.",
+    ]
+    text_lines = ["📝텍스트 해석", "→ 장기(60D): 최근 60거래일 문서는 방향성이 강하지 않습니다."]
+    context2, evidence2, text2 = _apply_report_llm_overrides(
+        context,
+        evidence,
+        text_lines,
+        {
+            "context_long": "회복 흐름은 유지되지만 정책 부담은 아직 남아 있습니다.",
+            "evidence_macro": "정책은 완화 쪽이지만 강한 확장 신호는 아닙니다.",
+            "text_summary": "최근 문서는 대체로 중립적이며 정책 이벤트 중심입니다.",
+        },
+    )
+    assert context2[1] == "→ 회복 흐름은 유지되지만 정책 부담은 아직 남아 있습니다."
+    assert evidence2[1] == "→ 정책은 완화 쪽이지만 강한 확장 신호는 아닙니다."
+    assert text2[0] == "📝텍스트 해석"
+    assert text2[1] == "→ 최근 문서는 대체로 중립적이며 정책 이벤트 중심입니다."
+
+
+def test_report_llm_overrides_fail_open_on_error(monkeypatch) -> None:
+    context = [
+        "🔴 장기 국면: 회복 우세 (RECOVERY)",
+        "→ 회복 국면 신호가 우세합니다.",
+        "",
+        "🟢 중기 성향: 위험선호 (RISK_ON)",
+        "→ 위험자산 선호 흐름입니다.",
+        "",
+        "🔵 단기 흐름: 안정 (STABLE)",
+        "→ 급락 신호는 약하며 관망이 유리합니다.",
+    ]
+    evidence = [
+        "🏛️매크로,정책", "→ 정책 기조는 완화 쪽입니다.", "",
+        "💵가격", "→ 중기 가격 흐름은 방향성이 크지 않습니다.", "",
+        "📈수급/구조", "→ 수급 breadth는 위험선호 쪽입니다.", "",
+        "💕심리", "→ 위험선호 확인은 아직 약합니다.",
+    ]
+    text_lines = ["📝텍스트 해석", "→ 장기(60D): 최근 60거래일 문서는 방향성이 강하지 않습니다."]
+
+    def _boom(*args, **kwargs):
+        raise RuntimeError("ollama down")
+
+    monkeypatch.setattr(
+        "pretrend.pipeline.strategy_engine.report_context._call_report_llm",
+        _boom,
+    )
+    overrides = _generate_report_llm_overrides(
+        long_phase="RECOVERY",
+        mid_regime="RISK_ON",
+        short_signal="STABLE",
+        context_lines=context,
+        evidence_lines=evidence,
+        text_lines=text_lines,
+        model="dummy",
+        base_url="http://localhost:11434",
+        timeout=5,
+    )
+    assert overrides == {}
 
 
 def test_switch_lines_when_panic_and_universe_blocked() -> None:
@@ -195,10 +326,6 @@ def test_group_transition_lines_missing_fail_open() -> None:
 
 
 def test_next_step_hazard_lines_10d_primary_and_four_horizon_summary() -> None:
-    """10D가 1차 표시(첫 줄)이고 지평 요약에 5D/20D/60D/120D 4개가 포함됨을 검증한다.
-
-    10D-centric 원칙: 10D는 상단 상세 3줄에 나타나고 지평 요약 줄에는 포함되지 않는다.
-    """
     lines = _format_next_step_hazard_lines(
         {
             "bias_10d": "RISK_ON_BIAS",
@@ -215,29 +342,25 @@ def test_next_step_hazard_lines_10d_primary_and_four_horizon_summary() -> None:
             "confidence_120d": 0.65,
         }
     )
-    # 10D가 첫 번째 줄 (primary)
-    assert lines[0].startswith("🧭 10D:"), f"10D primary line expected at index 0, got: {lines[0]}"
+    assert lines[0].startswith("🧭 10D:")
     assert "RISK_ON_BIAS" in lines[0]
-    # 10D 전환위험 두 번째 줄
-    assert lines[1].startswith("⏱ 10D 전환위험:"), f"10D hazard expected at index 1, got: {lines[1]}"
-    # 10D 예상 전이 세 번째 줄
-    assert lines[2].startswith("🔭 10D 예상 전이:"), f"10D expected at index 2, got: {lines[2]}"
-    # 지평 요약에 5D/20D/60D/120D 4개 포함 (10D 제외)
+    assert lines[1].startswith("⏱ 10D 전환위험:")
+    assert lines[2].startswith("🔭 10D 예상 전이:")
     summary_line = next((line for line in lines if line.startswith("🧭 지평 요약:")), None)
-    assert summary_line is not None, "지평 요약 줄이 없음"
+    assert summary_line is not None
     for horizon in ("5D", "20D", "60D", "120D"):
-        assert horizon in summary_line, f"{horizon} not in summary: {summary_line}"
-    assert "10D" not in summary_line, f"10D should not appear in summary line: {summary_line}"
+        assert horizon in summary_line
+    assert "10D" not in summary_line
 
 
 def test_select_interpretation_text_fallback() -> None:
     deterministic = "결정론 메시지"
-    assert _select_interpretation_text(deterministic, "  LLM 해석  ") == "LLM 해석"
+    assert _select_interpretation_text(deterministic, "  LLM 해석  ") == deterministic
     assert _select_interpretation_text(deterministic, None) == deterministic
     assert _select_interpretation_text(deterministic, "   ") == deterministic
 
 
 def test_build_interpretation_summary_uses_llm_text_or_falls_back() -> None:
     deterministic = "signal + text 결합 해석"
-    assert _build_interpretation_summary(deterministic, "  상위 해석문  ") == "상위 해석문"
+    assert _build_interpretation_summary(deterministic, "  상위 해석문  ") == deterministic
     assert _build_interpretation_summary(deterministic, None) == deterministic

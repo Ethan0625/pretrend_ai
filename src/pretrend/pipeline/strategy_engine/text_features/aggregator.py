@@ -99,6 +99,7 @@ def aggregate_text_features(
     raw_df: pd.DataFrame,
     trade_date: date,
     *,
+    lookback: int = 5,
     all_trade_dates: Optional[Sequence[date]] = None,
     grouped_by_trade_date: Optional[Dict[date, pd.DataFrame]] = None,
 ) -> TextFeatureSnapshot:
@@ -139,7 +140,7 @@ def aggregate_text_features(
 
     if all_trade_dates is None:
         all_trade_dates = grouped_dates
-    lookback_dates = _rolling_trade_dates(list(all_trade_dates), trade_date, lookback=5)
+    lookback_dates = _rolling_trade_dates(list(all_trade_dates), trade_date, lookback=lookback)
 
     llm_parts = [
         grouped_by_trade_date[d]
