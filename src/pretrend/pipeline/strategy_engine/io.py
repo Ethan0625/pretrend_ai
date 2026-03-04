@@ -79,6 +79,57 @@ def load_gold_eod(
     return df
 
 
+def load_gold_text(
+    data_root: Path,
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+) -> pd.DataFrame:
+    """Gold Text parquet(rule-based + LLM)를 로드한다.
+
+    Returns
+    -------
+    DataFrame
+        long-format DataFrame with a normalized superset schema.
+        파일이 없으면 빈 DataFrame 반환.
+    """
+    roots = [
+        data_root / "gold" / "text" / "text_daily_features",
+        data_root / "gold" / "text" / "text_llm_features",
+    ]
+    files: List[Path] = []
+    for root in roots:
+        files.extend(list(root.rglob("*.parquet")))
+
+    if not files:
+        logger.warning("[StrategyIO] No Gold Text parquet under %s/gold/text", data_root)
+        return pd.DataFrame()
+
+    df = pd.concat((pd.read_parquet(f) for f in sorted(files)), ignore_index=True)
+
+    if "trade_date" in df.columns:
+        df["trade_date"] = pd.to_datetime(df["trade_date"], errors="coerce").dt.date
+
+    for col in [
+        "doc_id",
+        "source",
+        "feature_name",
+        "feature_str",
+        "confidence",
+        "feature_value",
+        "coverage_ratio",
+        "prompt_version",
+    ]:
+        if col not in df.columns:
+            df[col] = None
+
+    if start_date is not None and "trade_date" in df.columns:
+        df = df[df["trade_date"] >= start_date]
+    if end_date is not None and "trade_date" in df.columns:
+        df = df[df["trade_date"] <= end_date]
+
+    return df.reset_index(drop=True)
+
+
 # ── Snapshot Writer ───────────────────────────────────────
 
 

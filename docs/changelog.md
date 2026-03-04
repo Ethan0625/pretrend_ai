@@ -7,6 +7,72 @@
 
 > 참고: changelog 과거 섹션은 작성 시점 원문을 보존한다.
 
+## v2026.03.04d — P3-3 AB 판정: Text overlay 운영 승격 보류
+
+### result(backtest): `v2` vs `v2_text` 1차 비교 완료
+- 비교 구간: `2006-01-03 ~ 2024-06-03`
+- 산출물:
+  - `result/backtest_compare/p3_3/v2/*`
+  - `result/backtest_compare/p3_3/v2_text/*`
+  - `result/backtest_compare/p3_3/compare_v2_v2_text_20260304.csv`
+
+### 비교 결과
+| Metric | v2 | v2_text | Delta |
+| --- | --- | --- | --- |
+| XIRR | `+7.74%` | `+7.33%` | `-0.41%p` |
+| MDD | `-15.65%` | `-21.92%` | `-6.27%p` |
+| Sharpe | `1.69` | `1.64` | `-0.047` |
+| Trade Count | `5093` | `5180` | `+87` |
+
+### 판정
+- 구현은 완료
+- 운영 승격은 보류
+
+근거:
+- `docs/architecture/text_strategy_connection_contract.md §9.4` 채택 기준 중 `MDD 악화 > 3%p`를 위반
+- 따라서 Text는 현재 `observer-only`를 유지하고, `v2_text`는 실험 preset으로만 남긴다.
+
+## v2026.03.04c — P3-3 implementation: Text→Strategy overlay 연결
+
+### feat(strategy): Gold Text loader + text overlay snapshot 추가
+- `src/pretrend/pipeline/strategy_engine/io.py`에 `load_gold_text()` 추가
+- rule-based Gold와 Gold LLM을 병합 로드하고, 빈 입력은 fail-open 빈 DataFrame으로 반환
+- `text_features/aggregator.py`, `text_features/signal.py` 추가
+- `text_overlay_signal` snapshot을 `data/strategy/text_overlay_signal/decision_date=...`에 저장
+
+### feat(strategy): policy_selection / Telegram / v2_text 연결
+- `policy_selection`에 nullable text overlay 컬럼 추가
+- `strategy_job.py`가 `text_overlay_signal -> policy_selection` 경로로 overlay를 통합
+- Telegram SIGNAL의 `시장 근거` 섹션에 text 정보 1~2줄 추가
+- backtest preset `v2_text` 추가: `v2 + text_signal_state`에 따른 `+/-0.05` soft adjustment
+
+### test(strategy): text overlay 단위/회귀 테스트 추가
+- 신규:
+  - `tests/pipeline/strategy_engine/test_text_features.py`
+- 확장:
+  - `tests/pipeline/strategy_engine/test_strategy_job.py`
+  - `tests/pipeline/strategy_engine/test_strategy_engine_dag_report.py`
+  - `tests/pipeline/backtest/test_allocation_v3.py`
+
+## v2026.03.04b — P3 design: Text→Strategy 연결 설계 확정
+
+### docs(text-strategy): Overlay Signal 연결 방식 확정
+- `docs/architecture/text_strategy_connection_contract.md` 신규 추가
+- 3개 후보(Auxiliary / 5th Axis / Overlay) 비교 후 `Overlay Signal` 방식을 확정
+- 연결 위치:
+  - `Gold Text -> text_overlay_signal -> policy_selection`
+- 기존 4축 / AHS / `run_universe` / `risk_gate` 의미는 유지
+
+### docs(strategy): SECTION J 설계 고정
+- `docs/strategy_engine_design.md` SECTION J에 P3 설계 확정 문구 추가
+- Text는 hard gate를 대체하지 않고, `target_ratio`를 1 step(`+/-0.05`)만 soft adjustment 하도록 원칙 고정
+
+### note(text-strategy): Gate H 이후 구현
+- P3-3 구현 전제:
+  - `text_pipeline_dag` 30거래일 연속 운영
+  - rule-based 3종 `coverage_ratio` 중앙값 > `0.5`
+  - AB backtest 비교 프로토콜 확정
+
 ## v2026.03.04a — P1 text: SEC Gold LLM 백필 완료 + SEC 페이지네이션 보강
 
 ### feat(text-backfill): SEC 8-K Gold LLM v2 백필 완료

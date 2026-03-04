@@ -22,7 +22,7 @@ from typing import Any, Dict, List, Optional
 import pandas as pd
 
 from .config import StrategyEngineConfig, DEFAULT_POLICY_V0
-from .io import load_gold_macro, load_gold_eod, write_snapshot_atomic
+from .io import load_gold_macro, load_gold_eod, load_gold_text, write_snapshot_atomic
 from .axis_features.macro_policy import build_macro_policy_axis
 from .axis_features.price_volatility import build_price_volatility_axis
 from .axis_features.flow_structure import build_flow_structure_axis
@@ -31,6 +31,7 @@ from .axis_features.schema import AxisFeatureBundle
 from .axis_horizon_state.builder import build_axis_horizon_state
 from .market_position.engine import build_market_position
 from .policy_selector.engine import build_policy_selection
+from .text_features.signal import build_text_overlay_signal
 from .universe.engine import build_universe
 from .allocation.engine import build_allocation
 from .sell_advisor.engine import build_sell_advice
@@ -63,6 +64,7 @@ class StrategyJobResult:
     axis_features: StrategyStageResult = field(default_factory=StrategyStageResult)
     axis_horizon_state: StrategyStageResult = field(default_factory=StrategyStageResult)
     market_position: StrategyStageResult = field(default_factory=StrategyStageResult)
+    text_overlay_signal: StrategyStageResult = field(default_factory=StrategyStageResult)
     policy_selection: StrategyStageResult = field(default_factory=StrategyStageResult)
     universe: StrategyStageResult = field(default_factory=StrategyStageResult)
     allocation: StrategyStageResult = field(default_factory=StrategyStageResult)
@@ -98,8 +100,13 @@ class StrategyJobRunner:
         # 1) Load Gold inputs
         df_gold_macro = load_gold_macro(self.config.gold_macro_root, end_date=decision_date)
         df_gold_eod = load_gold_eod(self.config.gold_eod_root, end_date=decision_date)
-        logger.info("[StrategyJob] Loaded Gold Macro=%d, Gold EOD=%d rows",
-                    len(df_gold_macro), len(df_gold_eod))
+        df_gold_text = load_gold_text(self.config.data_root, end_date=decision_date)
+        logger.info(
+            "[StrategyJob] Loaded Gold Macro=%d, Gold EOD=%d, Gold Text=%d rows",
+            len(df_gold_macro),
+            len(df_gold_eod),
+            len(df_gold_text),
+        )
 
         # 2) Build Axis Features
         macro_policy = build_macro_policy_axis(df_gold_macro)
@@ -135,8 +142,23 @@ class StrategyJobRunner:
                 "market_position", decision_date, run_id,
             )
 
-        # 5) Build Policy Selection
-        df_ps = build_policy_selection(df_mp, self.policy_profile_id, run_id=run_id)
+        # 5) Build Text Overlay Signal (sidecar, fail-open)
+        text_trade_dates = list(pd.to_datetime(df_mp["trade_date"], errors="coerce").dt.date) if not df_mp.empty else []
+        df_text_overlay = build_text_overlay_signal(df_gold_text, text_trade_dates, run_id=run_id)
+        result.text_overlay_signal = StrategyStageResult(row_count=len(df_text_overlay))
+        if not df_text_overlay.empty:
+            write_snapshot_atomic(
+                df_text_overlay, self.config.strategy_output_root,
+                "text_overlay_signal", decision_date, run_id,
+            )
+
+        # 6) Build Policy Selection
+        df_ps = build_policy_selection(
+            df_mp,
+            self.policy_profile_id,
+            run_id=run_id,
+            text_overlay=df_text_overlay,
+        )
         result.policy_selection = StrategyStageResult(row_count=len(df_ps))
         if not df_ps.empty:
             write_snapshot_atomic(
@@ -144,7 +166,7 @@ class StrategyJobRunner:
                 "policy_selection", decision_date, run_id,
             )
 
-        # 6) Build Universe (WHAT_TO_HOLD) — decision_date 하루치만 저장
+        # 7) Build Universe (WHAT_TO_HOLD) — decision_date 하루치만 저장
         #    df_ps 전체(전 기간)를 넘기면 스냅샷에 누적 이력이 쌓이는 문제 방지.
         df_ps_today = df_ps[df_ps["trade_date"] == decision_date]
         df_universe = build_universe(df_ps_today, df_gold_eod)
@@ -155,7 +177,7 @@ class StrategyJobRunner:
                 "what_to_hold", decision_date, run_id,
             )
 
-        # 7) Build Allocation (HOW_MUCH_EXPOSURE)
+        # 8) Build Allocation (HOW_MUCH_EXPOSURE)
         df_alloc = build_allocation(df_ps, self.current_invested_ratio, self.allocation_mode)
         result.allocation = StrategyStageResult(row_count=len(df_alloc))
         if not df_alloc.empty:
@@ -164,7 +186,7 @@ class StrategyJobRunner:
                 "exposure", decision_date, run_id,
             )
 
-        # 8) Build Sell Advice (HOW_MUCH_TO_SELL — advisory)
+        # 9) Build Sell Advice (HOW_MUCH_TO_SELL — advisory)
         df_sell = build_sell_advice(df_alloc, df_ps, df_universe)
         result.sell_advice = StrategyStageResult(row_count=len(df_sell))
         if not df_sell.empty:
@@ -173,7 +195,7 @@ class StrategyJobRunner:
                 "sell_advice", decision_date, run_id,
             )
 
-        # 9) Build Next Step Signal (운용 게이트 입력)
+        # 10) Build Next Step Signal (운용 게이트 입력)
         df_next = build_next_step_signal(df_ahs, df_mp, run_id=run_id)
         result.next_step_signal = StrategyStageResult(row_count=len(df_next))
         if not df_next.empty:
@@ -188,7 +210,7 @@ class StrategyJobRunner:
                 run_id=run_id,
             )
 
-        # 10) Build Group Transition Signal (전술 그룹 전이예측)
+        # 11) Build Group Transition Signal (전술 그룹 전이예측)
         df_universe_hist = load_universe_for_group_transition(self.config.strategy_output_root)
         df_group = build_group_transition_signal(df_universe_hist, run_id=run_id)
         result.group_transition_signal = StrategyStageResult(row_count=len(df_group))
@@ -204,7 +226,7 @@ class StrategyJobRunner:
                 run_id=run_id,
             )
 
-        # 11) Meta log
+        # 12) Meta log
         self._write_meta_log(result)
 
         logger.info("[StrategyJob] Completed run_id=%s", run_id)
@@ -220,6 +242,7 @@ class StrategyJobRunner:
             "run_id": result.run_id,
             "ahs_rows": result.axis_horizon_state.row_count,
             "mp_rows": result.market_position.row_count,
+            "text_overlay_rows": result.text_overlay_signal.row_count,
             "ps_rows": result.policy_selection.row_count,
             "universe_rows": result.universe.row_count,
             "allocation_rows": result.allocation.row_count,

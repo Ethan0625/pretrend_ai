@@ -72,6 +72,14 @@ class StrategyEngineConfig:
         return self.data_root / "gold" / "eod" / "eod_features"
 
     @property
+    def gold_text_rule_root(self) -> Path:
+        return self.data_root / "gold" / "text" / "text_daily_features"
+
+    @property
+    def gold_text_llm_root(self) -> Path:
+        return self.data_root / "gold" / "text" / "text_llm_features"
+
+    @property
     def strategy_output_root(self) -> Path:
         return self.data_root / "strategy"
 

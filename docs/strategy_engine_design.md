@@ -323,13 +323,19 @@ mid_regime Top-N:
 - LLM 해석 경로 장애 시 결정론 문구로 즉시 fallback 해야 하며, Strategy/Paper 파이프라인 성공 상태를 유지한다.
 
 ### 연결 조건 (Gate H)
-아래 조건을 모두 충족하기 전까지 Text feature는 Strategy 입력에 연결하지 않는다.
-1. `text_pipeline_dag` 30거래일 연속 운영
-2. rule-based 3종 `coverage_ratio` 중앙값 > `0.5`
-3. Text feature 유무 AB 백테스트 비교 수행
-4. 연결 인터페이스를 별도 계약으로 확정
-   - Axis Feature 보조 입력
-   - 또는 5th axis 신설
+- `text_pipeline_dag` 정상 운영과 전체 백필 완료를 구현 전제로 본다.
+- Text feature 유무 AB 백테스트 비교 수행 전까지는 운영 preset 승격을 보류한다.
+- 연결 인터페이스는 `docs/architecture/text_strategy_connection_contract.md`를 권위 기준으로 사용한다.
+
+### P3 설계 확정 (2026-03-04)
+- 연결 방식은 `Overlay Signal`로 고정한다.
+- 구현 포트:
+  - `Gold Text -> text_overlay_signal -> policy_selection`
+- 4축 Axis / AHS / Market Position은 그대로 유지한다.
+- Text는 hard gate를 대체하지 않으며, `target_ratio`를 한 step(`+/-0.05`)만 soft adjustment 한다.
+- `text_overlay_signal` snapshot 컬럼은 `text_signal_state`, `text_signal_confidence`, `text_rule_coverage_ratio`, `text_llm_doc_count_5d`, `text_tone_mean_5d`, `text_top_topics_json`, `text_top_tags_json`, `text_latest_summary`, `text_overlay_reason`을 사용한다.
+- 1차 AB 결과(`v2` vs `v2_text`, 2006-01-03~2024-06-03)는 `XIRR -0.41%p`, `MDD -6.27%p`, `Sharpe -0.047`로 나타났고, 현재 운영 판정은 `observer-only 유지`다.
+- 세부 계약은 `docs/architecture/text_strategy_connection_contract.md`를 따른다.
 
 ### Telegram Phase 1.5
 - LLM 반영 가능 범위는 `시장 근거` 섹션 1~2줄로 제한한다.
@@ -337,7 +343,7 @@ mid_regime Top-N:
 - Strategy/Paper/Backtest 입력값은 여전히 비LLM 경로가 권위 기준이다.
 
 ### 스냅샷 저장 (Reserved)
-- `data/strategy/text_signals/decision_date=YYYY-MM-DD/*.parquet`
+- `data/strategy/text_overlay_signal/decision_date=YYYY-MM-DD/*.parquet`
 
 ---
 

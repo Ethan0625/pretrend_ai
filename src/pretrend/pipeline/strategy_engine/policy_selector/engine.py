@@ -27,6 +27,7 @@ def build_policy_selection(
     market_position: pd.DataFrame,
     policy_profile_id: str = "RC_V0_DEFAULT",
     run_id: str = "",
+    text_overlay: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     """Market Position에 Policy Config를 resolve하여 최종 출력을 생성한다.
 
@@ -56,6 +57,11 @@ def build_policy_selection(
     policy = resolve_policy(policy_profile_id)
 
     result = market_position.copy()
+    if text_overlay is not None and not text_overlay.empty:
+        overlay = text_overlay.copy()
+        if "trade_date" in overlay.columns:
+            overlay["trade_date"] = pd.to_datetime(overlay["trade_date"], errors="coerce").dt.date
+        result = result.merge(overlay, on="trade_date", how="left")
     result["policy_profile_id"] = policy.policy_profile_id
     result["target_invested_lower"] = policy.target_invested_lower
     result["target_invested_upper"] = policy.target_invested_upper

@@ -29,6 +29,7 @@ from pretrend.pipeline.strategy_engine.report_context import (
     build_context_lines as _build_context_lines,
     build_diagnostic_lines as _build_diagnostic_lines,
     build_evidence_lines as _build_evidence_lines,
+    build_text_overlay_lines as _build_text_overlay_lines,
     format_next_step_hazard_lines as _format_next_step_hazard_lines,
     format_bias_state_line as _format_bias_state_line,
     format_group_transition_lines as _format_group_transition_lines,
@@ -215,6 +216,7 @@ def strategy_engine_pipeline():
         df_sell = _load_snapshot(strategy_root, "sell_advice", decision_date)
         df_next = _load_snapshot(strategy_root, "next_step_signal", decision_date)
         df_group = _load_snapshot(strategy_root, "group_transition_signal", decision_date)
+        df_text = _load_snapshot(strategy_root, "text_overlay_signal", decision_date)
 
         # ── Market Position ──
         long_phase = mid_regime = short_signal = "UNKNOWN"
@@ -339,6 +341,9 @@ def strategy_engine_pipeline():
             "── 시장 근거 ──",
         ]
         lines += _build_evidence_lines(long_detail, mid_detail, short_detail)
+        if not df_text.empty:
+            trow = dict(df_text.iloc[-1])
+            lines += _build_text_overlay_lines(trow)
 
         # ── 진단 요약 (12셀 품질) ──
         lines += [

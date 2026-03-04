@@ -177,6 +177,63 @@ def build_evidence_lines(
     ]
 
 
+def build_text_overlay_lines(text_row: Dict[str, Any] | None) -> List[str]:
+    """Text overlay evidence lines for Telegram market evidence section."""
+    if not text_row:
+        return []
+
+    state = str(text_row.get("text_signal_state", "UNKNOWN"))
+    if state == "UNKNOWN":
+        return []
+
+    conf = text_row.get("text_signal_confidence")
+    tone = text_row.get("text_tone_mean_5d")
+    conf_txt = "N/A"
+    tone_txt = "N/A"
+    try:
+        if conf is not None:
+            f = float(conf)
+            if f == f:
+                conf_txt = f"{f:.0%}"
+    except Exception:
+        conf_txt = "N/A"
+    try:
+        if tone is not None:
+            f = float(tone)
+            if f == f:
+                tone_txt = f"{f:+.2f}"
+    except Exception:
+        tone_txt = "N/A"
+
+    top_tags = []
+    raw_tags = text_row.get("text_top_tags_json")
+    if isinstance(raw_tags, str):
+        try:
+            parsed = json.loads(raw_tags)
+            if isinstance(parsed, list):
+                top_tags = [str(x.get("item")) for x in parsed if isinstance(x, dict) and x.get("item")]
+        except Exception:
+            top_tags = []
+
+    label = {
+        "RISK_ON": "위험선호 보조",
+        "NEUTRAL": "중립 보조",
+        "RISK_OFF": "위험회피 보조",
+    }.get(state, state)
+    reason = str(text_row.get("text_overlay_reason", "NO_TEXT_EDGE"))
+
+    detail = f"state={label}({state}), conf={conf_txt}, tone={tone_txt}"
+    if top_tags:
+        detail += f", tags={'/'.join(top_tags[:3])}"
+
+    return [
+        "",
+        "📝텍스트",
+        f"→ {detail}",
+        f"→ reason={reason}",
+    ]
+
+
 def format_transition_expected(expected: Any) -> str:
     """transition_expected를 사람이 읽기 쉬운 문장으로 변환한다."""
     raw = "UNKNOWN" if expected is None else str(expected)

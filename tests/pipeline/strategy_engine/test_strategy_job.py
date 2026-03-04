@@ -91,6 +91,125 @@ def _create_gold_fixtures(data_root: Path) -> None:
     )
 
 
+def _create_gold_text_fixtures(data_root: Path) -> None:
+    rule_dir = data_root / "gold" / "text" / "text_daily_features" / "year=2024" / "month=06"
+    llm_dir = data_root / "gold" / "text" / "text_llm_features" / "year=2024" / "month=06"
+    rule_dir.mkdir(parents=True, exist_ok=True)
+    llm_dir.mkdir(parents=True, exist_ok=True)
+
+    rule_rows = [
+        {
+            "trade_date": "2024-06-03",
+            "feature_name": "macro_hawkish_score",
+            "feature_value": 0.7,
+            "feature_version": "v0",
+            "coverage_ratio": 1.0,
+            "staleness_days": 0,
+        },
+        {
+            "trade_date": "2024-06-03",
+            "feature_name": "filing_risk_burst",
+            "feature_value": 0.0,
+            "feature_version": "v0",
+            "coverage_ratio": 1.0,
+            "staleness_days": 0,
+        },
+        {
+            "trade_date": "2024-06-03",
+            "feature_name": "policy_uncertainty_idx",
+            "feature_value": 0.8,
+            "feature_version": "v0",
+            "coverage_ratio": 1.0,
+            "staleness_days": 0,
+        },
+        {
+            "trade_date": "2024-06-04",
+            "feature_name": "macro_hawkish_score",
+            "feature_value": 0.7,
+            "feature_version": "v0",
+            "coverage_ratio": 1.0,
+            "staleness_days": 0,
+        },
+        {
+            "trade_date": "2024-06-04",
+            "feature_name": "filing_risk_burst",
+            "feature_value": 2.5,
+            "feature_version": "v0",
+            "coverage_ratio": 1.0,
+            "staleness_days": 0,
+        },
+        {
+            "trade_date": "2024-06-04",
+            "feature_name": "policy_uncertainty_idx",
+            "feature_value": 0.8,
+            "feature_version": "v0",
+            "coverage_ratio": 1.0,
+            "staleness_days": 0,
+        },
+    ]
+    pd.DataFrame(rule_rows).to_parquet(rule_dir / "gold_text_202406.parquet", index=False)
+
+    llm_rows = [
+        {
+            "trade_date": "2024-06-03",
+            "doc_id": "doc1",
+            "source": "fed_fomc",
+            "feature_name": "llm_tone",
+            "feature_value": 1.0,
+            "feature_str": None,
+            "confidence": 0.9,
+            "feature_version": "v1",
+            "model_id": "llama3.1:latest",
+            "prompt_version": "text_annotation_v2",
+            "coverage_ratio": 1.0,
+            "staleness_days": 0,
+        },
+        {
+            "trade_date": "2024-06-03",
+            "doc_id": "doc1",
+            "source": "fed_fomc",
+            "feature_name": "llm_tags",
+            "feature_value": 0.0,
+            "feature_str": '[{\"category\":\"policy_action\",\"item\":\"hike\"}]',
+            "confidence": 0.9,
+            "feature_version": "v1",
+            "model_id": "llama3.1:latest",
+            "prompt_version": "text_annotation_v2",
+            "coverage_ratio": 1.0,
+            "staleness_days": 0,
+        },
+        {
+            "trade_date": "2024-06-04",
+            "doc_id": "doc2",
+            "source": "fed_fomc",
+            "feature_name": "llm_tone",
+            "feature_value": 1.0,
+            "feature_str": None,
+            "confidence": 0.9,
+            "feature_version": "v1",
+            "model_id": "llama3.1:latest",
+            "prompt_version": "text_annotation_v2",
+            "coverage_ratio": 1.0,
+            "staleness_days": 0,
+        },
+        {
+            "trade_date": "2024-06-04",
+            "doc_id": "doc2",
+            "source": "fed_fomc",
+            "feature_name": "llm_tags",
+            "feature_value": 0.0,
+            "feature_str": '[{\"category\":\"policy_action\",\"item\":\"hike\"}]',
+            "confidence": 0.9,
+            "feature_version": "v1",
+            "model_id": "llama3.1:latest",
+            "prompt_version": "text_annotation_v2",
+            "coverage_ratio": 1.0,
+            "staleness_days": 0,
+        },
+    ]
+    pd.DataFrame(llm_rows).to_parquet(llm_dir / "gold_llm_202406.parquet", index=False)
+
+
 class TestStrategyJobE2E:
     def test_smoke_run(self, tmp_path):
         """합성 데이터로 전체 파이프라인 실행."""
@@ -113,6 +232,7 @@ class TestStrategyJobE2E:
         assert result.axis_features.row_count > 0
         assert result.axis_horizon_state.row_count > 0
         assert result.market_position.row_count > 0
+        assert result.text_overlay_signal.row_count > 0
         assert result.policy_selection.row_count > 0
         assert result.allocation.row_count > 0
         assert result.group_transition_signal.row_count >= 0
@@ -128,6 +248,7 @@ class TestStrategyJobE2E:
         assert (strategy_root / "axis_horizon_state").exists()
         assert (strategy_root / "market_position").exists()
         assert (strategy_root / "policy_selection").exists()
+        assert (strategy_root / "text_overlay_signal").exists()
         assert (strategy_root / "exposure").exists()
         assert (strategy_root / "group_transition_signal").exists()
         assert (strategy_root / "group_transition_history").exists()
@@ -174,7 +295,27 @@ class TestStrategyJobE2E:
         df = pd.read_parquet(log_path)
         assert len(df) >= 1
         assert "run_id" in df.columns
+        assert "text_overlay_rows" in df.columns
         assert "group_transition_rows" in df.columns
+
+    def test_text_overlay_signal_and_policy_selection_columns(self, tmp_path):
+        _create_gold_fixtures(tmp_path)
+        _create_gold_text_fixtures(tmp_path)
+        config = StrategyEngineConfig(data_root=tmp_path)
+        runner = StrategyJobRunner(config, current_invested_ratio=0.10)
+        result = runner.run(date(2024, 6, 4))
+
+        assert result.text_overlay_signal.row_count > 0
+        text_path = tmp_path / "strategy" / "text_overlay_signal" / "decision_date=2024-06-04"
+        df_text = pd.read_parquet(next(text_path.glob("*.parquet")))
+        assert "text_signal_state" in df_text.columns
+        assert "text_top_tags_json" in df_text.columns
+        assert set(df_text["text_signal_state"]).issubset({"RISK_ON", "NEUTRAL", "RISK_OFF", "UNKNOWN"})
+
+        ps_path = tmp_path / "strategy" / "policy_selection" / "decision_date=2024-06-04"
+        df_ps = pd.read_parquet(next(ps_path.glob("*.parquet")))
+        assert "text_signal_state" in df_ps.columns
+        assert "text_signal_confidence" in df_ps.columns
 
     def test_empty_gold_data(self, tmp_path):
         """Gold 데이터 없어도 에러 없이 완료."""

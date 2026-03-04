@@ -4,6 +4,7 @@ from pretrend.pipeline.strategy_engine.report_context import (
     build_context_lines as _build_context_lines,
     build_diagnostic_lines as _build_diagnostic_lines,
     build_evidence_lines as _build_evidence_lines,
+    build_text_overlay_lines as _build_text_overlay_lines,
     format_group_transition_lines as _format_group_transition_lines,
     format_transition_expected as _format_transition_expected,
     format_next_step_hazard_lines as _format_next_step_hazard_lines,
@@ -38,6 +39,27 @@ def test_market_evidence_lines_fallback_when_missing_details() -> None:
     assert lines[8] == ""
     assert lines[9] == "💕심리"
     assert lines[10] == "→ 영향 근거 없음"
+
+
+def test_text_overlay_lines_render_when_signal_present() -> None:
+    lines = _build_text_overlay_lines(
+        {
+            "text_signal_state": "RISK_OFF",
+            "text_signal_confidence": 0.72,
+            "text_tone_mean_5d": 0.33,
+            "text_top_tags_json": '[{\"category\":\"policy_action\",\"item\":\"hike\"}]',
+            "text_overlay_reason": "macro_hawkish_high|tag_risk_off",
+        }
+    )
+    text = "\n".join(lines)
+    assert "📝텍스트" in text
+    assert "RISK_OFF" in text
+    assert "72%" in text
+    assert "hike" in text
+
+
+def test_text_overlay_lines_hidden_when_unknown() -> None:
+    assert _build_text_overlay_lines({"text_signal_state": "UNKNOWN"}) == []
 
 
 def test_switch_lines_when_panic_and_universe_blocked() -> None:

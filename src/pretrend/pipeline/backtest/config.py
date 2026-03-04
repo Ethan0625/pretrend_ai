@@ -33,6 +33,10 @@ class BacktestPreset:
     target_ratio_map_v3: Optional[Dict[Tuple[str, str], float]] = None
     # DCA: 매월 자금 추가액
     monthly_addition: float = 300.0
+    # Text overlay (v2_text 계열)
+    text_risk_on_adjust: float = 0.05
+    text_risk_off_adjust: float = -0.05
+    text_min_confidence: float = 0.0
 
 
 _ALL_TACTICAL_GROUPS = ("SECTOR", "COMMODITY", "BOND", "COUNTRY")
@@ -77,6 +81,36 @@ PRESET_V2 = BacktestPreset(
         ("UNKNOWN", "RISK_OFF"): 0.30, ("UNKNOWN", "UNKNOWN"): 0.40,
     },
     tactical_groups=_ALL_TACTICAL_GROUPS,
+)
+
+PRESET_V2_TEXT = BacktestPreset(
+    name="v2_text",
+    description="v2 + text overlay soft adjustment (+/- 0.05)",
+    target_ratio_map=None,
+    target_ratio_map_v2=dict(PRESET_V2.target_ratio_map_v2 or {}),
+    tactical_groups=_ALL_TACTICAL_GROUPS,
+)
+
+PRESET_V2_TEXT_RISKOFF = BacktestPreset(
+    name="v2_text_riskoff",
+    description="v2 + text overlay (RISK_OFF only, -0.05)",
+    target_ratio_map=None,
+    target_ratio_map_v2=dict(PRESET_V2.target_ratio_map_v2 or {}),
+    tactical_groups=_ALL_TACTICAL_GROUPS,
+    text_risk_on_adjust=0.0,
+    text_risk_off_adjust=-0.05,
+    text_min_confidence=0.0,
+)
+
+PRESET_V2_TEXT_RISKOFF_GUARDED = BacktestPreset(
+    name="v2_text_riskoff_guarded",
+    description="v2 + text overlay (RISK_OFF only, conf>=0.7, -0.025)",
+    target_ratio_map=None,
+    target_ratio_map_v2=dict(PRESET_V2.target_ratio_map_v2 or {}),
+    tactical_groups=_ALL_TACTICAL_GROUPS,
+    text_risk_on_adjust=0.0,
+    text_risk_off_adjust=-0.025,
+    text_min_confidence=0.7,
 )
 
 PRESET_V3 = BacktestPreset(
@@ -155,6 +189,9 @@ PRESET_REGISTRY: Dict[str, BacktestPreset] = {
     "v0": PRESET_V0,
     "v1": PRESET_V1,
     "v2": PRESET_V2,
+    "v2_text": PRESET_V2_TEXT,
+    "v2_text_riskoff": PRESET_V2_TEXT_RISKOFF,
+    "v2_text_riskoff_guarded": PRESET_V2_TEXT_RISKOFF_GUARDED,
     "v3": PRESET_V3,
     "v3.1": PRESET_V3_1,
     "v3.2": PRESET_V3_2,
@@ -213,6 +250,9 @@ class BacktestConfig:
     target_ratio_map_v2: Optional[Dict[Tuple[str, str], float]] = None
     # Allocation v3: v2 base map + next_step_bias adjustment
     target_ratio_map_v3: Optional[Dict[Tuple[str, str], float]] = None
+    text_risk_on_adjust: float = 0.05
+    text_risk_off_adjust: float = -0.05
+    text_min_confidence: float = 0.0
     allocation_adjustment_limit: float = 0.10
     allocation_step_size: float = 0.05
 
@@ -287,6 +327,9 @@ class BacktestConfig:
             "tactical_groups": list(preset.tactical_groups),
             "preset_name": preset.name,
             "monthly_addition": preset.monthly_addition,
+            "text_risk_on_adjust": preset.text_risk_on_adjust,
+            "text_risk_off_adjust": preset.text_risk_off_adjust,
+            "text_min_confidence": preset.text_min_confidence,
         }
         defaults.update(overrides)
         return cls(start_date=start_date, end_date=end_date, **defaults)
