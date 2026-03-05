@@ -27,7 +27,11 @@ from airflow.decorators import dag, task
 from pretrend.pipeline.notify.telegram_sender import send_telegram_fail_open
 from pretrend.pipeline.strategy_engine.io import load_gold_text
 from pretrend.pipeline.strategy_engine.report_context import (
+    apply_report_llm_behavior_overrides as _apply_report_llm_behavior_overrides,
     apply_report_llm_overrides as _apply_report_llm_overrides,
+    build_risk_summary_struct as _build_risk_summary_struct,
+    build_signal_confidence_struct as _build_signal_confidence_struct,
+    build_trading_guidance_struct as _build_trading_guidance_struct,
     build_context_lines as _build_context_lines,
     build_diagnostic_lines as _build_diagnostic_lines,
     build_evidence_lines as _build_evidence_lines,
@@ -37,6 +41,9 @@ from pretrend.pipeline.strategy_engine.report_context import (
     format_bias_state_line as _format_bias_state_line,
     format_group_transition_lines as _format_group_transition_lines,
     build_switch_lines as _build_switch_lines,
+    format_risk_summary_lines as _format_risk_summary_lines,
+    format_signal_confidence_lines as _format_signal_confidence_lines,
+    format_trading_guidance_lines as _format_trading_guidance_lines,
     safe_json_dict as _safe_json_dict,
 )
 from pretrend.pipeline.strategy_engine.text_features.aggregator import (
@@ -66,16 +73,30 @@ def _last_us_trading_date(anchor: pendulum.DateTime) -> date:
 
 # ── 헬퍼: 최신 exposure 스냅샷에서 invested_ratio 로드 ───
 
-def _load_last_invested_ratio(strategy_root: Path) -> float:
-    """가장 최근 exposure 파티션의 next_invested_ratio를 반환.
+def _load_last_invested_ratio(strategy_root: Path, *, decision_date: date | None = None) -> float:
+    """직전 exposure 파티션의 next_invested_ratio를 반환.
 
-    파일이 없으면 0.0 (콜드스타트) 반환.
+    - 기본은 가장 최근 파티션을 사용한다.
+    - decision_date를 주면, decision_date 미만(<) 파티션만 사용한다.
+      (같은 decision_date 재실행 시 current/next 비중이 같아지는 오염 방지)
+    - 파일이 없으면 0.0 (콜드스타트) 반환.
     """
     exposure_root = strategy_root / "exposure"
     if not exposure_root.exists():
         return 0.0
 
     partitions = sorted(exposure_root.glob("decision_date=*"), reverse=True)
+    if decision_date is not None:
+        filtered: List[Path] = []
+        for p in partitions:
+            try:
+                p_date = date.fromisoformat(str(p.name).split("decision_date=")[1])
+                if p_date < decision_date:
+                    filtered.append(p)
+            except Exception:
+                continue
+        partitions = filtered
+
     for partition in partitions:
         files = list(partition.glob("*.parquet"))
         if not files:
@@ -182,7 +203,10 @@ def strategy_engine_pipeline():
         data_root = Path(os.getenv("PRETREND_DATA_ROOT", "data"))
         config = StrategyEngineConfig(data_root=data_root)
 
-        current_ratio = _load_last_invested_ratio(config.strategy_output_root)
+        current_ratio = _load_last_invested_ratio(
+            config.strategy_output_root,
+            decision_date=decision_date,
+        )
 
         runner = StrategyJobRunner(
             config=config,
@@ -368,30 +392,6 @@ def strategy_engine_pipeline():
             text_windows=text_windows or None,
         )
         evidence_lines = _build_evidence_lines(long_detail, mid_detail, short_detail)
-        text_section_lines = _build_text_window_lines(text_windows)
-        report_cfg = TextPipelineConfig.default()
-        llm_overrides = _generate_report_llm_overrides(
-            long_phase=long_phase,
-            mid_regime=mid_regime,
-            short_signal=short_signal,
-            context_lines=context_lines,
-            evidence_lines=evidence_lines,
-            text_lines=text_section_lines,
-            model=os.getenv("REPORT_LLM_MODEL", report_cfg.ollama_model),
-            base_url=os.getenv("REPORT_LLM_BASE_URL", report_cfg.ollama_base_url),
-            timeout=int(os.getenv("REPORT_LLM_TIMEOUT", str(report_cfg.ollama_timeout))),
-        )
-        context_lines, evidence_lines, text_section_lines = _apply_report_llm_overrides(
-            context_lines, evidence_lines, text_section_lines, llm_overrides
-        )
-        lines += context_lines
-        lines += _build_switch_lines(risk_gate=risk_gate, run_universe=run_universe)
-
-        # ── 다음 스텝 가설 (5/10/20/60/120D bias+hazard+expected) ──
-        lines += [
-            "",
-            "── 다음 스텝 가설 ──",
-        ]
         if df_next.empty:
             logger.warning(
                 "[SIGNAL] next_step_signal snapshot missing for decision_date=%s; using UNKNOWN/N/A fail-open rendering",
@@ -400,9 +400,105 @@ def strategy_engine_pipeline():
             nrow: Dict[str, Any] = {}
         else:
             nrow = df_next.iloc[-1]
+        if df_group.empty:
+            group_lines = _format_group_transition_lines(None)
+            grows = []
+        else:
+            if "trade_date" in df_group.columns:
+                gtmp = df_group.copy()
+                gtmp["trade_date"] = pd.to_datetime(gtmp["trade_date"]).dt.date
+                gtmp = gtmp[gtmp["trade_date"] <= decision_date]
+                if not gtmp.empty:
+                    latest_gd = gtmp["trade_date"].max()
+                    gtmp = gtmp[gtmp["trade_date"] == latest_gd]
+                # asset_group별 최신 1행만 사용 (히스토리 전체 출력 방지)
+                if "asset_group" in gtmp.columns and not gtmp.empty:
+                    gtmp = gtmp.sort_values(["asset_group", "trade_date"])
+                    gtmp = gtmp.drop_duplicates(subset=["asset_group"], keep="last")
+            else:
+                gtmp = df_group
 
-        lines += _format_next_step_hazard_lines(nrow if isinstance(nrow, dict) else dict(nrow))
-        lines += [_format_bias_state_line(nrow if isinstance(nrow, dict) else dict(nrow))]
+            grows = []
+            for _, r in gtmp.iterrows():
+                grows.append(
+                    {
+                        "asset_group": r.get("asset_group"),
+                        "group_state_now": r.get("group_state_now"),
+                        "group_expected_5d": r.get("group_expected_5d"),
+                        "group_expected_10d": r.get("group_expected_10d"),
+                        "group_transition_hazard_5d": r.get("group_transition_hazard_5d"),
+                        "group_transition_hazard_10d": r.get("group_transition_hazard_10d"),
+                    }
+                )
+            group_lines = _format_group_transition_lines(grows)
+
+        next_step_lines = _format_next_step_hazard_lines(nrow if isinstance(nrow, dict) else dict(nrow))
+        next_step_lines += [_format_bias_state_line(nrow if isinstance(nrow, dict) else dict(nrow))]
+        text_section_lines = _build_text_window_lines(text_windows)
+        nrow_dict = nrow if isinstance(nrow, dict) else dict(nrow)
+        guidance_struct = _build_trading_guidance_struct(
+            mid_regime=mid_regime,
+            short_signal=short_signal,
+            run_universe=run_universe,
+            risk_gate=risk_gate,
+            hazard_10d=nrow_dict.get("transition_hazard_10d"),
+        )
+        confidence_struct = _build_signal_confidence_struct(
+            hazard_10d=nrow_dict.get("transition_hazard_10d"),
+            diversity_count=nrow_dict.get("horizon_bias_diversity_count"),
+            evidence_unknown_ratio=nrow_dict.get("evidence_unknown_ratio"),
+        )
+        risk_struct = _build_risk_summary_struct(
+            run_universe=run_universe,
+            short_signal=short_signal,
+            hazard_10d=nrow_dict.get("transition_hazard_10d"),
+            group_rows=grows,
+        )
+        guidance_lines = _format_trading_guidance_lines(guidance_struct)
+        risk_lines = _format_risk_summary_lines(risk_struct)
+        confidence_lines = _format_signal_confidence_lines(confidence_struct)
+
+        report_cfg = TextPipelineConfig.default()
+        llm_overrides = _generate_report_llm_overrides(
+            long_phase=long_phase,
+            mid_regime=mid_regime,
+            short_signal=short_signal,
+            context_lines=context_lines,
+            evidence_lines=evidence_lines,
+            next_step_lines=next_step_lines,
+            group_lines=group_lines,
+            next_step_row=nrow if isinstance(nrow, dict) else dict(nrow),
+            group_rows=grows,
+            guidance_lines=guidance_lines,
+            risk_lines=risk_lines,
+            confidence_lines=confidence_lines,
+            guidance_struct=guidance_struct,
+            risk_struct=risk_struct,
+            confidence_struct=confidence_struct,
+            text_lines=text_section_lines,
+            model=os.getenv("REPORT_LLM_MODEL", "qwen2.5:14b"),
+            base_url=os.getenv("REPORT_LLM_BASE_URL", report_cfg.ollama_base_url),
+            timeout=int(os.getenv("REPORT_LLM_TIMEOUT", str(report_cfg.ollama_timeout))),
+        )
+        context_lines, evidence_lines, next_step_lines, group_lines, text_section_lines = _apply_report_llm_overrides(
+            context_lines, evidence_lines, next_step_lines, group_lines, text_section_lines, llm_overrides
+        )
+        guidance_lines, risk_lines, confidence_lines = _apply_report_llm_behavior_overrides(
+            guidance_lines, risk_lines, confidence_lines, llm_overrides
+        )
+
+        lines += context_lines
+        lines += _build_switch_lines(risk_gate=risk_gate, run_universe=run_universe)
+        lines += [""] + guidance_lines
+        lines += [""] + risk_lines
+        lines += [""] + confidence_lines
+
+        # ── 다음 스텝 가설 (5/10/20/60/120D bias+hazard+expected) ──
+        lines += [
+            "",
+            "── 다음 스텝 가설 ──",
+        ]
+        lines += next_step_lines
 
         # ── 시장 근거 (4축) ──
         lines += [
@@ -436,36 +532,7 @@ def strategy_engine_pipeline():
             "",
             "── 전술 그룹 다음 스텝 ──",
         ]
-        if df_group.empty:
-            lines += _format_group_transition_lines(None)
-        else:
-            if "trade_date" in df_group.columns:
-                gtmp = df_group.copy()
-                gtmp["trade_date"] = pd.to_datetime(gtmp["trade_date"]).dt.date
-                gtmp = gtmp[gtmp["trade_date"] <= decision_date]
-                if not gtmp.empty:
-                    latest_gd = gtmp["trade_date"].max()
-                    gtmp = gtmp[gtmp["trade_date"] == latest_gd]
-                # asset_group별 최신 1행만 사용 (히스토리 전체 출력 방지)
-                if "asset_group" in gtmp.columns and not gtmp.empty:
-                    gtmp = gtmp.sort_values(["asset_group", "trade_date"])
-                    gtmp = gtmp.drop_duplicates(subset=["asset_group"], keep="last")
-            else:
-                gtmp = df_group
-
-            grows = []
-            for _, r in gtmp.iterrows():
-                grows.append(
-                    {
-                        "asset_group": r.get("asset_group"),
-                        "group_state_now": r.get("group_state_now"),
-                        "group_expected_5d": r.get("group_expected_5d"),
-                        "group_expected_10d": r.get("group_expected_10d"),
-                        "group_transition_hazard_5d": r.get("group_transition_hazard_5d"),
-                        "group_transition_hazard_10d": r.get("group_transition_hazard_10d"),
-                    }
-                )
-            lines += _format_group_transition_lines(grows)
+        lines += group_lines
 
         # ── 전술 ETF (asset_group별 그룹핑) ──
         if tactical_by_group:

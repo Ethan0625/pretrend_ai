@@ -35,19 +35,118 @@ _TAG_LABELS = {
     "volatility_spike": "변동성 확대",
 }
 
-_REPORT_LLM_SYSTEM_PROMPT = """You are a Korean financial report writer for a Telegram SIGNAL report.
-Rewrite sections using provided market signals and text evidence.
-Rules:
-- Preserve facts and direction from the inputs. Do not invent new facts.
-- Gold/strategy evidence is primary; text/llm feature is only supporting context.
-- Do not copy raw field names or JSON keys into output.
-- Do not quote llm_summary verbatim.
-- Keep each output to one concise Korean sentence.
-- Return JSON only with keys:
-  context_long, context_mid, context_short,
-  evidence_macro, evidence_price, evidence_flow, evidence_sentiment,
-  text_summary
-- If unsure, return an empty string for that field."""
+_BIAS_LABELS = {
+    "RISK_ON_BIAS": "공격 쪽 전망",
+    "NEUTRAL_BIAS": "중립 전망",
+    "RISK_OFF_BIAS": "방어 쪽 전망",
+    "UNKNOWN": "판단 보류",
+}
+
+_GROUP_LABELS = {
+    "SECTOR": "섹터",
+    "COMMODITY": "원자재",
+    "BOND": "채권",
+    "COUNTRY": "개별국가",
+    "UNKNOWN": "미상",
+}
+
+_GROUP_STATE_LABELS = {
+    "STRONG": "강세",
+    "NEUTRAL": "중립",
+    "WEAK": "약세",
+    "UNKNOWN": "판단보류",
+}
+
+_REPORT_LLM_SYSTEM_PROMPT = """역할: 한국어 금융 Telegram SIGNAL 리포트 작성자
+
+목표:
+- 입력 재료(gold/strategy/llm_feature)를 바탕으로 각 섹션 문장을 사람이 이해하기 쉬운 한국어로 재작성한다.
+- 사실/방향은 유지하고, 새 사실을 만들지 않는다.
+
+전역 규칙:
+1) gold/strategy 근거가 본문 우선, text/llm_feature는 보조 근거다.
+2) JSON 키, raw 코드, 내부 필드명은 출력에 쓰지 않는다.
+3) llm_summary 원문을 그대로 복붙하지 않는다.
+4) 각 필드는 1문장(최대 2문장)으로 짧게 쓴다.
+5) 확신이 없으면 빈 문자열을 반환한다.
+
+필드별 작성 규칙:
+- context_long/context_mid/context_short:
+  - draft_context와 states를 바탕으로 현재 상태를 자연어로 설명
+  - 과장 금지, 방어/공격 뉘앙스는 상태와 일치
+- evidence_macro/evidence_price/evidence_flow/evidence_sentiment:
+  - draft_evidence를 쉬운 한국어로 압축
+  - 수치가 있으면 핵심 수치 1개만 보존
+- next_step_summary:
+  - next_step_struct를 우선 사용
+  - 10D bias 의미 + 전환위험(hazard) + 예상 전이(장/중/단)를 자연어로 연결
+  - 코드형 문자열(예: RECOVERY_RISK_ON_RELIEF) 직접 노출 금지
+- group_summary:
+  - group_struct를 우선 사용
+  - 그룹별 방향을 과장 없이 요약
+  - UNKNOWN 그룹이 있으면 불확실성을 명시
+  - 이모지/상태코드(STRONG, WEAK 등) 직접 노출 금지
+- text_summary:
+  - text_windows를 바탕으로 최근 문서 흐름을 보조 요약
+  - 정책/리스크 관련 핵심만 간단히
+- trading_guidance:
+  - guidance_struct를 우선 사용
+  - 매수 확대/분할 접근/관망/방어 중 하나의 행동을 명확히 제시
+  - run_universe/risk_gate/short/hazard 우선순위를 거스르지 않는다
+- risk_summary:
+  - risk_struct를 우선 사용
+  - 가장 큰 리스크 1개만 간단히 설명
+- signal_confidence_summary:
+  - confidence_struct를 우선 사용
+  - 신뢰도(낮음/중간/높음)와 핵심 이유를 짧게 설명
+
+예시(next_step_summary):
+입력: bias_10d_label=방어 쪽 전망, hazard_10d=80%, expected_long_10d=침체, expected_mid_10d=혼조, expected_short_10d=안도
+출력: 10거래일 기준으로는 방어 쪽 전망이 우세하며 전환위험도 높은 편입니다. 예상 전이는 장기 침체, 중기 혼조, 단기 안도 흐름입니다.
+
+반환 형식(JSON only):
+{
+  "context_long": "...",
+  "context_mid": "...",
+  "context_short": "...",
+  "evidence_macro": "...",
+  "evidence_price": "...",
+  "evidence_flow": "...",
+  "evidence_sentiment": "...",
+  "next_step_summary": "...",
+  "group_summary": "...",
+  "text_summary": "...",
+  "trading_guidance": "...",
+  "risk_summary": "...",
+  "signal_confidence_summary": "..."
+}
+"""
+
+_GUIDANCE_REASON_DESC = {
+    "RUN_UNIVERSE_BLOCK": "전술 실행 게이트가 닫혀 있어 관망이 우선입니다.",
+    "SHORT_PANIC": "단기 공황 신호가 있어 방어가 우선입니다.",
+    "RISK_GATE_BLOCK": "단기 게이트가 비정상이라 비중 확대를 보류합니다.",
+    "HAZARD_HIGH": "전환 위험이 높아 분할 접근이 유리합니다.",
+    "MID_RISK_ON": "중기 위험선호 흐름이 유지돼 매수 허용 구간입니다.",
+    "MID_RISK_OFF": "중기 방어 흐름이라 보수적 대응이 유리합니다.",
+    "MID_NEUTRAL": "방향성이 뚜렷하지 않아 관망이 적절합니다.",
+    "UNKNOWN": "근거가 부족해 기본 대응을 유지합니다.",
+}
+
+_CONF_REASON_DESC = {
+    "HAZARD_HIGH": "단기 전환 위험이 높아 신뢰도를 낮게 봅니다.",
+    "LOW_HAZARD_DIVERSE": "전환 위험이 낮고 지평 분화가 있어 신뢰도가 높습니다.",
+    "MIXED": "신호가 혼재돼 중간 신뢰도로 해석합니다.",
+    "MISSING_OR_UNKNOWN": "결측/미상 비중이 있어 신뢰도를 낮게 봅니다.",
+}
+
+_RISK_REASON_DESC = {
+    "RUN_UNIVERSE_BLOCK": "전술 실행 게이트가 닫혀 있어 관망이 필요합니다.",
+    "SHORT_PANIC": "단기 공황 신호로 변동성 확대 위험이 큽니다.",
+    "HAZARD_HIGH": "단기 전환 가능성이 높아 추격 진입 위험이 큽니다.",
+    "GROUP_UNKNOWN": "일부 전술 그룹 상태가 미확정이라 해석 오차가 큽니다.",
+    "NONE": "현재 핵심 리스크는 제한적입니다.",
+}
 
 
 def safe_json_dict(raw: Any) -> Dict[str, Any]:
@@ -114,6 +213,30 @@ def _label_items(items: List[str], labels: Dict[str, str]) -> List[str]:
     return out
 
 
+def _pct_str(v: Any) -> str:
+    try:
+        if v is None:
+            return "N/A"
+        fv = float(v)
+        if fv != fv:
+            return "N/A"
+        return f"{fv:.0%}"
+    except Exception:
+        return "N/A"
+
+
+def _safe_float(v: Any) -> Optional[float]:
+    try:
+        if v is None:
+            return None
+        fv = float(v)
+        if fv != fv:
+            return None
+        return fv
+    except Exception:
+        return None
+
+
 def _tone_bucket(tone: Any) -> str:
     try:
         if tone is None:
@@ -170,6 +293,228 @@ def _window_phrase(window_row: Optional[Dict[str, Any]], horizon_label: str) -> 
     if details:
         return f"{base} {' · '.join(details)}."
     return base
+
+
+def _build_next_step_material(nrow: Dict[str, Any]) -> Dict[str, Any]:
+    expected_parts = _parse_transition_parts(nrow.get("transition_expected_10d", "UNKNOWN"))
+    return {
+        "bias_10d": str(nrow.get("bias_10d", "UNKNOWN")),
+        "bias_10d_label": _BIAS_LABELS.get(str(nrow.get("bias_10d", "UNKNOWN")), str(nrow.get("bias_10d", "UNKNOWN"))),
+        "confidence_10d": _pct_str(nrow.get("confidence_10d")),
+        "hazard_10d": _pct_str(nrow.get("transition_hazard_10d")),
+        "expected_10d": format_transition_expected(nrow.get("transition_expected_10d", "UNKNOWN")),
+        "expected_long_10d": expected_parts["long"],
+        "expected_mid_10d": expected_parts["mid"],
+        "expected_short_10d": expected_parts["short"],
+        "bias_state_source": str(nrow.get("bias_state_source", "UNKNOWN")),
+        "bias_switch_reason": str(nrow.get("bias_switch_reason", "UNKNOWN")),
+        "cooldown_left": str(nrow.get("bias_cooldown_left", "N/A")),
+        "diversity": (
+            f"{int(nrow.get('horizon_bias_diversity_count'))}/5"
+            if nrow.get("horizon_bias_diversity_count") is not None
+            else "N/A"
+        ),
+    }
+
+
+def _build_group_material(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    out: List[Dict[str, Any]] = []
+    for r in rows:
+        grp = str(r.get("asset_group", "UNKNOWN"))
+        out.append(
+            {
+                "asset_group": _GROUP_LABELS.get(grp, grp),
+                "state_now": _GROUP_STATE_LABELS.get(str(r.get("group_state_now", "UNKNOWN")), str(r.get("group_state_now", "UNKNOWN"))),
+                "expected_5d": _GROUP_STATE_LABELS.get(str(r.get("group_expected_5d", "UNKNOWN")), str(r.get("group_expected_5d", "UNKNOWN"))),
+                "expected_10d": _GROUP_STATE_LABELS.get(str(r.get("group_expected_10d", "UNKNOWN")), str(r.get("group_expected_10d", "UNKNOWN"))),
+                "hazard_10d": _pct_str(r.get("group_transition_hazard_10d")),
+                "hazard_5d": _pct_str(r.get("group_transition_hazard_5d")),
+                "confidence": _pct_str(r.get("group_confidence")),
+            }
+        )
+    return out
+
+
+def build_trading_guidance_struct(
+    *,
+    mid_regime: str,
+    short_signal: str,
+    run_universe: bool,
+    risk_gate: bool,
+    hazard_10d: Any,
+) -> Dict[str, str]:
+    hazard = _safe_float(hazard_10d)
+    if not run_universe:
+        reason = "RUN_UNIVERSE_BLOCK"
+        return {
+            "guidance": "관망/실행 제한",
+            "reason": reason,
+            "priority_source": "RUN_UNIVERSE",
+            "detail": _GUIDANCE_REASON_DESC[reason],
+        }
+    if short_signal == "PANIC":
+        reason = "SHORT_PANIC"
+        return {
+            "guidance": "방어",
+            "reason": reason,
+            "priority_source": "SHORT",
+            "detail": _GUIDANCE_REASON_DESC[reason],
+        }
+    if not risk_gate:
+        reason = "RISK_GATE_BLOCK"
+        return {
+            "guidance": "관망",
+            "reason": reason,
+            "priority_source": "RISK_GATE",
+            "detail": _GUIDANCE_REASON_DESC[reason],
+        }
+    if hazard is not None and hazard > 0.70:
+        reason = "HAZARD_HIGH"
+        return {
+            "guidance": "분할 접근",
+            "reason": reason,
+            "priority_source": "HAZARD",
+            "detail": _GUIDANCE_REASON_DESC[reason],
+        }
+    if mid_regime == "RISK_ON":
+        reason = "MID_RISK_ON"
+        guidance = "매수 허용"
+    elif mid_regime == "RISK_OFF":
+        reason = "MID_RISK_OFF"
+        guidance = "방어"
+    else:
+        reason = "MID_NEUTRAL"
+        guidance = "관망"
+    return {
+        "guidance": guidance,
+        "reason": reason,
+        "priority_source": "MID_REGIME",
+        "detail": _GUIDANCE_REASON_DESC.get(reason, _GUIDANCE_REASON_DESC["UNKNOWN"]),
+    }
+
+
+def build_signal_confidence_struct(
+    *,
+    hazard_10d: Any,
+    diversity_count: Any,
+    evidence_unknown_ratio: Any = None,
+) -> Dict[str, str]:
+    hazard = _safe_float(hazard_10d)
+    unknown_ratio = _safe_float(evidence_unknown_ratio)
+    dcount = None
+    try:
+        if diversity_count is not None:
+            dcount = int(diversity_count)
+    except Exception:
+        dcount = None
+
+    if unknown_ratio is not None and unknown_ratio >= 0.50:
+        reason = "MISSING_OR_UNKNOWN"
+        level = "낮음"
+    elif hazard is not None and hazard >= 0.80:
+        reason = "HAZARD_HIGH"
+        level = "낮음"
+    elif (hazard is not None and hazard <= 0.50) and (dcount is not None and dcount >= 3):
+        reason = "LOW_HAZARD_DIVERSE"
+        level = "높음"
+    else:
+        reason = "MIXED"
+        level = "중간"
+    return {
+        "level": level,
+        "reason": reason,
+        "detail": _CONF_REASON_DESC[reason],
+    }
+
+
+def build_risk_summary_struct(
+    *,
+    run_universe: bool,
+    short_signal: str,
+    hazard_10d: Any,
+    group_rows: Optional[List[Dict[str, Any]]] = None,
+) -> Dict[str, str]:
+    hazard = _safe_float(hazard_10d)
+    rows = group_rows or []
+    has_unknown_group = any(str(r.get("group_state_now", "UNKNOWN")) == "UNKNOWN" for r in rows)
+
+    if not run_universe:
+        reason = "RUN_UNIVERSE_BLOCK"
+    elif short_signal == "PANIC":
+        reason = "SHORT_PANIC"
+    elif hazard is not None and hazard > 0.70:
+        reason = "HAZARD_HIGH"
+    elif has_unknown_group:
+        reason = "GROUP_UNKNOWN"
+    else:
+        reason = "NONE"
+    return {
+        "reason": reason,
+        "summary": _RISK_REASON_DESC[reason],
+    }
+
+
+def format_trading_guidance_lines(guidance_struct: Dict[str, str]) -> List[str]:
+    guidance = guidance_struct.get("guidance", "관망")
+    detail = guidance_struct.get("detail", _GUIDANCE_REASON_DESC["UNKNOWN"])
+    return [
+        "── 투자 행동 가이드 ──",
+        f"🎯 행동: {guidance}",
+        f"→ {detail}",
+    ]
+
+
+def format_risk_summary_lines(risk_struct: Dict[str, str]) -> List[str]:
+    summary = risk_struct.get("summary", _RISK_REASON_DESC["NONE"])
+    return [
+        "── 핵심 리스크 ──",
+        f"⚠️ {summary}",
+        "→ 현재 구간의 최우선 리스크를 기준으로 요약했습니다.",
+    ]
+
+
+def format_signal_confidence_lines(confidence_struct: Dict[str, str]) -> List[str]:
+    level = confidence_struct.get("level", "중간")
+    detail = confidence_struct.get("detail", _CONF_REASON_DESC["MIXED"])
+    return [
+        "── 시장 신뢰도 ──",
+        f"📊 신뢰도: {level}",
+        f"→ {detail}",
+    ]
+
+
+def _parse_transition_parts(expected: Any) -> Dict[str, str]:
+    raw = "UNKNOWN" if expected is None else str(expected)
+    parts = raw.split("_")
+    if len(parts) != 3:
+        return {
+            "long": "미상",
+            "mid": "미상",
+            "short": "미상",
+        }
+    long_phase, mid_regime, short_signal = parts
+    return {
+        "long": {
+            "EXPANSION": "확장",
+            "LATE_CYCLE": "후기 사이클",
+            "SLOWDOWN": "둔화",
+            "RECESSION": "침체",
+            "RECOVERY": "회복",
+            "UNKNOWN": "미상",
+        }.get(long_phase, long_phase),
+        "mid": {
+            "RISK_ON": "위험선호",
+            "NEUTRAL": "혼조",
+            "RISK_OFF": "위험회피",
+            "UNKNOWN": "미상",
+        }.get(mid_regime, mid_regime),
+        "short": {
+            "PANIC": "공황",
+            "STABLE": "안정",
+            "RELIEF": "안도",
+            "UNKNOWN": "미상",
+        }.get(short_signal, short_signal),
+    }
 
 
 def _build_long_context_detail(long_phase: str, long_detail: Optional[Dict[str, Any]]) -> str:
@@ -275,6 +620,7 @@ def _get_report_ollama_client(base_url: str):
 
 def _call_report_llm(payload: Dict[str, Any], *, model: str, base_url: str, timeout: int) -> Dict[str, str]:
     client = _get_report_ollama_client(base_url)
+    temperature = float(os.getenv("REPORT_LLM_TEMPERATURE", "0.2"))
     response = client.chat(
         model=model,
         messages=[
@@ -282,7 +628,7 @@ def _call_report_llm(payload: Dict[str, Any], *, model: str, base_url: str, time
             {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
         ],
         format="json",
-        options={"temperature": 0.1},
+        options={"temperature": temperature},
     )
     raw = str(response["message"]["content"])
     parsed = json.loads(raw)
@@ -302,6 +648,16 @@ def generate_report_llm_overrides(
     short_signal: str,
     context_lines: List[str],
     evidence_lines: List[str],
+    next_step_lines: List[str],
+    group_lines: List[str],
+    next_step_row: Optional[Dict[str, Any]] = None,
+    group_rows: Optional[List[Dict[str, Any]]] = None,
+    guidance_lines: Optional[List[str]] = None,
+    risk_lines: Optional[List[str]] = None,
+    confidence_lines: Optional[List[str]] = None,
+    guidance_struct: Optional[Dict[str, Any]] = None,
+    risk_struct: Optional[Dict[str, Any]] = None,
+    confidence_struct: Optional[Dict[str, Any]] = None,
     text_lines: List[str],
     model: str,
     base_url: str,
@@ -327,10 +683,22 @@ def generate_report_llm_overrides(
             "flow": evidence_lines[7][2:] if len(evidence_lines) > 7 and evidence_lines[7].startswith("→ ") else "",
             "sentiment": evidence_lines[10][2:] if len(evidence_lines) > 10 and evidence_lines[10].startswith("→ ") else "",
         },
+        "draft_next_step": [line[2:] if line.startswith("→ ") else line for line in next_step_lines],
+        "next_step_struct": _build_next_step_material(next_step_row or {}),
+        "draft_groups": [line[2:] if line.startswith("→ ") else line for line in group_lines],
+        "group_struct": _build_group_material(group_rows or []),
         "text_windows": {
             "summary_lines": [line[2:] if line.startswith("→ ") else line for line in text_lines[1:4]]
             if len(text_lines) >= 4 else [],
         },
+        "draft_behavior": {
+            "trading_guidance": guidance_lines[1] if guidance_lines and len(guidance_lines) > 1 else "",
+            "risk_summary": risk_lines[1] if risk_lines and len(risk_lines) > 1 else "",
+            "signal_confidence_summary": confidence_lines[1] if confidence_lines and len(confidence_lines) > 1 else "",
+        },
+        "guidance_struct": guidance_struct or {},
+        "risk_struct": risk_struct or {},
+        "confidence_struct": confidence_struct or {},
     }
     try:
         return _call_report_llm(payload, model=model, base_url=base_url, timeout=timeout)
@@ -341,14 +709,18 @@ def generate_report_llm_overrides(
 def apply_report_llm_overrides(
     context_lines: List[str],
     evidence_lines: List[str],
+    next_step_lines: List[str],
+    group_lines: List[str],
     text_lines: List[str],
     overrides: Optional[Dict[str, str]],
-) -> tuple[List[str], List[str], List[str]]:
+) -> tuple[List[str], List[str], List[str], List[str], List[str]]:
     if not overrides:
-        return context_lines, evidence_lines, text_lines
+        return context_lines, evidence_lines, next_step_lines, group_lines, text_lines
 
     out_context = list(context_lines)
     out_evidence = list(evidence_lines)
+    out_next = list(next_step_lines)
+    out_group = list(group_lines)
     out_text = list(text_lines)
 
     mapping_context = {
@@ -372,6 +744,22 @@ def apply_report_llm_overrides(
         if val:
             out_evidence[idx] = f"→ {val}"
 
+    def _upsert_summary(lines: List[str], summary: str) -> List[str]:
+        if not summary:
+            return lines
+        out = list(lines)
+        # 기존 summary line(맨 앞의 "→ ...")가 있으면 교체, 없으면 말미에 추가
+        if out and isinstance(out[0], str) and out[0].startswith("→ "):
+            out[0] = f"→ {summary}"
+            return out
+        return out + [f"→ {summary}"]
+
+    next_step_summary = overrides.get("next_step_summary", "").strip()
+    out_next = _upsert_summary(out_next, next_step_summary)
+
+    group_summary = overrides.get("group_summary", "").strip()
+    out_group = _upsert_summary(out_group, group_summary)
+
     text_summary = overrides.get("text_summary", "").strip()
     if text_summary:
         if not out_text:
@@ -383,7 +771,35 @@ def apply_report_llm_overrides(
         elif len(out_text) >= 1:
             out_text = [out_text[0], f"→ {text_summary}"] + out_text[1:]
 
-    return out_context, out_evidence, out_text
+    return out_context, out_evidence, out_next, out_group, out_text
+
+
+def apply_report_llm_behavior_overrides(
+    guidance_lines: List[str],
+    risk_lines: List[str],
+    confidence_lines: List[str],
+    overrides: Optional[Dict[str, str]],
+) -> tuple[List[str], List[str], List[str]]:
+    if not overrides:
+        return guidance_lines, risk_lines, confidence_lines
+
+    out_guidance = list(guidance_lines)
+    out_risk = list(risk_lines)
+    out_confidence = list(confidence_lines)
+
+    trading_guidance = overrides.get("trading_guidance", "").strip()
+    if trading_guidance and len(out_guidance) > 1:
+        out_guidance[1] = f"🎯 행동: {trading_guidance}"
+
+    risk_summary = overrides.get("risk_summary", "").strip()
+    if risk_summary and len(out_risk) > 1:
+        out_risk[1] = f"⚠️ {risk_summary}"
+
+    conf_summary = overrides.get("signal_confidence_summary", "").strip()
+    if conf_summary and len(out_confidence) > 1:
+        out_confidence[1] = f"📊 신뢰도: {conf_summary}"
+
+    return out_guidance, out_risk, out_confidence
 
 
 def build_context_lines(
