@@ -46,6 +46,7 @@
 - Telegram 메시지 타입 분리(SIGNAL vs PAPER_RESULT)
 - Paper Trading 요약 payload(표시) 계약
 - 전송 실패 처리 정책
+- SIM/MOCK 동시 운영 시 식별 필드 계약
 
 **권위 구현 경로(canonical)**:
 - `pretrend.pipeline.paper.execution` — PAPER_RESULT 생성 권위 구현 (source_job=`paper_trading_dag`)
@@ -103,6 +104,11 @@ PAPER_RESULT 전용 필드:
 | broker_token_refresh_count | INT | N | 당일 토큰 갱신 횟수 |
 | broker_orders_count | INT | N | 당일 주문 건수 |
 | broker_fills_count | INT | N | 당일 체결 건수 |
+| execution_mode | TEXT | N | 실행 모드(`SIM`, `MOCK`) |
+| capital_source | TEXT | N | 자본 원천(`ENV_SIM`, `BROKER_BALANCE`) |
+| broker_source | TEXT | N | 브로커 원천(`NONE`, `KIS_MOCK`, `KIS_LIVE`) |
+| account_id | TEXT | N | 계좌 식별자(masked) |
+| nav_source | TEXT | N | NAV 원천(`SIM_LEDGER`, `BROKER_SNAPSHOT`) |
 | group_gate_applied_groups | ARRAY<TEXT> | N | 적용된 tactical 그룹 |
 | group_gate_reduced_groups | ARRAY<TEXT> | N | 축소된 tactical 그룹 |
 | group_gate_source | TEXT | N | 그룹 게이트 소스 (`SNAPSHOT`, `MISSING`) |
@@ -116,6 +122,8 @@ PAPER_RESULT 전용 필드:
 - PAPER_RESULT는 일 1회 EOD 전송을 기본으로 한다.
 - Telegram 전송 실패는 fail-open 처리된다.
 - `message_type/source_job/decision_date/simulation_date` 4개 공통 필드는 항상 포함된다.
+- SIM/MOCK 동시 운영 시 `execution_mode`는 필수 식별축으로 동작해야 하며, compare 발송에서도 동일 기준을 유지한다.
+- Renderer는 payload를 그대로 렌더링하며 env/config를 재해석하지 않는다(payload-only).
 
 ## 7. DoD
 - **PTA1**: SIGNAL/PAPER_RESULT 메시지 타입 구분 검증

@@ -49,6 +49,7 @@
 - strategy `exposure` 신호 기반 EOD 가상 체결
 - `execution_ledger`, `positions_daily`, `portfolio_daily` 산출
 - 운영 조건(초기자금/DCA/요일 규칙/SCHD 매도 금지) 적용
+- SIM/MOCK 동시 운영 시 mode 분리 저장/조회 규칙
 
 ### Non-goals
 - 실전(Level 3) 자동 주문 연동
@@ -81,6 +82,7 @@
 | 컬럼 | 타입 | 설명 |
 | --- | --- | --- |
 | trade_date | DATE | 체결일 |
+| execution_mode | TEXT | 실행 모드(`SIM`, `MOCK`) |
 | symbol | TEXT | 종목 |
 | action | TEXT | `BUY`/`SELL` |
 | shares | FLOAT | 체결 수량 |
@@ -91,11 +93,16 @@
 | message_type | TEXT | `PAPER_RESULT` |
 | decision_date | DATE | 기준 decision_date |
 | simulation_date | DATE | 시뮬레이션 생성일 |
+| capital_source | TEXT | 자본 원천(`ENV_SIM`, `BROKER_BALANCE`) |
+| broker_source | TEXT | 브로커 원천(`NONE`, `KIS_MOCK`, `KIS_LIVE`) |
+| account_id | TEXT | 계좌 식별자(masked) |
+| nav_source | TEXT | NAV 원천(`SIM_LEDGER`, `BROKER_SNAPSHOT`) |
 
 ### 4.2 positions_daily
 | 컬럼 | 타입 | 설명 |
 | --- | --- | --- |
 | trade_date | DATE | 기준일 |
+| execution_mode | TEXT | 실행 모드(`SIM`, `MOCK`) |
 | symbol | TEXT | 종목 |
 | shares | FLOAT | 보유 수량 |
 | avg_cost | FLOAT | 평단가 |
@@ -108,17 +115,22 @@
 | 컬럼 | 타입 | 설명 |
 | --- | --- | --- |
 | trade_date | DATE | 기준일 |
+| execution_mode | TEXT | 실행 모드(`SIM`, `MOCK`) |
 | cash | FLOAT | 현금 |
 | invested_value | FLOAT | 투자자산 합계 |
 | nav | FLOAT | 총자산 |
 | total_invested_capital | FLOAT | 누적 투입원금 |
 | daily_pnl | FLOAT | 일간 손익률 |
 | cumulative_pnl | FLOAT | 누적 손익률 |
+| capital_source | TEXT | 자본 원천(`ENV_SIM`, `BROKER_BALANCE`) |
+| broker_source | TEXT | 브로커 원천(`NONE`, `KIS_MOCK`, `KIS_LIVE`) |
+| account_id | TEXT | 계좌 식별자(masked) |
+| nav_source | TEXT | NAV 원천(`SIM_LEDGER`, `BROKER_SNAPSHOT`) |
 
 ## 5. Grain / Key
-- `execution_ledger` Grain: `(trade_date, symbol, action, sequence_id)`
-- `positions_daily` Grain: `(trade_date, symbol)`
-- `portfolio_daily` Grain: `(trade_date)`
+- `execution_ledger` Grain: `(trade_date, execution_mode, symbol, action, sequence_id)`
+- `positions_daily` Grain: `(trade_date, execution_mode, symbol)`
+- `portfolio_daily` Grain: `(trade_date, execution_mode)`
 
 ## 6. Execution Rules
 - 월요일: 전 거래일(T-1) 기준 신호 평가(체결 없음)
@@ -167,6 +179,8 @@
 - 누적 투입원금(`total_invested_capital`)은 DCA 반영 시점에 증가한다.
 - 결측 가격은 fail-open으로 처리(체결 스킵 + 경고 로그).
 - 전이예측은 하드 게이트를 우회하지 못한다(soft-only).
+- SIM/MOCK 동시 실행 시 `execution_mode` 구분 저장을 강제한다(동일 `trade_date` overwrite 금지).
+- `MOCK` 결과의 NAV/포지션 표시는 `BROKER_SNAPSHOT` 원천이 우선이며, fallback 발생 시 경고를 남긴다.
 
 ## 9. DoD
 - **PEL1**: 3개 출력 테이블 컬럼/타입 검증

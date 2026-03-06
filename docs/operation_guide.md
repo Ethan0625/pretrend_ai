@@ -200,7 +200,7 @@ Backtest/Walk-forward 해석 키:
 ## Paper Trading 기본 조건
 - 초기 자금: `1,000,000원`
 - 월 첫 거래일 DCA: `300,000원`
-- 환산 환율: `PAPER_FX_USDKRW` (기본 `1300`)
+- 환산 환율: KIS 실시간 `fx_usdkrw` 우선, 결측 시 내부 fallback `1300`
 - 실행 규칙:
   - 월요일: 전 거래일(T-1) 기준 신호 평가
   - 화요일: `INCREASE` 실행(현금 배포 매수)
@@ -241,7 +241,20 @@ Backtest/Walk-forward 해석 키:
   - 실전 키(준비용): `KIS_LIVE_APP_KEY`, `KIS_LIVE_APP_SECRET`, `KIS_LIVE_ACCOUNT_NO`, `KIS_LIVE_PRODUCT_CODE`, `KIS_LIVE_BASE_URL`
   - 레거시 fallback: `KIS_APP_KEY`, `KIS_APP_SECRET`, `KIS_ACCOUNT_NO`, `KIS_PRODUCT_CODE`, `KIS_BASE_URL`
   - 토큰 정책: 1시간 만료 기준 55분 선제 갱신 + 401/403 시 1회 재발급 재시도
-  - 환율 정책: 가능하면 KIS 응답(`fx_usdkrw`) 우선 사용, 없으면 `PAPER_FX_USDKRW` fallback
+  - 환율 정책: 가능하면 KIS 응답(`fx_usdkrw`) 우선 사용, 없으면 내부 fallback `1300`
+
+### SIM/MOCK 동시 운영 기준
+- 실행/저장은 SIM과 MOCK를 항상 수행한다.
+- Telegram 발송은 `PAPER_TELEGRAM_MODE`로 제어한다:
+  - `sim`: SIM 상세 1건
+  - `mock`: MOCK 상세 1건
+  - `compare`: 비교 요약 1건 + SIM 상세 1건 + MOCK 상세 1건
+  - `off`: 미발송
+- 혼동 방지 식별 필드:
+  - `execution_mode` (`SIM`, `MOCK`)
+  - `capital_source` (`ENV_SIM`, `BROKER_BALANCE`)
+  - `broker_source` (`NONE`, `KIS_MOCK`, `KIS_LIVE`)
+  - `nav_source` (`SIM_LEDGER`, `BROKER_SNAPSHOT`)
 
 ### Level 2 운영 경계 절차
 - 중단 트리거:
@@ -383,6 +396,8 @@ Telegram 표기 기준(혼동 방지):
   - `hard_gate(run_universe/risk_gate)`
   - `effective_max_tactical_slots`, `effective_tactical_weight`, `hazard_10d`
   - `paper_start_date` (누적 시뮬레이션 시작일)
+- PAPER_RESULT 식별 필드:
+  - `execution_mode`, `capital_source`, `broker_source`, `nav_source`
 - LLM 해석 레이어(향후 확장):
   - 적용 범위는 문장 요약/해석에 한정(신호 생성/게이트/배분 입력 변경 금지)
   - LLM 실패/지연 시 결정론 템플릿으로 fallback, DAG 성공 상태 유지

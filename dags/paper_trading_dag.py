@@ -1,4 +1,4 @@
-"""Paper Trading DAG — 일 1회 EOD PAPER_RESULT Telegram 전송.
+"""Paper Trading DAG — 미국장 개장 직후 1회 PAPER_RESULT Telegram 전송.
 
 정책:
 - 동일 Telegram 채널 사용
@@ -45,9 +45,158 @@ DEFAULT_ARGS: Dict[str, Any] = {
 }
 
 def _paper_schedule_interval() -> str | None:
-    """기본은 수동 실행(None), 명시적으로 켠 경우에만 일간 스케줄 사용."""
+    """기본은 수동 실행(None), 명시적으로 켠 경우에만 ET 기준 자동 스케줄 사용."""
     enabled = os.getenv("PAPER_AUTO_SCHEDULE_ENABLED", "0").strip().lower() in {"1", "true", "yes"}
-    return "30 10 * * *" if enabled else None
+    # ET 09:40 (Mon-Fri) — 미국장 개장(09:30) 후 10분 버퍼
+    return "40 9 * * 1-5" if enabled else None
+
+
+def _paper_telegram_mode() -> str:
+    """PAPER Telegram 발송 모드: sim|mock|compare|off."""
+    mode = os.getenv("PAPER_TELEGRAM_MODE", "compare").strip().lower()
+    if mode not in {"sim", "mock", "compare", "off"}:
+        return "compare"
+    return mode
+
+
+def _as_sim_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Mock 메타를 제거한 sim 전용 표시 payload."""
+    p = dict(payload)
+    p["source_job"] = "paper_trading_sim"
+    p["broker_auth_status"] = "N/A(SIM)"
+    p["broker_token_refresh_count"] = 0
+    p["broker_orders_count"] = 0
+    p["broker_fills_count"] = 0
+    return p
+
+
+def _as_mock_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """브로커 스냅샷 기준으로 재계산한 mock 전용 표시 payload."""
+    p = dict(payload)
+    p["source_job"] = "paper_trading_mock"
+    broker_status = str(p.get("broker_status", "UNKNOWN")).upper()
+    if broker_status != "OK":
+        warnings = list(p.get("risk_warnings", []))
+        warnings.append("MOCK 계산 미적용(브로커 상태 비정상) — SIM 기준 유지")
+        p["risk_warnings"] = warnings
+        return p
+
+    fx = p.get("broker_fx_usdkrw")
+    if fx is None or (isinstance(fx, float) and pd.isna(fx)) or float(fx) <= 0:
+        fx = p.get("fx_usdkrw")
+    fx = None if fx is None else float(fx)
+
+    bal_total = p.get("broker_balance_total")
+    bal_cash = p.get("broker_balance_cash")
+    bal_ccy = str(p.get("broker_balance_currency", "UNKNOWN")).upper()
+
+    nav_usd = p.get("nav")
+    cash_usd = None
+    if bal_total is not None and not (isinstance(bal_total, float) and pd.isna(bal_total)):
+        bt = float(bal_total)
+        if bal_ccy == "KRW" and fx and fx > 0:
+            nav_usd = bt / fx
+        elif bal_ccy == "USD":
+            nav_usd = bt
+    if bal_cash is not None and not (isinstance(bal_cash, float) and pd.isna(bal_cash)):
+        bc = float(bal_cash)
+        if bal_ccy == "KRW" and fx and fx > 0:
+            cash_usd = bc / fx
+        elif bal_ccy == "USD":
+            cash_usd = bc
+
+    broker_positions = p.get("broker_positions") or []
+    invested_usd = 0.0
+    top_positions: List[Dict[str, Any]] = []
+    for row in broker_positions:
+        try:
+            mv = row.get("market_value")
+            qty = float(row.get("quantity", 0.0))
+            avg = float(row.get("avg_price", 0.0))
+            mp = row.get("market_price")
+            mv_val = float(mv) if mv is not None else (float(mp) * qty if mp is not None else None)
+            if mv_val is not None:
+                invested_usd += mv_val
+            top_positions.append(
+                {
+                    "symbol": row.get("symbol"),
+                    "shares": qty,
+                    "avg_cost": avg,
+                    "eod_price": (None if mp is None else float(mp)),
+                    "market_value": mv_val,
+                    "gain_pct": None,
+                }
+            )
+        except Exception:
+            continue
+    top_positions.sort(key=lambda x: float(x.get("market_value") or 0.0), reverse=True)
+    top_positions = top_positions[:5]
+
+    if nav_usd is not None and float(nav_usd) > 0:
+        next_ratio = max(0.0, min(1.0, invested_usd / float(nav_usd)))
+    else:
+        next_ratio = float(p.get("next_invested_ratio", 0.0))
+
+    p["nav"] = None if nav_usd is None else float(nav_usd)
+    p["next_invested_ratio"] = float(next_ratio)
+    p["top_positions"] = top_positions
+    p["daily_pnl"] = None
+    p["cumulative_pnl"] = None
+    p["position_changes"] = [
+        f"브로커 보유종목 {len(broker_positions)}개, 상위 {len(top_positions)}개 표시",
+        f"브로커 기준 현금(USD): {cash_usd:,.2f}" if cash_usd is not None else "브로커 기준 현금(USD): N/A",
+    ]
+    warnings = list(p.get("risk_warnings", []))
+    warnings.append("MOCK 결과는 브로커 실시간 스냅샷 기준(NAV/PnL은 당일 누적 미집계)")
+    p["risk_warnings"] = warnings
+    return p
+
+
+def _format_compare_message(sim_payload: Dict[str, Any], mock_payload: Dict[str, Any]) -> str:
+    """sim vs mock 비교 요약 (Telegram 전송용)."""
+    sim_nav = sim_payload.get("nav")
+    mock_nav = mock_payload.get("nav")
+    sim_action = sim_payload.get("action", "HOLD")
+    mock_action = mock_payload.get("action", "HOLD")
+    sim_ratio = float(sim_payload.get("next_invested_ratio", 0.0))
+    mock_ratio = float(mock_payload.get("next_invested_ratio", 0.0))
+    sim_daily = sim_payload.get("daily_pnl")
+    mock_daily = mock_payload.get("daily_pnl")
+    sim_cum = sim_payload.get("cumulative_pnl")
+    mock_cum = mock_payload.get("cumulative_pnl")
+    orders = mock_payload.get("broker_orders_count", "N/A")
+    fills = mock_payload.get("broker_fills_count", "N/A")
+    auth = mock_payload.get("broker_auth_status", "UNKNOWN")
+    decision_date = mock_payload.get("decision_date", "N/A")
+    simulation_date = mock_payload.get("simulation_date", "N/A")
+
+    def _pct(v: Any) -> str:
+        if v is None or (isinstance(v, float) and pd.isna(v)):
+            return "N/A"
+        return f"{float(v):+.1%}"
+
+    def _money(v: Any) -> str:
+        if v is None or (isinstance(v, float) and pd.isna(v)):
+            return "N/A"
+        return f"${float(v):,.2f}"
+
+    lines = [
+        "📄 <b>Pretrend Paper Trading Compare</b>",
+        "<code>message_type=PAPER_RESULT | source_job=paper_trading_compare</code>",
+        f"<code>decision_date={decision_date} | simulation_date={simulation_date}</code>",
+        "",
+        "🔀 <b>SIM vs MOCK 요약</b>",
+        f"- Action: SIM={sim_action} / MOCK={mock_action}",
+        f"- Invested Ratio: SIM={sim_ratio:.0%} / MOCK={mock_ratio:.0%}",
+        f"- Daily PnL: SIM={_pct(sim_daily)} / MOCK={_pct(mock_daily)}",
+        f"- Cumulative PnL: SIM={_pct(sim_cum)} / MOCK={_pct(mock_cum)}",
+        f"- NAV: SIM={_money(sim_nav)} / MOCK={_money(mock_nav)}",
+        "",
+        "🏦 <b>브로커 실행 상태</b>",
+        f"- Auth: {auth}",
+        f"- Orders/Fills: {orders}/{fills}",
+    ]
+    return "\n".join(lines)
 
 
 def _list_decision_dates(exposure_root: Path) -> List[date]:
@@ -64,13 +213,13 @@ def _resolve_paper_capital_params(fx_override: float | None = None) -> Dict[str,
     """Paper 운영 입력(KRW)과 실행값(USD)을 정규화한다."""
     initial_krw = float(os.getenv("PAPER_INITIAL_CAPITAL_KRW", "1000000"))
     monthly_krw = float(os.getenv("PAPER_MONTHLY_ADDITION_KRW", "300000"))
+    # PAPER_FX_USDKRW env 의존 제거:
+    # - 1순위: 브로커/KIS 실시간 FX
+    # - 2순위: 내부 안전 fallback(1300)
     if fx_override is not None:
         fx = float(fx_override)
     else:
-        try:
-            fx = float(os.getenv("PAPER_FX_USDKRW", "1300"))
-        except Exception:
-            fx = 1300.0
+        fx = 1300.0
     if fx <= 0:
         fx = 1300.0
     return {
@@ -110,9 +259,9 @@ def _save_quality_json(root: Path, decision_date: date, quality: Dict[str, Any])
 
 @dag(
     dag_id="paper_trading_dag",
-    description="Paper trading daily summary + Telegram PAPER_RESULT (auto schedule optional)",
+    description="Paper trading summary + Telegram PAPER_RESULT (US/Eastern open+10m, auto optional)",
     default_args=DEFAULT_ARGS,
-    start_date=pendulum.datetime(2026, 1, 1, tz="Asia/Seoul"),
+    start_date=pendulum.datetime(2026, 1, 1, tz="US/Eastern"),
     schedule_interval=_paper_schedule_interval(),
     catchup=False,
     max_active_runs=1,
@@ -480,8 +629,13 @@ def paper_trading_pipeline():
             group_gate_source = "MISSING"
 
         broker_warnings = list(broker_meta.get("warnings", []))
+        broker_status = str(broker_meta.get("status", "unknown")).upper()
         broker_orders = int(broker_meta.get("orders_count", 0))
         broker_fills = int(broker_meta.get("fills_count", 0))
+        broker_balance_cash = broker_meta.get("balance_cash")
+        broker_balance_total = broker_meta.get("balance_total")
+        broker_balance_currency = broker_meta.get("balance_currency")
+        broker_positions = broker_meta.get("broker_positions", [])
         broker_auth_status = str(broker_meta.get("auth_status", "UNKNOWN"))
         broker_token_refresh_count = int(broker_meta.get("token_refresh_count", 0))
         if broker_meta.get("status") == "ok":
@@ -567,6 +721,12 @@ def paper_trading_pipeline():
             broker_token_refresh_count=broker_token_refresh_count,
             broker_orders_count=broker_orders,
             broker_fills_count=broker_fills,
+            broker_status=broker_status,
+            broker_balance_cash=broker_balance_cash,
+            broker_balance_total=broker_balance_total,
+            broker_balance_currency=broker_balance_currency,
+            broker_positions=broker_positions,
+            broker_fx_usdkrw=broker_meta.get("fx_usdkrw"),
             group_gate_applied_groups=applied_groups,
             group_gate_reduced_groups=reduced_groups,
             group_gate_source=group_gate_source,
@@ -776,6 +936,20 @@ def paper_trading_pipeline():
             "status": "ok",
             "orders_count": int(len(orders_df)),
             "fills_count": int(len(fills_df)),
+            "balance_cash": float(balance.cash),
+            "balance_total": float(balance.total_value),
+            "balance_currency": str(balance.currency),
+            "positions_count": int(len(broker_positions)),
+            "broker_positions": [
+                {
+                    "symbol": bp.symbol,
+                    "quantity": float(bp.quantity),
+                    "avg_price": float(bp.avg_price),
+                    "market_price": (None if bp.market_price is None else float(bp.market_price)),
+                    "market_value": (None if bp.market_value is None else float(bp.market_value)),
+                }
+                for bp in broker_positions
+            ],
             "auth_status": str(auth_df["auth_status"].iloc[0]) if not auth_df.empty else "UNKNOWN",
             "token_refresh_count": int(auth_df["token_refresh_count"].iloc[0]) if not auth_df.empty else 0,
             "fx_usdkrw": (
@@ -793,13 +967,57 @@ def paper_trading_pipeline():
         logger = logging.getLogger(__name__)
         token = os.getenv("TELEGRAM_BOT_TOKEN", "")
         chat_id = os.getenv("TELEGRAM_CHAT_ID", "")
-        save_paper_result_payload(payload)
-        text = format_paper_result_message(payload)
+        mode = _paper_telegram_mode()
+        sim_payload = _as_sim_payload(payload)
+        mock_payload = _as_mock_payload(payload)
+
+        # 실행/저장은 sim+mock 모두 수행
+        save_paper_result_payload(sim_payload)
+        save_paper_result_payload(mock_payload)
+
+        if mode == "off":
+            logger.info("[paper_telegram] mode=off, skip telegram send")
+            return
+
+        if mode == "sim":
+            text = format_paper_result_message(sim_payload)
+            source_job = "paper_trading_sim"
+        elif mode == "mock":
+            text = format_paper_result_message(mock_payload)
+            source_job = "paper_trading_mock"
+        else:  # compare -> 3 messages
+            compare_text = _format_compare_message(sim_payload, mock_payload)
+            sim_text = format_paper_result_message(sim_payload)
+            mock_text = format_paper_result_message(mock_payload)
+
+            send_telegram_fail_open(
+                token=token,
+                chat_id=chat_id,
+                text=compare_text,
+                source_job="paper_trading_compare",
+                logger=logger,
+            )
+            send_telegram_fail_open(
+                token=token,
+                chat_id=chat_id,
+                text=sim_text,
+                source_job="paper_trading_sim",
+                logger=logger,
+            )
+            send_telegram_fail_open(
+                token=token,
+                chat_id=chat_id,
+                text=mock_text,
+                source_job="paper_trading_mock",
+                logger=logger,
+            )
+            return
+
         send_telegram_fail_open(
             token=token,
             chat_id=chat_id,
             text=text,
-            source_job="paper_trading_dag",
+            source_job=source_job,
             logger=logger,
         )
 

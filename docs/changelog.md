@@ -7,6 +7,26 @@
 
 > 참고: changelog 과거 섹션은 작성 시점 원문을 보존한다.
 
+## v2026.03.06a — P3-5a 선행 고정: Paper SIM/MOCK 분리 경계 문서화
+
+### docs(contract): PAPER_RESULT 식별축 계약 추가
+- `docs/architecture/paper_trading_alert_contract.md`
+  - `execution_mode`, `capital_source`, `broker_source`, `account_id`, `nav_source` 필드 정의
+  - SIM/MOCK 동시 운영 시 mode 식별축 필수 invariant 추가
+  - renderer payload-only 원칙 명시
+
+### docs(contract): Paper ledger key에 mode 축 추가
+- `docs/architecture/paper_execution_ledger_contract.md`
+  - `execution_ledger`, `positions_daily`, `portfolio_daily`에 `execution_mode` 컬럼 정의
+  - portfolio/ledger에 source 메타(`capital_source`, `broker_source`, `account_id`, `nav_source`) 정의
+  - Grain/Key를 mode 포함 형태로 고정해 동시 저장 충돌 방지 규칙 추가
+
+### docs(operation): 운영 가이드 분리 원칙 반영
+- `docs/operation_guide.md`
+  - SIM/MOCK 동시 실행 + `PAPER_TELEGRAM_MODE` 분기 정책 명시
+  - 식별 필드(`execution_mode`, `capital_source`, `broker_source`, `nav_source`) 운영 표기 규칙 추가
+  - 환율 정책을 KIS 우선 + 내부 fallback(1300)으로 정리 (`PAPER_FX_USDKRW` 의존 문구 제거)
+
 ## v2026.03.05b — KIS+COD 1차/2차 운영 경로 정합화
 
 ### feat(broker): KIS 모드별 자격증명 우선순위 + 토큰 갱신 메타 추가
