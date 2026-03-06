@@ -27,8 +27,7 @@ from airflow.decorators import dag, task
 from pretrend.pipeline.notify.telegram_sender import send_telegram_fail_open
 from pretrend.pipeline.strategy_engine.io import load_gold_text
 from pretrend.pipeline.strategy_engine.report_context import (
-    apply_report_llm_behavior_overrides as _apply_report_llm_behavior_overrides,
-    apply_report_llm_overrides as _apply_report_llm_overrides,
+    build_llm_analysis_payload as _build_llm_analysis_payload,
     build_risk_summary_struct as _build_risk_summary_struct,
     build_signal_confidence_struct as _build_signal_confidence_struct,
     build_trading_guidance_struct as _build_trading_guidance_struct,
@@ -36,7 +35,7 @@ from pretrend.pipeline.strategy_engine.report_context import (
     build_diagnostic_lines as _build_diagnostic_lines,
     build_evidence_lines as _build_evidence_lines,
     build_text_window_lines as _build_text_window_lines,
-    generate_report_llm_overrides as _generate_report_llm_overrides,
+    generate_llm_analysis as _generate_llm_analysis,
     format_next_step_hazard_lines as _format_next_step_hazard_lines,
     format_bias_state_line as _format_bias_state_line,
     format_group_transition_lines as _format_group_transition_lines,
@@ -458,35 +457,6 @@ def strategy_engine_pipeline():
         risk_lines = _format_risk_summary_lines(risk_struct)
         confidence_lines = _format_signal_confidence_lines(confidence_struct)
 
-        report_cfg = TextPipelineConfig.default()
-        llm_overrides = _generate_report_llm_overrides(
-            long_phase=long_phase,
-            mid_regime=mid_regime,
-            short_signal=short_signal,
-            context_lines=context_lines,
-            evidence_lines=evidence_lines,
-            next_step_lines=next_step_lines,
-            group_lines=group_lines,
-            next_step_row=nrow if isinstance(nrow, dict) else dict(nrow),
-            group_rows=grows,
-            guidance_lines=guidance_lines,
-            risk_lines=risk_lines,
-            confidence_lines=confidence_lines,
-            guidance_struct=guidance_struct,
-            risk_struct=risk_struct,
-            confidence_struct=confidence_struct,
-            text_lines=text_section_lines,
-            model=os.getenv("REPORT_LLM_MODEL", "qwen2.5:14b"),
-            base_url=os.getenv("REPORT_LLM_BASE_URL", report_cfg.ollama_base_url),
-            timeout=int(os.getenv("REPORT_LLM_TIMEOUT", str(report_cfg.ollama_timeout))),
-        )
-        context_lines, evidence_lines, next_step_lines, group_lines, text_section_lines = _apply_report_llm_overrides(
-            context_lines, evidence_lines, next_step_lines, group_lines, text_section_lines, llm_overrides
-        )
-        guidance_lines, risk_lines, confidence_lines = _apply_report_llm_behavior_overrides(
-            guidance_lines, risk_lines, confidence_lines, llm_overrides
-        )
-
         lines += context_lines
         lines += _build_switch_lines(risk_gate=risk_gate, run_universe=run_universe)
         lines += [""] + guidance_lines
@@ -562,6 +532,7 @@ def strategy_engine_pipeline():
 
         lines += ["", f"<code>─ {strategy_summary['run_id']}</code>"]
 
+        # ── Message 1: Signal Report (결정론) ──
         send_telegram_fail_open(
             token=token,
             chat_id=chat_id,
@@ -569,6 +540,54 @@ def strategy_engine_pipeline():
             source_job="strategy_engine_dag",
             logger=logger,
         )
+
+        # ── Message 2: AI Interpretation (통합 해석) ──
+        report_cfg = TextPipelineConfig.default()
+        analysis_payload = _build_llm_analysis_payload(
+            decision_date=decision_date.isoformat(),
+            long_phase=long_phase,
+            mid_regime=mid_regime,
+            short_signal=short_signal,
+            long_detail=long_detail,
+            mid_detail=mid_detail,
+            short_detail=short_detail,
+            action=action,
+            current_ratio=cur_pct,
+            next_ratio=next_ratio,
+            v2_target=v2_target,
+            risk_gate=risk_gate,
+            run_universe=run_universe,
+            tactical_by_group=tactical_by_group,
+            sell_budget=sell_budget,
+            sell_list=sell_list,
+            next_step_row=nrow_dict,
+            group_rows=grows,
+            text_windows=text_windows or None,
+            guidance_struct=guidance_struct,
+            risk_struct=risk_struct,
+            confidence_struct=confidence_struct,
+        )
+        analysis_text = _generate_llm_analysis(
+            analysis_payload,
+            model=os.getenv("REPORT_LLM_MODEL", report_cfg.ollama_model),
+            base_url=os.getenv("REPORT_LLM_BASE_URL", report_cfg.ollama_base_url),
+            timeout=int(os.getenv("REPORT_LLM_TIMEOUT", str(report_cfg.ollama_timeout))),
+        )
+        if analysis_text:
+            msg2_lines = [
+                f"🤖 <b>Pretrend AI 해석</b> · {decision_date.isoformat()} ({weekday})",
+                "",
+                analysis_text,
+            ]
+            send_telegram_fail_open(
+                token=token,
+                chat_id=chat_id,
+                text="\n".join(msg2_lines),
+                source_job="strategy_engine_dag",
+                logger=logger,
+            )
+        else:
+            logger.info("[SIGNAL] LLM analysis skipped (disabled or failed)")
 
     @task(task_id="build_next_step_history_incremental")
     def build_next_step_history_incremental_task(strategy_summary: Dict[str, Any]) -> Dict[str, Any]:

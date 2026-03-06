@@ -57,69 +57,62 @@ _GROUP_STATE_LABELS = {
     "UNKNOWN": "판단보류",
 }
 
-_REPORT_LLM_SYSTEM_PROMPT = """역할: 한국어 금융 Telegram SIGNAL 리포트 작성자
+_ANALYSIS_SYSTEM_PROMPT = """\
+역할: Pretrend AI 시장 해석 애널리스트
 
-목표:
-- 입력 재료(gold/strategy/llm_feature)를 바탕으로 각 섹션 문장을 사람이 이해하기 쉬운 한국어로 재작성한다.
-- 사실/방향은 유지하고, 새 사실을 만들지 않는다.
+당신은 Pretrend AI 시스템의 모든 시장 신호를 읽고, 한국어로 통합 해석 보고서를 작성합니다.
+Telegram 메시지로 전송되며, HTML 태그(<b>, <i>)를 사용할 수 있습니다.
 
-전역 규칙:
-1) gold/strategy 근거가 본문 우선, text/llm_feature는 보조 근거다.
-2) JSON 키, raw 코드, 내부 필드명은 출력에 쓰지 않는다.
-3) llm_summary 원문을 그대로 복붙하지 않는다.
-4) 각 필드는 1문장(최대 2문장)으로 짧게 쓴다.
-5) 확신이 없으면 빈 문자열을 반환한다.
+━━━ 핵심 작성 원칙 ━━━
 
-필드별 작성 규칙:
-- context_long/context_mid/context_short:
-  - draft_context와 states를 바탕으로 현재 상태를 자연어로 설명
-  - 과장 금지, 방어/공격 뉘앙스는 상태와 일치
-- evidence_macro/evidence_price/evidence_flow/evidence_sentiment:
-  - draft_evidence를 쉬운 한국어로 압축
-  - 수치가 있으면 핵심 수치 1개만 보존
-- next_step_summary:
-  - next_step_struct를 우선 사용
-  - 10D bias 의미 + 전환위험(hazard) + 예상 전이(장/중/단)를 자연어로 연결
-  - 코드형 문자열(예: RECOVERY_RISK_ON_RELIEF) 직접 노출 금지
-- group_summary:
-  - group_struct를 우선 사용
-  - 그룹별 방향을 과장 없이 요약
-  - UNKNOWN 그룹이 있으면 불확실성을 명시
-  - 이모지/상태코드(STRONG, WEAK 등) 직접 노출 금지
-- text_summary:
-  - text_windows를 바탕으로 최근 문서 흐름을 보조 요약
-  - 정책/리스크 관련 핵심만 간단히
-- trading_guidance:
-  - guidance_struct를 우선 사용
-  - 매수 확대/분할 접근/관망/방어 중 하나의 행동을 명확히 제시
-  - run_universe/risk_gate/short/hazard 우선순위를 거스르지 않는다
-- risk_summary:
-  - risk_struct를 우선 사용
-  - 가장 큰 리스크 1개만 간단히 설명
-- signal_confidence_summary:
-  - confidence_struct를 우선 사용
-  - 신뢰도(낮음/중간/높음)와 핵심 이유를 짧게 설명
+1) 데이터 충실: 입력 데이터의 사실과 방향만 전달한다. 없는 사실을 만들지 않는다.
+2) 코드 제거: 상태 코드(RECESSION, RISK_OFF 등)를 직접 쓰지 않는다.
+   대신 "침체 국면", "위험회피 흐름" 같은 자연어로 바꾼다.
+3) 교차 분석 필수: 서로 다른 섹션의 신호를 연결하여 해석한다.
+   예: "방어주(XLU)+국채(TLT) 동반 강세"와 "장기 침체"를 연결하면
+   "투자자들이 이미 경기 둔화를 대비하고 있다"는 해석이 된다.
+4) 불일치 강조: 시계열 간 방향이 다르면(장기 침체 vs 단기 안도) 반드시 왜 그런지 설명한다.
+5) 분량: 전체 3000자 이내.
 
-예시(next_step_summary):
-입력: bias_10d_label=방어 쪽 전망, hazard_10d=80%, expected_long_10d=침체, expected_mid_10d=혼조, expected_short_10d=안도
-출력: 10거래일 기준으로는 방어 쪽 전망이 우세하며 전환위험도 높은 편입니다. 예상 전이는 장기 침체, 중기 혼조, 단기 안도 흐름입니다.
+━━━ 출력 형식 ━━━
 
-반환 형식(JSON only):
-{
-  "context_long": "...",
-  "context_mid": "...",
-  "context_short": "...",
-  "evidence_macro": "...",
-  "evidence_price": "...",
-  "evidence_flow": "...",
-  "evidence_sentiment": "...",
-  "next_step_summary": "...",
-  "group_summary": "...",
-  "text_summary": "...",
-  "trading_guidance": "...",
-  "risk_summary": "...",
-  "signal_confidence_summary": "..."
-}
+각 섹션은 아래 구조를 따른다:
+- 섹션 제목: <b>번호. 카테고리: "핵심 메시지"</b>
+- 본문은 <b>소제목:</b> 다음에 해석문을 쓴다.
+- 소제목마다 줄바꿈으로 구분한다.
+
+<b>1. 시장 국면: "핵심 문구"</b>
+<b>시계열 상태:</b> 장기/중기/단기 세 시계열 상태를 한 문장으로 요약한다.
+<b>해석:</b> 현재 시장이 어떤 위치에 있는지, 불일치가 있다면 어떤 의미인지 풀어쓴다.
+(예: "지금의 반등은 펀더멘털 개선이 아니라 과매도 해소에 따른 안도 랠리입니다.")
+
+<b>2. 가설과 위험: "핵심 문구"</b>
+<b>전환 위험:</b> hazard_10d 수치와 예상 전이 방향을 자연어로 설명한다.
+<b>시계열 전망:</b> 단기(5D)와 중장기(60D~120D) 전망의 차이가 있으면 대비시킨다.
+<b>해석:</b> 이 데이터가 투자자에게 의미하는 바를 1-2문장으로 짚는다.
+(예: "지금은 파티의 마지막 5분을 즐길 때이지, 새로 자리를 잡을 때가 아닙니다.")
+
+<b>3. 시장 근거: "핵심 문구"</b>
+<b>매크로 지표:</b> delta_6m_z 등 핵심 수치의 의미를 풀어쓴다. 숫자를 나열하지 않고 방향성을 해석한다.
+<b>텍스트 해석:</b> text_windows에서 주요 토픽/태그를 활용해 시장 심리를 1-2문장으로 요약한다.
+(예: "60일간 문서 분석 결과 연준/금융/동결 주제에 집중되어 있어, 시장이 금리 정책에만 의존하고 있음을 보여줍니다.")
+
+<b>4. 수급 및 상대강도: "핵심 문구"</b>
+tactical_etf 데이터에서 주목할 패턴을 2-3개 소제목으로 뽑는다.
+소제목은 관찰된 패턴에 따라 자유롭게 정한다.
+(예: "<b>방어주와 국채의 강세:</b> XLU, XLRE, TLT가 시장보다 강합니다. 투자자들이 침체를 준비하며 방어선으로 대피 중입니다.")
+(예: "<b>에너지의 독주:</b> 방어주와 함께 에너지가 강하다는 것은 스태그플레이션 우려가 깔려 있음을 시사합니다.")
+rs 수치를 활용하되 "SPY 대비 +8.7%" 식으로 자연스럽게 녹인다.
+
+<b>5. 투자 행동 가이드: "핵심 문구"</b>
+<b>행동 제언:</b> guidance에 따른 구체적 행동(추격 매수 금지, 분할 매도, 적극 매수 등)을 명확히 쓴다.
+<b>매도 우선순위:</b> sell_priority가 있으면 종목명과 함께 왜 그 순서인지 해석한다.
+<b>신뢰도:</b> confidence 수준과 의미를 1문장으로 전달한다.
+
+<b>[종합 요약]</b>
+전체 분석을 1문단으로 연결한다.
+가장 강한 신호와 핵심 행동 권고로 마무리한다.
+구체적 종목명을 활용해 실행 가능한 메시지로 끝낸다.
 """
 
 _GUIDANCE_REASON_DESC = {
@@ -618,188 +611,110 @@ def _get_report_ollama_client(base_url: str):
     return ollama.Client(host=base_url)
 
 
-def _call_report_llm(payload: Dict[str, Any], *, model: str, base_url: str, timeout: int) -> Dict[str, str]:
-    client = _get_report_ollama_client(base_url)
-    temperature = float(os.getenv("REPORT_LLM_TEMPERATURE", "0.2"))
-    response = client.chat(
-        model=model,
-        messages=[
-            {"role": "system", "content": _REPORT_LLM_SYSTEM_PROMPT},
-            {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
-        ],
-        format="json",
-        options={"temperature": temperature},
-    )
-    raw = str(response["message"]["content"])
-    parsed = json.loads(raw)
-    if not isinstance(parsed, dict):
-        return {}
-    return {str(k): str(v).strip() for k, v in parsed.items() if isinstance(v, str)}
-
-
 def _report_llm_enabled() -> bool:
     return os.getenv("REPORT_LLM_ENABLED", "1").strip().lower() not in {"0", "false", "no"}
 
 
-def generate_report_llm_overrides(
+def build_llm_analysis_payload(
     *,
+    decision_date: str,
     long_phase: str,
     mid_regime: str,
     short_signal: str,
-    context_lines: List[str],
-    evidence_lines: List[str],
-    next_step_lines: List[str],
-    group_lines: List[str],
-    next_step_row: Optional[Dict[str, Any]] = None,
-    group_rows: Optional[List[Dict[str, Any]]] = None,
-    guidance_lines: Optional[List[str]] = None,
-    risk_lines: Optional[List[str]] = None,
-    confidence_lines: Optional[List[str]] = None,
-    guidance_struct: Optional[Dict[str, Any]] = None,
-    risk_struct: Optional[Dict[str, Any]] = None,
-    confidence_struct: Optional[Dict[str, Any]] = None,
-    text_lines: List[str],
-    model: str,
-    base_url: str,
-    timeout: int,
-) -> Dict[str, str]:
-    if not _report_llm_enabled():
-        return {}
-
-    payload = {
-        "states": {
+    long_detail: Dict[str, Any],
+    mid_detail: Dict[str, Any],
+    short_detail: Dict[str, Any],
+    action: str,
+    current_ratio: float,
+    next_ratio: float,
+    v2_target: float,
+    risk_gate: bool,
+    run_universe: bool,
+    tactical_by_group: Dict[str, List[tuple]],
+    sell_budget: float,
+    sell_list: List[str],
+    next_step_row: Dict[str, Any],
+    group_rows: List[Dict[str, Any]],
+    text_windows: Optional[Dict[str, Dict[str, Any]]],
+    guidance_struct: Dict[str, str],
+    risk_struct: Dict[str, str],
+    confidence_struct: Dict[str, str],
+) -> Dict[str, Any]:
+    """전체 signal 데이터를 단일 dict로 조립 (순수 함수, I/O 없음)."""
+    return {
+        "decision_date": decision_date,
+        "market_position": {
             "long_phase": long_phase,
             "mid_regime": mid_regime,
             "short_signal": short_signal,
+            "risk_gate": risk_gate,
+            "run_universe": run_universe,
         },
-        "draft_context": {
-            "long": context_lines[1][2:] if len(context_lines) > 1 and context_lines[1].startswith("→ ") else "",
-            "mid": context_lines[4][2:] if len(context_lines) > 4 and context_lines[4].startswith("→ ") else "",
-            "short": context_lines[7][2:] if len(context_lines) > 7 and context_lines[7].startswith("→ ") else "",
+        "detail": {
+            "long": long_detail,
+            "mid": mid_detail,
+            "short": short_detail,
         },
-        "draft_evidence": {
-            "macro": evidence_lines[1][2:] if len(evidence_lines) > 1 and evidence_lines[1].startswith("→ ") else "",
-            "price": evidence_lines[4][2:] if len(evidence_lines) > 4 and evidence_lines[4].startswith("→ ") else "",
-            "flow": evidence_lines[7][2:] if len(evidence_lines) > 7 and evidence_lines[7].startswith("→ ") else "",
-            "sentiment": evidence_lines[10][2:] if len(evidence_lines) > 10 and evidence_lines[10].startswith("→ ") else "",
+        "allocation": {
+            "action": action,
+            "current_ratio": current_ratio,
+            "next_ratio": next_ratio,
+            "v2_target": v2_target,
         },
-        "draft_next_step": [line[2:] if line.startswith("→ ") else line for line in next_step_lines],
-        "next_step_struct": _build_next_step_material(next_step_row or {}),
-        "draft_groups": [line[2:] if line.startswith("→ ") else line for line in group_lines],
-        "group_struct": _build_group_material(group_rows or []),
-        "text_windows": {
-            "summary_lines": [line[2:] if line.startswith("→ ") else line for line in text_lines[1:4]]
-            if len(text_lines) >= 4 else [],
+        "next_step": _build_next_step_material(next_step_row),
+        "group_transition": _build_group_material(group_rows),
+        "tactical_etf": {
+            group: [
+                {"name_ko": name, "symbol": sym, "rs": rs}
+                for name, sym, rs in entries
+            ]
+            for group, entries in tactical_by_group.items()
         },
-        "draft_behavior": {
-            "trading_guidance": guidance_lines[1] if guidance_lines and len(guidance_lines) > 1 else "",
-            "risk_summary": risk_lines[1] if risk_lines and len(risk_lines) > 1 else "",
-            "signal_confidence_summary": confidence_lines[1] if confidence_lines and len(confidence_lines) > 1 else "",
+        "sell_advice": {
+            "sell_budget": sell_budget,
+            "sell_priority": sell_list,
         },
-        "guidance_struct": guidance_struct or {},
-        "risk_struct": risk_struct or {},
-        "confidence_struct": confidence_struct or {},
+        "text_windows": text_windows or {},
+        "behavior": {
+            "guidance": guidance_struct,
+            "risk": risk_struct,
+            "confidence": confidence_struct,
+        },
     }
+
+
+def generate_llm_analysis(
+    payload: Dict[str, Any],
+    *,
+    model: str,
+    base_url: str,
+    timeout: int,
+) -> Optional[str]:
+    """전체 signal 데이터를 읽고 통합 한국어 해석문을 생성한다.
+
+    Returns:
+        한국어 내러티브 문자열. 실패 또는 비활성 시 None (fail-open).
+    """
+    if not _report_llm_enabled():
+        return None
+
     try:
-        return _call_report_llm(payload, model=model, base_url=base_url, timeout=timeout)
+        client = _get_report_ollama_client(base_url)
+        temperature = float(os.getenv("REPORT_LLM_TEMPERATURE", "0.4"))
+        response = client.chat(
+            model=model,
+            messages=[
+                {"role": "system", "content": _ANALYSIS_SYSTEM_PROMPT},
+                {"role": "user", "content": json.dumps(payload, ensure_ascii=False, default=str)},
+            ],
+            options={"temperature": temperature},
+        )
+        raw = str(response["message"]["content"]).strip()
+        if not raw:
+            return None
+        return raw
     except Exception:
-        return {}
-
-
-def apply_report_llm_overrides(
-    context_lines: List[str],
-    evidence_lines: List[str],
-    next_step_lines: List[str],
-    group_lines: List[str],
-    text_lines: List[str],
-    overrides: Optional[Dict[str, str]],
-) -> tuple[List[str], List[str], List[str], List[str], List[str]]:
-    if not overrides:
-        return context_lines, evidence_lines, next_step_lines, group_lines, text_lines
-
-    out_context = list(context_lines)
-    out_evidence = list(evidence_lines)
-    out_next = list(next_step_lines)
-    out_group = list(group_lines)
-    out_text = list(text_lines)
-
-    mapping_context = {
-        "context_long": 1,
-        "context_mid": 4,
-        "context_short": 7,
-    }
-    for key, idx in mapping_context.items():
-        val = overrides.get(key, "").strip()
-        if val:
-            out_context[idx] = f"→ {val}"
-
-    mapping_evidence = {
-        "evidence_macro": 1,
-        "evidence_price": 4,
-        "evidence_flow": 7,
-        "evidence_sentiment": 10,
-    }
-    for key, idx in mapping_evidence.items():
-        val = overrides.get(key, "").strip()
-        if val:
-            out_evidence[idx] = f"→ {val}"
-
-    def _upsert_summary(lines: List[str], summary: str) -> List[str]:
-        if not summary:
-            return lines
-        out = list(lines)
-        # 기존 summary line(맨 앞의 "→ ...")가 있으면 교체, 없으면 말미에 추가
-        if out and isinstance(out[0], str) and out[0].startswith("→ "):
-            out[0] = f"→ {summary}"
-            return out
-        return out + [f"→ {summary}"]
-
-    next_step_summary = overrides.get("next_step_summary", "").strip()
-    out_next = _upsert_summary(out_next, next_step_summary)
-
-    group_summary = overrides.get("group_summary", "").strip()
-    out_group = _upsert_summary(out_group, group_summary)
-
-    text_summary = overrides.get("text_summary", "").strip()
-    if text_summary:
-        if not out_text:
-            out_text = ["📝텍스트 해석", f"→ {text_summary}"]
-        elif len(out_text) >= 1 and out_text[0] == "📝텍스트 해석":
-            out_text = [out_text[0], f"→ {text_summary}"] + out_text[1:]
-        elif len(out_text) >= 2 and out_text[1] == "📝텍스트 해석":
-            out_text = [out_text[0], out_text[1], f"→ {text_summary}"] + out_text[2:]
-        elif len(out_text) >= 1:
-            out_text = [out_text[0], f"→ {text_summary}"] + out_text[1:]
-
-    return out_context, out_evidence, out_next, out_group, out_text
-
-
-def apply_report_llm_behavior_overrides(
-    guidance_lines: List[str],
-    risk_lines: List[str],
-    confidence_lines: List[str],
-    overrides: Optional[Dict[str, str]],
-) -> tuple[List[str], List[str], List[str]]:
-    if not overrides:
-        return guidance_lines, risk_lines, confidence_lines
-
-    out_guidance = list(guidance_lines)
-    out_risk = list(risk_lines)
-    out_confidence = list(confidence_lines)
-
-    trading_guidance = overrides.get("trading_guidance", "").strip()
-    if trading_guidance and len(out_guidance) > 1:
-        out_guidance[1] = f"🎯 행동: {trading_guidance}"
-
-    risk_summary = overrides.get("risk_summary", "").strip()
-    if risk_summary and len(out_risk) > 1:
-        out_risk[1] = f"⚠️ {risk_summary}"
-
-    conf_summary = overrides.get("signal_confidence_summary", "").strip()
-    if conf_summary and len(out_confidence) > 1:
-        out_confidence[1] = f"📊 신뢰도: {conf_summary}"
-
-    return out_guidance, out_risk, out_confidence
+        return None
 
 
 def build_context_lines(
