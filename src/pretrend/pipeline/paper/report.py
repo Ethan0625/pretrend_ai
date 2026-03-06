@@ -61,6 +61,10 @@ def build_paper_result_payload(
     effective_max_tactical_slots: Optional[int] = None,
     effective_tactical_weight: Optional[float] = None,
     hazard_10d: Optional[float] = None,
+    broker_auth_status: Optional[str] = None,
+    broker_token_refresh_count: Optional[int] = None,
+    broker_orders_count: Optional[int] = None,
+    broker_fills_count: Optional[int] = None,
     group_gate_applied_groups: Optional[List[str]] = None,
     group_gate_reduced_groups: Optional[List[str]] = None,
     group_gate_source: Optional[str] = None,
@@ -117,6 +121,12 @@ def build_paper_result_payload(
             None if effective_tactical_weight is None else float(effective_tactical_weight)
         ),
         "hazard_10d": None if hazard_10d is None else float(hazard_10d),
+        "broker_auth_status": broker_auth_status,
+        "broker_token_refresh_count": (
+            None if broker_token_refresh_count is None else int(broker_token_refresh_count)
+        ),
+        "broker_orders_count": None if broker_orders_count is None else int(broker_orders_count),
+        "broker_fills_count": None if broker_fills_count is None else int(broker_fills_count),
         "group_gate_applied_groups": list(group_gate_applied_groups or []),
         "group_gate_reduced_groups": list(group_gate_reduced_groups or []),
         "group_gate_source": group_gate_source,
@@ -156,7 +166,7 @@ def format_paper_result_message(payload: Dict[str, Any]) -> str:
         ),
         "",
         (
-            f"🧾 <b>가상 체결 요약</b>: {action_ko}  "
+            f"🧾 <b>모의계좌 체결 요약</b>: {action_ko}  "
             f"{payload['next_invested_ratio']:.0%} ({_fmt_pct(payload['delta_ratio'])})"
         ),
     ]
@@ -236,6 +246,14 @@ def format_paper_result_message(payload: Dict[str, Any]) -> str:
     )
     lines.append(
         f"- 10D 전환위험: {_fmt_pct(float(hazard_10d)) if hazard_10d is not None else 'N/A'}"
+    )
+    lines.append(
+        f"- 브로커 인증: {payload.get('broker_auth_status') or 'UNKNOWN'} "
+        f"(token_refresh={payload.get('broker_token_refresh_count', 'N/A')})"
+    )
+    lines.append(
+        f"- 브로커 체결: orders={payload.get('broker_orders_count', 'N/A')}, "
+        f"fills={payload.get('broker_fills_count', 'N/A')}"
     )
     applied_groups = payload.get("group_gate_applied_groups") or []
     reduced_groups = payload.get("group_gate_reduced_groups") or []

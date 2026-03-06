@@ -75,7 +75,7 @@ Strategy Engine은 **정책·전략 상태에 따라 변경 가능한 계산 결
   * `decision_date` snapshot 저장 및 재현성(멱등 overwrite) 보장
   * Telegram 보고:
     - SIGNAL: `시장 컨텍스트` + `다음 스텝 가설(5/10/20/60/120D bias+hazard+expected)` + `시장 근거 4축` + `전술 그룹 다음 스텝`
-    - PAPER_RESULT: `가상 체결 요약 + PnL + 포지션 + 게이트/강도(effective_bias, hard_gate, tactical_strength)` + `전술 적용 근거(그룹 게이트)`
+    - PAPER_RESULT: `모의계좌 체결 요약 + PnL + 포지션 + 게이트/강도(effective_bias, hard_gate, tactical_strength)` + `전술 적용 근거(그룹 게이트)`
   * Telegram 표기 별칭:
     - `중기 성향` = `mid_regime`
     - `단기 공황 여부` = `is_panic = not risk_gate`
@@ -101,7 +101,7 @@ Strategy Engine은 **정책·전략 상태에 따라 변경 가능한 계산 결
 * 🧾 **Paper Engine (stateful EOD simulation)**
   * `src/pretrend/pipeline/paper/` 모듈에서 운용 시뮬레이션 실행
   * `next_step_signal` 기반 tactical 강도 조절(soft gate) + 하드게이트 우선 적용
-  * 운영 입력(KRW: 초기자금/DCA)은 `PAPER_FX_USDKRW`로 USD 환산 후 체결 계산
+  * 운영 입력(KRW: 초기자금/DCA)은 KIS 환율(`fx_usdkrw`) 우선, 결측 시 `PAPER_FX_USDKRW` fallback으로 USD 환산 후 체결 계산
 * ♻️ **재현성 저장 체계 (Feature Snapshot + Result Registry)**
   * `next_step_history`(year/month partition, key=`trade_date+decision_date_ref`)로 전이예측 feature 선저장
   * backtest/walk-forward/paper 결과를 표준 아티팩트 + registry(parquet partition)로 저장
@@ -400,6 +400,8 @@ PYTHONPATH=src python -m pretrend.pipeline.eod_job \
   * `eod_pipeline_dag.py`
   * `strategy_engine_dag.py` (Telegram `SIGNAL`)
   * `paper_trading_dag.py` (Telegram `PAPER_RESULT`, EOD 1회)
+  * `paper_trading_dag.py`는 옵션으로 KIS mock broker 실행 경로를 지원
+    (`PAPER_BROKER_ENABLED=1`, 기본 `0`)
 
 * 특징:
 
@@ -412,6 +414,7 @@ PYTHONPATH=src python -m pretrend.pipeline.eod_job \
   * 전이 지평은 거래일 기준 `5/10/20/60/120D`로 고정
   * SIGNAL/PAPER는 상태머신 메타(`bias_state_source/switch/reason/cooldown`)를 함께 표기해 전환 근거를 설명
   * Telegram 전송 실패는 fail-open (경고 로그 후 DAG 성공 유지)
+  * Broker 실행 실패도 fail-open (paper 시뮬레이션/알림은 유지)
 
 ---
 

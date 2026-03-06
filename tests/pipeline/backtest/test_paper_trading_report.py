@@ -48,7 +48,7 @@ def test_format_message_includes_fixed_sections_and_fallbacks() -> None:
     )
     msg = format_paper_result_message(payload)
     assert "message_type=PAPER_RESULT" in msg
-    assert "가상 체결 요약" in msg
+    assert "모의계좌 체결 요약" in msg
     assert "PnL 요약" in msg
     assert "운영 조건" in msg
     assert "Paper 시작일: N/A" in msg
@@ -133,6 +133,8 @@ def test_format_message_includes_gate_and_strength_section() -> None:
     assert "risk_gate=허용" in msg
     assert "전술 강도: slots=0, weight=0.00x" in msg
     assert "10D 전환위험: +88.0%" in msg
+    assert "브로커 인증:" in msg
+    assert "브로커 체결:" in msg
     assert "전술 적용 근거" in msg
     assert "적용 그룹: BOND, SECTOR" in msg
     assert "축소 그룹: COMMODITY" in msg

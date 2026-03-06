@@ -7,6 +7,63 @@
 
 > 참고: changelog 과거 섹션은 작성 시점 원문을 보존한다.
 
+## v2026.03.05b — KIS+COD 1차/2차 운영 경로 정합화
+
+### feat(broker): KIS 모드별 자격증명 우선순위 + 토큰 갱신 메타 추가
+- `KIS_MOCK_*` / `KIS_LIVE_*` 우선, `KIS_APP_*` fallback으로 로딩 규칙 확장
+- 토큰 만료 1시간 기준 55분 선제 갱신 정책 반영
+- 401/403 응답 시 토큰 재발급 후 1회 재시도 경로 추가
+
+### feat(paper): bootstrap/auth/fills/probe/candidate 저장 확장
+- `paper_trading_dag`에서 아래 산출물 저장 추가
+  - `data/paper/broker_bootstrap/decision_date=...`
+  - `data/paper/broker_auth/decision_date=...`
+  - `data/paper/broker_fills/decision_date=...`
+  - `data/paper/market_probe/decision_date=...`
+  - `data/paper/candidate_report/decision_date=...`
+- COD 입력(`data/reference/kis_cod/*.COD`)을 파싱해:
+  - `data/reference/kis_cod_parsed/decision_date=...`
+  - `data/reference/kis_cod_etf/decision_date=...`
+  - `data/reference/kis_cod_quality/decision_date=.../quality_*.json`
+
+### feat(fx): KIS 환율(`fx_usdkrw`) 우선 적용 + daily 저장
+- `KISMockAdapter.get_balance()`가 응답 payload에서 환율 키(`*exrt*`)를 추출하도록 확장
+- `paper_trading_dag`에서 `data/paper/fx_daily/decision_date=...` 저장 추가
+- KRW→USD 환산은 KIS 환율 우선, 결측 시 `PAPER_FX_USDKRW` fallback으로 동작
+
+### test(broker): config/COD/order 경로 테스트 확장
+- 신규:
+  - `tests/pipeline/broker/test_kis_config.py`
+  - `tests/pipeline/broker/test_cod_reference.py`
+- 확장:
+  - `tests/pipeline/broker/test_order_manager.py`
+  - `tests/pipeline/broker/test_kis_mock_adapter.py`
+
+## v2026.03.05a — P3-5 1차: Paper broker(KIS mock) 실행 경로 추가
+
+### feat(broker): broker 모듈 스캐폴딩 + KIS mock 어댑터 추가
+- 신규 모듈:
+  - `src/pretrend/pipeline/broker/base.py`
+  - `src/pretrend/pipeline/broker/kis_config.py`
+  - `src/pretrend/pipeline/broker/kis_mock.py`
+  - `src/pretrend/pipeline/broker/order_manager.py`
+- 기본 동작은 `KIS_DRY_RUN=true` 기준으로 안전 실행되며, 실 API 장애 시 fail-open 경로를 유지
+
+### feat(dag): `paper_trading_dag`에 브로커 주문/리컨실 task 추가
+- 신규 task:
+  - `execute_broker_orders` (옵션, `PAPER_BROKER_ENABLED=1`일 때만 실행)
+  - `reconciliation` 저장 연동(`data/paper/reconciliation/decision_date=...`)
+- 브로커 실패 시 paper 시뮬레이션/Telegram은 계속 진행(fail-open), 경고만 payload에 포함
+
+### test(broker): 브로커 단위 테스트 추가
+- 신규:
+  - `tests/pipeline/broker/test_kis_mock_adapter.py`
+  - `tests/pipeline/broker/test_order_manager.py`
+  - `tests/pipeline/broker/test_paper_broker_e2e.py`
+- 검증:
+  - `conda run -n pytest-pretrend pytest tests/pipeline/broker/ -q` 통과
+  - `conda run -n pytest-pretrend pytest tests/pipeline/paper/ -q` 회귀 통과
+
 ## v2026.03.04e — P3-6 prep: observer-only 용어/운영 경계 정리
 
 ### refactor(text-terms): `llm_feature` vs `interpretation_summary` 구분 고정

@@ -8,11 +8,13 @@
 from __future__ import annotations
 
 import os
+import json
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Any, Dict, List
 
 import pendulum
+import pandas as pd
 from airflow.decorators import dag, task
 from pretrend.pipeline.backtest.config import BacktestConfig
 from pretrend.pipeline.paper.execution import _GUARDRAIL_PANIC_WARN, simulate_paper_execution
@@ -21,6 +23,9 @@ from pretrend.pipeline.paper.report import (
     format_paper_result_message,
     save_paper_result_payload,
 )
+from pretrend.pipeline.broker.kis_mock import KISMockAdapter
+from pretrend.pipeline.broker.cod_reference import load_cod_reference
+from pretrend.pipeline.broker.order_manager import execute_from_ledger_rows, reconcile_positions
 from pretrend.pipeline.paper.io import (
     load_group_transition_runtime_stage,
     load_prices,
@@ -39,6 +44,11 @@ DEFAULT_ARGS: Dict[str, Any] = {
     "depends_on_past": False,
 }
 
+def _paper_schedule_interval() -> str | None:
+    """기본은 수동 실행(None), 명시적으로 켠 경우에만 일간 스케줄 사용."""
+    enabled = os.getenv("PAPER_AUTO_SCHEDULE_ENABLED", "0").strip().lower() in {"1", "true", "yes"}
+    return "30 10 * * *" if enabled else None
+
 
 def _list_decision_dates(exposure_root: Path) -> List[date]:
     dates: List[date] = []
@@ -50,14 +60,17 @@ def _list_decision_dates(exposure_root: Path) -> List[date]:
     return sorted(dates)
 
 
-def _resolve_paper_capital_params() -> Dict[str, float]:
+def _resolve_paper_capital_params(fx_override: float | None = None) -> Dict[str, float]:
     """Paper 운영 입력(KRW)과 실행값(USD)을 정규화한다."""
     initial_krw = float(os.getenv("PAPER_INITIAL_CAPITAL_KRW", "1000000"))
     monthly_krw = float(os.getenv("PAPER_MONTHLY_ADDITION_KRW", "300000"))
-    try:
-        fx = float(os.getenv("PAPER_FX_USDKRW", "1300"))
-    except Exception:
-        fx = 1300.0
+    if fx_override is not None:
+        fx = float(fx_override)
+    else:
+        try:
+            fx = float(os.getenv("PAPER_FX_USDKRW", "1300"))
+        except Exception:
+            fx = 1300.0
     if fx <= 0:
         fx = 1300.0
     return {
@@ -69,12 +82,38 @@ def _resolve_paper_capital_params() -> Dict[str, float]:
     }
 
 
+def _resolve_live_fx_usdkrw() -> float | None:
+    """Try dedicated KIS FX first, then balance response fx. Fallback is handled by caller."""
+    enabled = os.getenv("PAPER_BROKER_ENABLED", "0").strip().lower() in {"1", "true", "yes"}
+    dry_run = os.getenv("KIS_DRY_RUN", "true").strip().lower() in {"1", "true", "yes"}
+    if not enabled or dry_run:
+        return None
+    try:
+        adapter = KISMockAdapter.from_env()
+        fx = adapter.get_usdkrw_rate()
+        if fx and fx > 0:
+            return float(fx)
+        bal = adapter.get_balance()
+        if bal.fx_usdkrw and bal.fx_usdkrw > 0:
+            return float(bal.fx_usdkrw)
+    except Exception:
+        return None
+    return None
+
+
+def _save_quality_json(root: Path, decision_date: date, quality: Dict[str, Any]) -> None:
+    part = root / f"decision_date={decision_date.isoformat()}"
+    part.mkdir(parents=True, exist_ok=True)
+    out = part / f"quality_{decision_date.strftime('%Y%m%d')}.json"
+    out.write_text(json.dumps(quality, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
 @dag(
     dag_id="paper_trading_dag",
-    description="Paper trading daily summary + Telegram PAPER_RESULT (10:30 KST)",
+    description="Paper trading daily summary + Telegram PAPER_RESULT (auto schedule optional)",
     default_args=DEFAULT_ARGS,
     start_date=pendulum.datetime(2026, 1, 1, tz="Asia/Seoul"),
-    schedule_interval="30 10 * * *",
+    schedule_interval=_paper_schedule_interval(),
     catchup=False,
     max_active_runs=1,
     tags=["pretrend", "paper", "telegram"],
@@ -90,7 +129,8 @@ def paper_trading_pipeline():
         now_kst = pendulum.now("Asia/Seoul").date().isoformat()
         source_job = "paper_trading_dag"
 
-        cap = _resolve_paper_capital_params()
+        fx_live = _resolve_live_fx_usdkrw()
+        cap = _resolve_paper_capital_params(fx_override=fx_live)
         if not decision_dates:
             return {
                 "decision_date": now_kst,
@@ -150,6 +190,71 @@ def paper_trading_pipeline():
         save_decision_partition(positions_df, paper_root / "positions_daily", latest, "positions_daily")
         save_decision_partition(portfolio_df, paper_root / "portfolio_daily", latest, "portfolio_daily")
 
+        # Phase 1 artifacts: COD parse + ETF view + candidate report
+        cod_root = data_root / "reference" / "kis_cod"
+        if cod_root.exists():
+            full_cod_df, etf_cod_df, cod_quality = load_cod_reference(cod_root)
+            if not full_cod_df.empty:
+                save_decision_partition(
+                    full_cod_df,
+                    data_root / "reference" / "kis_cod_parsed",
+                    latest,
+                    "kis_cod_parsed",
+                )
+            if not etf_cod_df.empty:
+                save_decision_partition(
+                    etf_cod_df,
+                    data_root / "reference" / "kis_cod_etf",
+                    latest,
+                    "kis_cod_etf",
+                )
+            _save_quality_json(
+                data_root / "reference" / "kis_cod_quality",
+                latest,
+                cod_quality.as_dict(),
+            )
+
+        # candidate reason report from strategy snapshots
+        if not universe_df.empty:
+            last_univ = universe_df.copy()
+            if "rebalance_date" in last_univ.columns:
+                last_univ = last_univ[last_univ["rebalance_date"] <= latest]
+                if not last_univ.empty:
+                    latest_reb = last_univ["rebalance_date"].max()
+                    last_univ = last_univ[last_univ["rebalance_date"] == latest_reb].copy()
+            if not last_univ.empty:
+                p_row = policy_df[policy_df["trade_date"] <= latest].tail(1)
+                n_row = next_step_df[next_step_df["trade_date"] <= latest].tail(1) if not next_step_df.empty else pd.DataFrame()
+                long_phase = str(p_row["long_phase"].iloc[0]) if not p_row.empty else "UNKNOWN"
+                mid_regime = str(p_row["mid_regime"].iloc[0]) if not p_row.empty else "UNKNOWN"
+                short_signal = str(p_row["short_signal"].iloc[0]) if not p_row.empty else "UNKNOWN"
+                bias_20d = str(n_row["bias_20d"].iloc[0]) if not n_row.empty and "bias_20d" in n_row.columns else "UNKNOWN"
+                hazard_10d = (
+                    float(n_row["transition_hazard_10d"].iloc[0])
+                    if not n_row.empty and "transition_hazard_10d" in n_row.columns and pd.notna(n_row["transition_hazard_10d"].iloc[0])
+                    else None
+                )
+                report_df = last_univ.copy()
+                report_df["long_phase"] = long_phase
+                report_df["mid_regime"] = mid_regime
+                report_df["short_signal"] = short_signal
+                report_df["bias_20d"] = bias_20d
+                report_df["transition_hazard_10d"] = hazard_10d
+                report_df["selection_reason"] = report_df.apply(
+                    lambda r: (
+                        f"group={r.get('asset_group','UNKNOWN')}, "
+                        f"candidate={bool(r.get('is_candidate', False))}, "
+                        f"rs={float(r.get('relative_strength', 0.0)):.4f}"
+                    ),
+                    axis=1,
+                )
+                save_decision_partition(
+                    report_df,
+                    paper_root / "candidate_report",
+                    latest,
+                    "candidate_report",
+                )
+
         return {
             "decision_date": latest.isoformat(),
             "simulation_date": now_kst,
@@ -166,7 +271,7 @@ def paper_trading_pipeline():
         }
 
     @task(task_id="build_paper_result_payload")
-    def build_paper_result_payload_task(meta: Dict[str, Any]) -> Dict[str, Any]:
+    def build_paper_result_payload_task(meta: Dict[str, Any], broker_meta: Dict[str, Any]) -> Dict[str, Any]:
         data_root = Path(os.getenv("PRETREND_DATA_ROOT", "data"))
         source_job = str(meta.get("source_job", "paper_trading_dag"))
         decision_date = date.fromisoformat(str(meta.get("decision_date")))
@@ -176,6 +281,11 @@ def paper_trading_pipeline():
         initial_krw = float(meta.get("initial_capital_krw", 1_000_000.0))
         monthly_krw = float(meta.get("monthly_addition_krw", 300_000.0))
         fx_usdkrw = float(meta.get("fx_usdkrw", 1300.0))
+        if broker_meta.get("fx_usdkrw") is not None:
+            try:
+                fx_usdkrw = float(broker_meta.get("fx_usdkrw"))
+            except Exception:
+                pass
 
         if meta.get("status") != "ok":
             return build_paper_result_payload(
@@ -197,7 +307,7 @@ def paper_trading_pipeline():
             daily_pnl=None,
             cumulative_pnl=None,
             position_changes=["집계 대상 데이터 없음"],
-            risk_warnings=["전략 스냅샷 부재"],
+            risk_warnings=["전략 스냅샷 부재"] + list(broker_meta.get("warnings", [])),
         )
 
         policy_df = load_strategy_stage(data_root, "policy_selection", "trade_date")
@@ -233,7 +343,7 @@ def paper_trading_pipeline():
                 daily_pnl=None,
                 cumulative_pnl=None,
                 position_changes=["집계 대상 데이터 없음"],
-                risk_warnings=["paper portfolio 부재"],
+                risk_warnings=["paper portfolio 부재"] + list(broker_meta.get("warnings", [])),
             )
 
         pf_df = pd.read_parquet(pf_files[0])
@@ -369,6 +479,18 @@ def paper_trading_pipeline():
         else:
             group_gate_source = "MISSING"
 
+        broker_warnings = list(broker_meta.get("warnings", []))
+        broker_orders = int(broker_meta.get("orders_count", 0))
+        broker_fills = int(broker_meta.get("fills_count", 0))
+        broker_auth_status = str(broker_meta.get("auth_status", "UNKNOWN"))
+        broker_token_refresh_count = int(broker_meta.get("token_refresh_count", 0))
+        if broker_meta.get("status") == "ok":
+            position_changes.append(f"브로커 주문 {broker_orders}건 / 체결 {broker_fills}건")
+        elif broker_meta.get("status") == "skipped":
+            position_changes.append("브로커 주문 실행 비활성 (PAPER_BROKER_ENABLED=0)")
+        elif broker_meta.get("status") == "failed":
+            broker_warnings.append("브로커 주문 실행 실패 - paper 시뮬레이션만 유지")
+
         return build_paper_result_payload(
             source_job=source_job,
             decision_date=decision_date.isoformat(),
@@ -388,7 +510,7 @@ def paper_trading_pipeline():
             daily_pnl=None if pd.isna(daily_pnl) else float(daily_pnl),
             cumulative_pnl=None if pd.isna(cumulative_pnl) else float(cumulative_pnl),
             position_changes=position_changes,
-            risk_warnings=risk_warnings,
+            risk_warnings=risk_warnings + broker_warnings,
             nav=nav,
             total_invested_capital=total_capital,
             top_positions=top_positions,
@@ -441,10 +563,228 @@ def paper_trading_pipeline():
                 else 0.0
             ),
             hazard_10d=hazard_10d,
+            broker_auth_status=broker_auth_status,
+            broker_token_refresh_count=broker_token_refresh_count,
+            broker_orders_count=broker_orders,
+            broker_fills_count=broker_fills,
             group_gate_applied_groups=applied_groups,
             group_gate_reduced_groups=reduced_groups,
             group_gate_source=group_gate_source,
         )
+
+    @task(task_id="execute_broker_orders")
+    def execute_broker_orders_task(meta: Dict[str, Any]) -> Dict[str, Any]:
+        import logging
+        import pandas as pd
+
+        logger = logging.getLogger(__name__)
+        enabled = os.getenv("PAPER_BROKER_ENABLED", "0").strip().lower() in {"1", "true", "yes"}
+        if not enabled:
+            return {"status": "skipped", "warnings": []}
+        if meta.get("status") != "ok":
+            return {"status": "skipped", "warnings": ["paper 실행 결과 없음 - broker 생략"]}
+
+        decision_date = date.fromisoformat(str(meta.get("decision_date")))
+        simulation_date = date.fromisoformat(str(meta.get("simulation_date")))
+        data_root = Path(os.getenv("PRETREND_DATA_ROOT", "data"))
+        paper_root = data_root / "paper"
+        source_job = str(meta.get("source_job", "paper_trading_dag"))
+
+        ledger_part = data_root / "paper" / "execution_ledger" / f"decision_date={decision_date.isoformat()}"
+        positions_part = data_root / "paper" / "positions_daily" / f"decision_date={decision_date.isoformat()}"
+        ld_files = list(ledger_part.glob("*.parquet"))
+        pos_files = list(positions_part.glob("*.parquet"))
+        if not ld_files:
+            return {"status": "skipped", "warnings": ["execution_ledger 없음 - broker 실행 생략"]}
+
+        ld_df = pd.read_parquet(ld_files[0])
+        pos_df = pd.read_parquet(pos_files[0]) if pos_files else pd.DataFrame()
+
+        try:
+            adapter = KISMockAdapter.from_env()
+            # bootstrap checks (token + balance + positions)
+            balance = adapter.get_balance()
+            broker_positions = adapter.get_positions()
+            bootstrap_df = pd.DataFrame(
+                [
+                    {
+                        "decision_date": decision_date,
+                        "simulation_date": simulation_date,
+                        "source_job": source_job,
+                        "token_ok": True,
+                        "balance_ok": True,
+                        "positions_ok": True,
+                        "cash": balance.cash,
+                        "total_value": balance.total_value,
+                        "currency": balance.currency,
+                        "fx_usdkrw": balance.fx_usdkrw,
+                    }
+                ]
+            )
+            probe_rows: List[Dict[str, Any]] = []
+            for sym in sorted({str(s).upper() for s in ld_df.get("symbol", pd.Series(dtype=str)).head(20).tolist() if str(s).strip()}):
+                price_ok = False
+                quote_ok = False
+                last_price = None
+                orderable_usd = None
+                orderable_overseas_amt = None
+                orderable_krw_amt = None
+                orderable_ccy = None
+                orderable_exrt = None
+                orderable_status_code = None
+                orderable_rt_cd = None
+                orderable_msg_cd = None
+                orderable_msg1 = None
+                orderable_error = None
+                error_code = None
+                try:
+                    last_price = float(adapter.get_current_price(sym))
+                    price_ok = last_price > 0
+                    quote_ok = price_ok
+                    try:
+                        info = adapter.get_orderable_info(sym, exchange_code="NASD", order_price=last_price if last_price > 0 else None)
+                        orderable_ccy = info.get("tr_crcy_cd")
+                        orderable_exrt = info.get("exrt")
+                        orderable_usd = info.get("ord_psbl_frcr_amt")
+                        if orderable_usd is None:
+                            orderable_usd = info.get("frcr_ord_psbl_amt1")
+                        orderable_overseas_amt = info.get("ovrs_ord_psbl_amt")
+                        orderable_krw_amt = info.get("ord_psbl_amt")
+                        orderable_status_code = info.get("status_code")
+                        orderable_rt_cd = info.get("rt_cd")
+                        orderable_msg_cd = info.get("msg_cd")
+                        orderable_msg1 = info.get("msg1")
+                        orderable_error = info.get("error")
+                    except Exception:
+                        orderable_usd = None
+                except Exception as exc:
+                    error_code = str(exc)
+                probe_rows.append(
+                    {
+                        "decision_date": decision_date,
+                        "simulation_date": simulation_date,
+                        "source_job": source_job,
+                        "symbol": sym,
+                        "price_ok": price_ok,
+                        "quote_ok": quote_ok,
+                        "last_price": last_price,
+                        "orderable_usd": orderable_usd,
+                        "orderable_overseas_amt": orderable_overseas_amt,
+                        "orderable_krw_amt": orderable_krw_amt,
+                        "orderable_ccy": orderable_ccy,
+                        "orderable_exrt": orderable_exrt,
+                        "orderable_status_code": orderable_status_code,
+                        "orderable_rt_cd": orderable_rt_cd,
+                        "orderable_msg_cd": orderable_msg_cd,
+                        "orderable_msg1": orderable_msg1,
+                        "orderable_error": orderable_error,
+                        "orderable_available": bool(
+                            (orderable_usd is not None and float(orderable_usd) > 0)
+                            or (orderable_overseas_amt is not None and float(orderable_overseas_amt) > 0)
+                            or (orderable_krw_amt is not None and float(orderable_krw_amt) > 0)
+                        ),
+                        "spread": None,
+                        "error_code": error_code,
+                    }
+                )
+            probe_df = pd.DataFrame(probe_rows)
+            # Merge probe diagnostics into candidate report to explain "why selected / can we trade now".
+            candidate_part = data_root / "paper" / "candidate_report" / f"decision_date={decision_date.isoformat()}"
+            candidate_files = list(candidate_part.glob("*.parquet"))
+            if candidate_files and not probe_df.empty:
+                cand_df = pd.read_parquet(candidate_files[0])
+                if "symbol" in cand_df.columns:
+                    merged = cand_df.merge(
+                        probe_df[
+                            [
+                                "symbol",
+                                "last_price",
+                                "orderable_available",
+                                "orderable_usd",
+                                "orderable_overseas_amt",
+                                "orderable_krw_amt",
+                                "orderable_ccy",
+                                "orderable_exrt",
+                                "orderable_status_code",
+                                "orderable_rt_cd",
+                                "orderable_msg_cd",
+                                "orderable_msg1",
+                                "orderable_error",
+                            ]
+                        ],
+                        on="symbol",
+                        how="left",
+                    )
+                    save_decision_partition(
+                        merged,
+                        paper_root / "candidate_report",
+                        decision_date,
+                        "candidate_report",
+                    )
+            orders_df, fills_df, warnings = execute_from_ledger_rows(
+                adapter,
+                ledger_df=ld_df.head(20),
+                decision_date=decision_date,
+                simulation_date=simulation_date,
+                source_job=source_job,
+            )
+            broker_positions = adapter.get_positions()
+            recon_df = reconcile_positions(
+                broker_positions=broker_positions,
+                paper_positions_df=pos_df,
+                decision_date=decision_date,
+                source_job=source_job,
+            )
+            auth_meta = adapter.auth_status()
+            auth_df = pd.DataFrame(
+                [
+                    {
+                        "decision_date": decision_date,
+                        "simulation_date": simulation_date,
+                        "source_job": source_job,
+                        "token_refresh_count": auth_meta.get("token_refresh_count", 0),
+                        "last_refresh_at": auth_meta.get("last_refresh_at"),
+                        "auth_status": auth_meta.get("auth_status", "UNKNOWN"),
+                        "error_code": auth_meta.get("error_code"),
+                    }
+                ]
+            )
+            fx_df = pd.DataFrame(
+                [
+                    {
+                        "decision_date": decision_date,
+                        "simulation_date": simulation_date,
+                        "source_job": source_job,
+                        "fx_usdkrw": balance.fx_usdkrw,
+                        "fx_source": "KIS_BALANCE",
+                    }
+                ]
+            )
+        except Exception as exc:
+            logger.warning("broker execution failed: %s", exc)
+            return {"status": "failed", "warnings": [f"broker execution failed: {exc}"]}
+
+        save_decision_partition(bootstrap_df, paper_root / "broker_bootstrap", decision_date, "broker_bootstrap")
+        save_decision_partition(auth_df, paper_root / "broker_auth", decision_date, "broker_auth")
+        save_decision_partition(fx_df, paper_root / "fx_daily", decision_date, "fx_daily")
+        save_decision_partition(probe_df, paper_root / "market_probe", decision_date, "market_probe")
+        save_decision_partition(orders_df, paper_root / "broker_orders", decision_date, "broker_orders")
+        save_decision_partition(fills_df, paper_root / "broker_fills", decision_date, "broker_fills")
+        save_decision_partition(recon_df, paper_root / "reconciliation", decision_date, "reconciliation")
+
+        return {
+            "status": "ok",
+            "orders_count": int(len(orders_df)),
+            "fills_count": int(len(fills_df)),
+            "auth_status": str(auth_df["auth_status"].iloc[0]) if not auth_df.empty else "UNKNOWN",
+            "token_refresh_count": int(auth_df["token_refresh_count"].iloc[0]) if not auth_df.empty else 0,
+            "fx_usdkrw": (
+                float(fx_df["fx_usdkrw"].iloc[0])
+                if not fx_df.empty and pd.notna(fx_df["fx_usdkrw"].iloc[0])
+                else None
+            ),
+            "warnings": warnings,
+        }
 
     @task(task_id="send_paper_result_telegram")
     def send_paper_result_telegram_task(payload: Dict[str, Any]) -> None:
@@ -464,7 +804,8 @@ def paper_trading_pipeline():
         )
 
     meta = build_paper_execution_task()
-    payload = build_paper_result_payload_task(meta)
+    broker_meta = execute_broker_orders_task(meta)
+    payload = build_paper_result_payload_task(meta, broker_meta)
     send_paper_result_telegram_task(payload)
 
 

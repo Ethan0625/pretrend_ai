@@ -38,8 +38,8 @@
 - Telegram 전송 실패 시 fail-open 정책을 고정한다.
 
 ### Non-goals
-- 실거래 주문 집행
-- broker API 연동
+- 실전 계좌 자동 주문 집행
+- Level 3(실거래) 브로커 운영
 
 ## 2. Scope & Non-Goals
 ### Scope
@@ -50,6 +50,8 @@
 **권위 구현 경로(canonical)**:
 - `pretrend.pipeline.paper.execution` — PAPER_RESULT 생성 권위 구현 (source_job=`paper_trading_dag`)
 - `pretrend.pipeline.backtest.paper_execution` — 하위 호환 shim (deprecated, 신규 코드는 canonical 경로 사용)
+- `pretrend.pipeline.broker.kis_mock` — 모의투자 브로커 어댑터(옵션, `PAPER_BROKER_ENABLED=1`일 때만 실행)
+- `pretrend.pipeline.broker.order_manager` — 주문 실행/리컨실리에이션 유틸
 
 ### Non-goals
 - 가상 체결 계산식/NAV 산출 규칙 정의
@@ -59,7 +61,7 @@
 | 타입 | source_job | 목적 | 기본 주기 |
 | --- | --- | --- | --- |
 | SIGNAL | strategy_engine_dag | 현재 시장 상태/근거/전술 신호 보고 | 일 1회 |
-| PAPER_RESULT | paper_trading_dag | 가상 체결/손익/포지션 변화 요약 | 일 1회 EOD |
+| PAPER_RESULT | paper_trading_dag | 모의계좌 체결/손익/포지션 변화 요약 | 일 1회 EOD |
 
 ## 4. Scheduling / Delivery
 - 전송 채널은 동일 Telegram chat_id를 사용한다.
@@ -83,7 +85,7 @@ PAPER_RESULT 전용 필드:
 | action | TEXT | Y | `INCREASE` / `DECREASE` / `HOLD` |
 | next_invested_ratio | FLOAT | Y | 다음 목표 투자비중 |
 | delta_ratio | FLOAT | Y | 비중 변화량 |
-| virtual_fills | ARRAY<TEXT> | Y | 가상 체결 요약 |
+| virtual_fills | ARRAY<TEXT> | Y | 모의계좌 체결 요약 |
 | daily_pnl | FLOAT | N | 당일 손익(없으면 null) |
 | cumulative_pnl | FLOAT | N | 누적 손익(없으면 null) |
 | position_changes | ARRAY<TEXT> | Y | 포지션 변화 요약 |
@@ -97,10 +99,14 @@ PAPER_RESULT 전용 필드:
 | effective_max_tactical_slots | INT | N | 적용된 전술 슬롯 수 |
 | effective_tactical_weight | FLOAT | N | 적용된 전술 비중 강도 |
 | hazard_10d | FLOAT | N | 10거래일 전환 위험도(설명용) |
+| broker_auth_status | TEXT | N | 브로커 인증 상태(`OK`, `FAILED`, `UNKNOWN`) |
+| broker_token_refresh_count | INT | N | 당일 토큰 갱신 횟수 |
+| broker_orders_count | INT | N | 당일 주문 건수 |
+| broker_fills_count | INT | N | 당일 체결 건수 |
 | group_gate_applied_groups | ARRAY<TEXT> | N | 적용된 tactical 그룹 |
 | group_gate_reduced_groups | ARRAY<TEXT> | N | 축소된 tactical 그룹 |
 | group_gate_source | TEXT | N | 그룹 게이트 소스 (`SNAPSHOT`, `MISSING`) |
-| fx_usdkrw | FLOAT | N | KRW→USD 환산 환율(표시용) |
+| fx_usdkrw | FLOAT | N | KRW→USD 환산 환율(표시용, KIS 우선/fallback 가능) |
 
 계산식/운영조건은 `paper_execution_ledger_contract.md`를 따른다.
 표시 계층과 계산 계층을 분리하며, 알림 payload는 계산 결과의 요약만 담당한다.

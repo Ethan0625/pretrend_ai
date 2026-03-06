@@ -21,6 +21,7 @@ def test_paper_trading_dag_has_expected_tasks() -> None:
     paper_trading_dag = _load_module().paper_trading_dag
     task_ids = set(paper_trading_dag.task_ids)
     assert "build_paper_execution" in task_ids
+    assert "execute_broker_orders" in task_ids
     assert "build_paper_result_payload" in task_ids
     assert "send_paper_result_telegram" in task_ids
 
@@ -39,6 +40,13 @@ def test_paper_payload_includes_gate_strength_fields_in_dag_source() -> None:
     assert "group_gate_applied_groups=" in text
     assert "group_gate_reduced_groups=" in text
     assert "group_gate_source=" in text
+    assert "fx_daily" in text
+    assert "fx_usdkrw" in text
+    assert "get_usdkrw_rate" in text
+    assert "orderable_usd" in text
+    assert "get_orderable_info" in text
+    assert "orderable_krw_amt" in text
+    assert "orderable_overseas_amt" in text
 
 
 def test_resolve_paper_capital_params_default() -> None:

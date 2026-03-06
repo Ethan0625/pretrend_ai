@@ -51,7 +51,7 @@
 - 운영 조건(초기자금/DCA/요일 규칙/SCHD 매도 금지) 적용
 
 ### Non-goals
-- 브로커 API 연동
+- 실전(Level 3) 자동 주문 연동
 - 체결 슬리피지/수수료 모델 최적화
 
 ## 3. Inputs
@@ -69,12 +69,12 @@
 - `monthly_addition = 300,000원`
 - `sell_tranches = [0.50, 0.30, 0.20]`
 - `schd_sell_locked = true`
-- `PAPER_FX_USDKRW = 1300` (KRW→USD 환산 기본값)
+- `PAPER_FX_USDKRW = 1300` (KRW→USD 환산 기본값, KIS 환율 결측 시 fallback)
 
 통화 처리:
 - 운영 입력(`initial_capital`, `monthly_addition`)은 KRW 단위다.
 - 체결/평가 가격(`adj_close`)은 USD 단위다.
-- 실행 엔진은 KRW 입력을 `PAPER_FX_USDKRW`로 USD 환산 후 체결 계산한다.
+- 실행 엔진은 KRW 입력을 KIS 환율(`fx_usdkrw`) 우선, 결측 시 `PAPER_FX_USDKRW` fallback으로 USD 환산 후 체결 계산한다.
 
 ## 4. Output Tables
 ### 4.1 execution_ledger

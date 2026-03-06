@@ -219,6 +219,30 @@ Backtest/Walk-forward 해석 키:
   - `docs/architecture/next_step_signal_contract.md`
   - `docs/architecture/walk_forward_validation_contract.md`
 
+### Paper Broker (KIS 모의투자, 옵션)
+- 기본값: 비활성 (`PAPER_BROKER_ENABLED=0`)
+- 활성 시:
+  - `paper_trading_dag`에서 execution ledger를 broker 주문으로 변환 실행
+  - 저장 경로:
+    - `data/paper/broker_orders/decision_date=...`
+    - `data/paper/broker_fills/decision_date=...`
+    - `data/paper/broker_bootstrap/decision_date=...`
+    - `data/paper/broker_auth/decision_date=...`
+    - `data/paper/fx_daily/decision_date=...`
+    - `data/paper/market_probe/decision_date=...`
+    - `data/paper/candidate_report/decision_date=...`
+    - `data/paper/reconciliation/decision_date=...`
+  - 실패 정책: fail-open (브로커 실패 시 paper 시뮬레이션/Telegram은 계속 진행)
+- 환경변수:
+  - `PAPER_BROKER_ENABLED=1`
+  - `KIS_IS_MOCK=true`
+  - `KIS_DRY_RUN=true` (권장 기본)
+  - 모의 우선 키: `KIS_MOCK_APP_KEY`, `KIS_MOCK_APP_SECRET`, `KIS_MOCK_ACCOUNT_NO`, `KIS_MOCK_PRODUCT_CODE`, `KIS_MOCK_BASE_URL`
+  - 실전 키(준비용): `KIS_LIVE_APP_KEY`, `KIS_LIVE_APP_SECRET`, `KIS_LIVE_ACCOUNT_NO`, `KIS_LIVE_PRODUCT_CODE`, `KIS_LIVE_BASE_URL`
+  - 레거시 fallback: `KIS_APP_KEY`, `KIS_APP_SECRET`, `KIS_ACCOUNT_NO`, `KIS_PRODUCT_CODE`, `KIS_BASE_URL`
+  - 토큰 정책: 1시간 만료 기준 55분 선제 갱신 + 401/403 시 1회 재발급 재시도
+  - 환율 정책: 가능하면 KIS 응답(`fx_usdkrw`) 우선 사용, 없으면 `PAPER_FX_USDKRW` fallback
+
 ### Level 2 운영 경계 절차
 - 중단 트리거:
   - `NAV < 초기자금의 70%`
