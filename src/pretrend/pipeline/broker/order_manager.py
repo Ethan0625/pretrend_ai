@@ -134,6 +134,26 @@ def execute_from_ledger_rows(
     warnings: List[str] = []
     results: List[OrderResult] = []
     count = 0
+    remaining_budget_usd: Optional[float] = None
+
+    def _init_balance_budget() -> None:
+        nonlocal remaining_budget_usd
+        if remaining_budget_usd is not None:
+            return
+        try:
+            bal = adapter.get_balance()
+            fx = bal.fx_usdkrw if bal.fx_usdkrw and bal.fx_usdkrw > 0 else None
+            if (fx is None or fx <= 0) and hasattr(adapter, "get_usdkrw_rate"):
+                try:
+                    fx = adapter.get_usdkrw_rate()
+                except Exception:
+                    fx = None
+            if fx and fx > 0:
+                remaining_budget_usd = float(bal.total_value) / float(fx)
+            else:
+                remaining_budget_usd = None
+        except Exception:
+            remaining_budget_usd = None
     for _, r in ledger_df.iterrows():
         if count >= max_orders:
             warnings.append(f"broker order cap reached ({max_orders})")
@@ -153,7 +173,32 @@ def execute_from_ledger_rows(
             continue
         try:
             if side == "BUY":
+                # BUY qty cap: psamount first, fallback to balance-derived budget.
+                px = 0.0
+                try:
+                    px = float(adapter.get_current_price(symbol))
+                except Exception:
+                    px = 0.0
+                qty_cap: Optional[int] = None
+                if px > 0 and hasattr(adapter, "get_orderable_cash_usd"):
+                    try:
+                        amt = adapter.get_orderable_cash_usd(symbol)
+                        if amt is not None and amt > 0:
+                            qty_cap = int(float(amt) / float(px))
+                    except Exception:
+                        qty_cap = None
+                if qty_cap is None:
+                    _init_balance_budget()
+                    if px > 0 and remaining_budget_usd is not None and remaining_budget_usd > 0:
+                        qty_cap = int(float(remaining_budget_usd) / float(px))
+                if qty_cap is not None:
+                    qty = min(qty, max(0, qty_cap))
+                if qty <= 0:
+                    warnings.append(f"{symbol} BUY skipped: no orderable budget")
+                    continue
                 res = adapter.place_buy_order(symbol, qty=qty)
+                if px > 0 and remaining_budget_usd is not None:
+                    remaining_budget_usd = max(0.0, float(remaining_budget_usd) - float(qty) * float(px))
             else:
                 res = adapter.place_sell_order(symbol, qty=qty)
             results.append(res)
