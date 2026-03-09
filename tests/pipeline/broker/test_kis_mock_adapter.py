@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+import time
+
 import pytest
 
 from pretrend.pipeline.broker.kis_mock import KISMockAdapter
@@ -217,3 +220,251 @@ def test_resolve_symbol_market_uses_cod_default(monkeypatch) -> None:
     assert m["excd"] == "NAS"
     assert m["ovrs_excg_cd"] == "NASD"
     assert isinstance(m["rsym"], str) and len(m["rsym"]) > 0
+
+
+def test_token_cache_roundtrip(monkeypatch, tmp_path) -> None:
+    """Token saved to disk is reloaded by a new adapter instance without calling tokenP."""
+    cache_file = tmp_path / "kis_token_cache.json"
+    monkeypatch.setenv("KIS_TOKEN_CACHE_PATH", str(cache_file))
+    monkeypatch.setenv("KIS_MOCK_APP_KEY", "test_key")
+    monkeypatch.setenv("KIS_MOCK_APP_SECRET", "test_secret")
+    monkeypatch.setenv("KIS_MOCK_ACCOUNT_NO", "12345678")
+    monkeypatch.setenv("KIS_IS_MOCK", "true")
+    monkeypatch.setenv("KIS_DRY_RUN", "false")
+
+    adapter1 = KISMockAdapter.from_env()
+    # Simulate a token already in memory (as if tokenP was just called)
+    from pretrend.pipeline.broker.kis_mock import _TokenState
+    adapter1._token = _TokenState(access_token="valid_token", expires_at_epoch=time.time() + 3600)
+    adapter1._save_cached_token()
+
+    # New adapter instance should load from cache without calling tokenP
+    adapter2 = KISMockAdapter.from_env()
+    assert adapter2._token.access_token == "valid_token"
+    assert adapter2._token_refresh_count == 0  # no tokenP call
+
+
+def test_token_cache_ignores_wrong_app_key(monkeypatch, tmp_path) -> None:
+    """Cache for a different app_key is not loaded."""
+    cache_file = tmp_path / "kis_token_cache.json"
+    cache_file.write_text(
+        json.dumps({"app_key": "other_key", "access_token": "stale", "expires_at_epoch": time.time() + 3600}),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("KIS_TOKEN_CACHE_PATH", str(cache_file))
+    monkeypatch.setenv("KIS_MOCK_APP_KEY", "test_key")
+    monkeypatch.setenv("KIS_MOCK_APP_SECRET", "test_secret")
+    monkeypatch.setenv("KIS_MOCK_ACCOUNT_NO", "12345678")
+    monkeypatch.setenv("KIS_IS_MOCK", "true")
+    monkeypatch.setenv("KIS_DRY_RUN", "false")
+
+    adapter = KISMockAdapter.from_env()
+    assert adapter._token.access_token is None
+
+
+def test_token_cache_ignores_expired(monkeypatch, tmp_path) -> None:
+    """Expired cached token is not loaded."""
+    cache_file = tmp_path / "kis_token_cache.json"
+    cache_file.write_text(
+        json.dumps({"app_key": "test_key", "access_token": "old_token", "expires_at_epoch": time.time() - 1}),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("KIS_TOKEN_CACHE_PATH", str(cache_file))
+    monkeypatch.setenv("KIS_MOCK_APP_KEY", "test_key")
+    monkeypatch.setenv("KIS_MOCK_APP_SECRET", "test_secret")
+    monkeypatch.setenv("KIS_MOCK_ACCOUNT_NO", "12345678")
+    monkeypatch.setenv("KIS_IS_MOCK", "true")
+    monkeypatch.setenv("KIS_DRY_RUN", "false")
+
+    adapter = KISMockAdapter.from_env()
+    assert adapter._token.access_token is None
+
+
+def test_place_market_order_uses_resolved_exchange_and_price(monkeypatch) -> None:
+    monkeypatch.setenv("KIS_MOCK_APP_KEY", "mock_key")
+    monkeypatch.setenv("KIS_MOCK_APP_SECRET", "mock_secret")
+    monkeypatch.setenv("KIS_MOCK_ACCOUNT_NO", "12345678")
+    monkeypatch.setenv("KIS_IS_MOCK", "true")
+    monkeypatch.setenv("KIS_DRY_RUN", "false")
+
+    adapter = KISMockAdapter.from_env()
+
+    class _Resp:
+        status_code = 200
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self):
+            return {"rt_cd": "0", "output": {"ODNO": "A0001"}}
+
+    captured = {}
+
+    monkeypatch.setattr(
+        adapter,
+        "_resolve_symbol_market",
+        lambda symbol: {"symb": "SCHD", "rsym": "SCHD", "excd": "NYS", "ovrs_excg_cd": "NYSE"},
+    )
+    monkeypatch.setattr(adapter, "get_current_price", lambda symbol: 27.53)
+    monkeypatch.setattr(adapter, "_ensure_token", lambda: "TOKEN")
+
+    def _fake_req(method, url, **kwargs):
+        captured["json"] = kwargs.get("json", {})
+        return _Resp()
+
+    monkeypatch.setattr(adapter, "_request_with_auth_retry", _fake_req)
+
+    result = adapter.place_buy_order("SCHD", qty=1)
+
+    assert captured["json"]["OVRS_EXCG_CD"] == "NYSE"
+    assert captured["json"]["PDNO"] == "SCHD"
+    assert captured["json"]["ORD_DVSN"] == "00"
+    assert captured["json"]["OVRS_ORD_UNPR"] == "27.53"
+    assert result.requested_price == 27.53
+    assert result.status == "ACCEPTED"
+
+
+def test_place_sell_order_uses_us_sell_tr_id(monkeypatch) -> None:
+    monkeypatch.setenv("KIS_MOCK_APP_KEY", "mock_key")
+    monkeypatch.setenv("KIS_MOCK_APP_SECRET", "mock_secret")
+    monkeypatch.setenv("KIS_MOCK_ACCOUNT_NO", "12345678")
+    monkeypatch.setenv("KIS_IS_MOCK", "true")
+    monkeypatch.setenv("KIS_DRY_RUN", "false")
+
+    adapter = KISMockAdapter.from_env()
+
+    class _Resp:
+        status_code = 200
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self):
+            return {"rt_cd": "0", "output": {"ODNO": "S0001"}}
+
+    captured = {}
+
+    monkeypatch.setattr(
+        adapter,
+        "_resolve_symbol_market",
+        lambda symbol: {"symb": "SCHD", "rsym": "SCHD", "excd": "NYS", "ovrs_excg_cd": "NYSE"},
+    )
+    monkeypatch.setattr(adapter, "get_current_price", lambda symbol: 27.53)
+    monkeypatch.setattr(adapter, "_ensure_token", lambda: "TOKEN")
+
+    def _fake_req(method, url, **kwargs):
+        captured["tr_id"] = kwargs.get("headers", {}).get("tr_id")
+        captured["json"] = kwargs.get("json", {})
+        return _Resp()
+
+    monkeypatch.setattr(adapter, "_request_with_auth_retry", _fake_req)
+
+    result = adapter.place_sell_order("SCHD", qty=1)
+
+    assert captured["tr_id"] == "VTTT1006U"
+    assert captured["json"]["SLL_TYPE"] == "00"
+    assert result.status == "ACCEPTED"
+
+
+def test_get_order_status_uses_fill_rows(monkeypatch) -> None:
+    monkeypatch.setenv("KIS_MOCK_APP_KEY", "mock_key")
+    monkeypatch.setenv("KIS_MOCK_APP_SECRET", "mock_secret")
+    monkeypatch.setenv("KIS_MOCK_ACCOUNT_NO", "12345678")
+    monkeypatch.setenv("KIS_IS_MOCK", "true")
+    monkeypatch.setenv("KIS_DRY_RUN", "false")
+
+    adapter = KISMockAdapter.from_env()
+    monkeypatch.setattr(
+        adapter,
+        "_inquire_algo_ccnl",
+        lambda order_id, order_date=None: [{"FT_ORD_QTY": "2", "FT_CCLD_QTY": "1"}],
+    )
+    assert adapter.get_order_status("A0001") == "PARTIAL_FILLED"
+
+    monkeypatch.setattr(
+        adapter,
+        "_inquire_algo_ccnl",
+        lambda order_id, order_date=None: [{"FT_ORD_QTY": "2", "FT_CCLD_QTY": "2"}],
+    )
+    assert adapter.get_order_status("A0001") == "FILLED"
+
+    monkeypatch.setattr(adapter, "_inquire_algo_ccnl", lambda order_id, order_date=None: [])
+    assert adapter.get_order_status("A0001") == "ACCEPTED"
+
+
+def _dry_run_adapter(monkeypatch) -> KISMockAdapter:
+    monkeypatch.setenv("KIS_MOCK_APP_KEY", "mock_key")
+    monkeypatch.setenv("KIS_MOCK_APP_SECRET", "mock_secret")
+    monkeypatch.setenv("KIS_MOCK_ACCOUNT_NO", "12345678")
+    monkeypatch.setenv("KIS_IS_MOCK", "true")
+    monkeypatch.setenv("KIS_DRY_RUN", "true")
+    return KISMockAdapter.from_env()
+
+
+def test_cancel_order_dry_run(monkeypatch) -> None:
+    """dry_run 모드에서는 API 호출 없이 CANCELLED 반환."""
+    adapter = _dry_run_adapter(monkeypatch)
+    result = adapter.cancel_order(order_id="ORD-001", symbol="SPY", qty=2, side="BUY")
+    assert result["status"] == "CANCELLED"
+    assert result["order_id"] == "ORD-001"
+    assert result["raw"]["mode"] == "dry_run"
+
+
+def _live_mock_adapter(monkeypatch) -> KISMockAdapter:
+    """dry_run=False adapter with network calls stubbed out."""
+    monkeypatch.setenv("KIS_MOCK_APP_KEY", "mock_key")
+    monkeypatch.setenv("KIS_MOCK_APP_SECRET", "mock_secret")
+    monkeypatch.setenv("KIS_MOCK_ACCOUNT_NO", "12345678")
+    monkeypatch.setenv("KIS_IS_MOCK", "true")
+    monkeypatch.setenv("KIS_DRY_RUN", "false")
+    adapter = KISMockAdapter.__new__(KISMockAdapter)
+    from pretrend.pipeline.broker.kis_config import KISConfig
+    from pretrend.pipeline.broker.kis_mock import _TokenState
+    import requests
+    adapter.config = KISConfig.from_env()
+    adapter._token = _TokenState(access_token="fake-token", expires_at_epoch=time.time() + 3600)
+    adapter._session = requests.Session()
+    adapter._token_refresh_count = 0
+    adapter._last_refresh_at = None
+    adapter._last_auth_error_code = None
+    adapter._cod_symbol_map = None
+    adapter._request_delay_sec = 0.0
+    return adapter
+
+
+def test_cancel_order_api_success(monkeypatch) -> None:
+    """KIS API 정상 응답 시 CANCELLED 반환."""
+    adapter = _live_mock_adapter(monkeypatch)
+
+    fake_body = {"rt_cd": "0", "msg_cd": "APBK0013", "msg1": "주문취소 완료", "output": {}}
+
+    class _FakeResp:
+        def raise_for_status(self): pass
+        def json(self): return fake_body
+
+    monkeypatch.setattr(adapter, "_throttle", lambda: None)
+    monkeypatch.setattr(adapter, "_headers", lambda tr_id: {})
+    monkeypatch.setattr(
+        adapter, "_request_with_auth_retry",
+        lambda method, url, **kw: _FakeResp(),
+    )
+
+    result = adapter.cancel_order(order_id="ORD-002", symbol="IAU", qty=3, side="SELL")
+    assert result["status"] == "CANCELLED"
+    assert result["order_id"] == "ORD-002"
+
+
+def test_cancel_order_api_failure(monkeypatch) -> None:
+    """KIS API 오류 응답 시 FAILED 반환 (예외 삼킴)."""
+    adapter = _live_mock_adapter(monkeypatch)
+
+    monkeypatch.setattr(adapter, "_throttle", lambda: None)
+    monkeypatch.setattr(adapter, "_headers", lambda tr_id: {})
+    monkeypatch.setattr(
+        adapter, "_request_with_auth_retry",
+        lambda method, url, **kw: (_ for _ in ()).throw(RuntimeError("connection timeout")),
+    )
+
+    result = adapter.cancel_order(order_id="ORD-003", symbol="SPY", qty=1, side="BUY")
+    assert result["status"] == "FAILED"
+    assert "connection timeout" in result["error"]

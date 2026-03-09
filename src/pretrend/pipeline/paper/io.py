@@ -103,12 +103,26 @@ def load_group_transition_runtime_stage(
     )
 
 
-def save_decision_partition(df: pd.DataFrame, root: Path, decision_date: date, stem: str) -> Optional[Path]:
-    """Save frame into decision_date partition."""
+def save_decision_partition(
+    df: pd.DataFrame,
+    root: Path,
+    decision_date: date,
+    stem: str,
+    *,
+    execution_mode: Optional[str] = None,
+) -> Optional[Path]:
+    """Save frame into decision_date partition.
+
+    When execution_mode is provided, writes under:
+    root/execution_mode=<MODE>/decision_date=YYYY-MM-DD/<stem>_YYYYMMDD.parquet
+    """
     if df is None or df.empty:
         return None
 
-    part = root / f"decision_date={decision_date.isoformat()}"
+    part = root
+    if execution_mode:
+        part = part / f"execution_mode={str(execution_mode).upper()}"
+    part = part / f"decision_date={decision_date.isoformat()}"
     part.mkdir(parents=True, exist_ok=True)
     out = part / f"{stem}_{decision_date.strftime('%Y%m%d')}.parquet"
     tmp_out = part / f"{stem}_{decision_date.strftime('%Y%m%d')}_tmp_{uuid.uuid4().hex}.parquet"
@@ -118,3 +132,22 @@ def save_decision_partition(df: pd.DataFrame, root: Path, decision_date: date, s
     except OSError:
         shutil.move(str(tmp_out), str(out))
     return out
+
+
+def load_decision_partition(
+    root: Path,
+    decision_date: date,
+    *,
+    execution_mode: Optional[str] = None,
+) -> pd.DataFrame:
+    """Load decision partition with mode-first, legacy fallback."""
+    paths = []
+    if execution_mode:
+        paths.append(root / f"execution_mode={str(execution_mode).upper()}" / f"decision_date={decision_date.isoformat()}")
+    paths.append(root / f"decision_date={decision_date.isoformat()}")
+
+    for part in paths:
+        files = list(part.glob("*.parquet"))
+        if files:
+            return pd.read_parquet(files[0])
+    return pd.DataFrame()

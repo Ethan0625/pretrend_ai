@@ -249,7 +249,6 @@ def test_guardrail_nav_breach_blocks_increase() -> None:
             {"trade_date": date(2026, 1, 13), "symbol": "IAU", "adj_close": 8.0},
         ]
     )
-
     ledger, _, pf, gs = simulate_paper_execution(
         config=cfg,
         exposure_df=exposure,
@@ -264,6 +263,38 @@ def test_guardrail_nav_breach_blocks_increase() -> None:
     assert gs["paused"] is True
     assert gs["nav_breach"] is True
     assert bool(pf.iloc[-1]["guardrail_paused"]) is True
+
+
+def test_max_invested_ratio_forces_staged_decrease_on_friday(monkeypatch) -> None:
+    monkeypatch.setenv("PAPER_MAX_INVESTED_RATIO", "0.50")
+    cfg = BacktestConfig(start_date=date(2026, 1, 6), end_date=date(2026, 1, 9))
+    exposure = pd.DataFrame(
+        [
+            {"trade_date": date(2026, 1, 6), "action": "INCREASE", "next_invested_ratio": 0.80, "delta_ratio": 0.20},  # Tue
+            {"trade_date": date(2026, 1, 9), "action": "HOLD", "next_invested_ratio": 0.80, "delta_ratio": 0.00},      # Fri
+        ]
+    )
+    prices = pd.DataFrame(
+        [
+            {"trade_date": date(2026, 1, 6), "symbol": "SPY", "adj_close": 100.0},
+            {"trade_date": date(2026, 1, 6), "symbol": "SCHD", "adj_close": 50.0},
+            {"trade_date": date(2026, 1, 6), "symbol": "IAU", "adj_close": 20.0},
+            {"trade_date": date(2026, 1, 9), "symbol": "SPY", "adj_close": 200.0},
+            {"trade_date": date(2026, 1, 9), "symbol": "SCHD", "adj_close": 100.0},
+            {"trade_date": date(2026, 1, 9), "symbol": "IAU", "adj_close": 40.0},
+        ]
+    )
+    ledger, _, _, _ = simulate_paper_execution(
+        config=cfg,
+        exposure_df=exposure,
+        prices_df=prices,
+        source_job="paper_trading_dag",
+        decision_date=date(2026, 1, 9),
+        simulation_date=date(2026, 1, 9),
+        schd_sell_locked=False,
+    )
+    fri_sells = ledger[(ledger["trade_date"] == date(2026, 1, 9)) & (ledger["action"] == "SELL")]
+    assert not fri_sells.empty
 
 
 def test_guardrail_peak_dd_breach_blocks_increase() -> None:
@@ -281,15 +312,15 @@ def test_guardrail_peak_dd_breach_blocks_increase() -> None:
             {"trade_date": date(2026, 1, 6), "symbol": "SPY", "adj_close": 100.0},
             {"trade_date": date(2026, 1, 6), "symbol": "SCHD", "adj_close": 50.0},
             {"trade_date": date(2026, 1, 6), "symbol": "IAU", "adj_close": 20.0},
-            {"trade_date": date(2026, 1, 7), "symbol": "SPY", "adj_close": 75.0},
-            {"trade_date": date(2026, 1, 7), "symbol": "SCHD", "adj_close": 37.5},
-            {"trade_date": date(2026, 1, 7), "symbol": "IAU", "adj_close": 15.0},
-            {"trade_date": date(2026, 1, 12), "symbol": "SPY", "adj_close": 75.0},
-            {"trade_date": date(2026, 1, 12), "symbol": "SCHD", "adj_close": 37.5},
-            {"trade_date": date(2026, 1, 12), "symbol": "IAU", "adj_close": 15.0},
-            {"trade_date": date(2026, 1, 13), "symbol": "SPY", "adj_close": 75.0},
-            {"trade_date": date(2026, 1, 13), "symbol": "SCHD", "adj_close": 37.5},
-            {"trade_date": date(2026, 1, 13), "symbol": "IAU", "adj_close": 15.0},
+            {"trade_date": date(2026, 1, 7), "symbol": "SPY", "adj_close": 50.0},
+            {"trade_date": date(2026, 1, 7), "symbol": "SCHD", "adj_close": 25.0},
+            {"trade_date": date(2026, 1, 7), "symbol": "IAU", "adj_close": 10.0},
+            {"trade_date": date(2026, 1, 12), "symbol": "SPY", "adj_close": 50.0},
+            {"trade_date": date(2026, 1, 12), "symbol": "SCHD", "adj_close": 25.0},
+            {"trade_date": date(2026, 1, 12), "symbol": "IAU", "adj_close": 10.0},
+            {"trade_date": date(2026, 1, 13), "symbol": "SPY", "adj_close": 50.0},
+            {"trade_date": date(2026, 1, 13), "symbol": "SCHD", "adj_close": 25.0},
+            {"trade_date": date(2026, 1, 13), "symbol": "IAU", "adj_close": 10.0},
         ]
     )
 

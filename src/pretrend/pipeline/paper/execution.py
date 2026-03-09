@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from datetime import date
+import os
 from typing import Dict, List, Optional, Sequence, Tuple, Any
 
 import pandas as pd
@@ -17,6 +18,15 @@ _GUARDRAIL_PEAK_DD: float = -0.20
 _GUARDRAIL_PANIC_WARN: int = 5
 _GUARDRAIL_RESUME_TC_RATIO: float = 0.90
 _GUARDRAIL_RESUME_PEAK_DD: float = -0.15
+
+
+def _resolve_max_invested_ratio() -> float:
+    raw = os.getenv("PAPER_MAX_INVESTED_RATIO", "1.0")
+    try:
+        v = float(raw)
+    except Exception:
+        v = 0.8
+    return min(1.0, max(0.0, v))
 
 
 @dataclass
@@ -392,6 +402,7 @@ def simulate_paper_execution(
     paused: bool = False
     paused_since: Optional[date] = None
     panic_streak_guardrail: int = 0
+    max_invested_ratio: float = _resolve_max_invested_ratio()
 
     for _, row in df.iterrows():
         td: date = row["trade_date"]
@@ -457,9 +468,14 @@ def simulate_paper_execution(
             config=effective_config,
             prices=prices,
         )
+        target_ratio = min(float(target_ratio), max_invested_ratio)
         target_weights = _normalize_weights(target_weights, prices)
         if not target_weights:
             target_weights = _normalize_weights(config.active_weights(td), prices)
+
+        current_ratio = portfolio.invested_ratio(prices)
+        forced_cap_decrease = current_ratio > max_invested_ratio + 1e-9
+        action_effective = "DECREASE" if forced_cap_decrease and action != "DECREASE" else action
 
         lock_symbols = ["SCHD"] if schd_sell_locked else []
 
@@ -468,11 +484,11 @@ def simulate_paper_execution(
 
         # Monday: signal evaluation day, no execution
         if weekday == 0:
-            if staged_sell is not None and action != "DECREASE":
+            if staged_sell is not None and action_effective != "DECREASE":
                 staged_sell = None
 
         # Tuesday: INCREASE only (buy-focused)
-        elif weekday == 1 and action == "INCREASE" and not paused:
+        elif weekday == 1 and action_effective == "INCREASE" and not paused:
             executed_trades = _rebalance_to_target(
                 portfolio,
                 prices,
@@ -487,7 +503,7 @@ def simulate_paper_execution(
 
         # Friday: staged DECREASE
         elif weekday == 4:
-            if action == "DECREASE":
+            if action_effective == "DECREASE":
                 if staged_sell is None:
                     cur_invested = portfolio.invested_value(prices)
                     target_invested = portfolio.total_value(prices) * max(0.0, min(1.0, target_ratio))

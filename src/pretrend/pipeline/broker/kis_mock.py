@@ -8,7 +8,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import json
 import os
+import pathlib
 import time
 import uuid
 from typing import Any, Dict, List, Optional
@@ -37,6 +39,8 @@ class KISMockAdapter(BrokerAdapter):
         self._last_auth_error_code: Optional[int] = None
         self._cod_symbol_map: Optional[Dict[str, Dict[str, str]]] = None
         self._request_delay_sec: float = float(os.getenv("KIS_REQUEST_DELAY_SEC", "0.5"))
+        if not config.dry_run:
+            self._load_cached_token()
 
     @classmethod
     def from_env(cls) -> "KISMockAdapter":
@@ -45,6 +49,50 @@ class KISMockAdapter(BrokerAdapter):
     def _throttle(self) -> None:
         # Gate D: rate-limit safe default
         time.sleep(max(0.0, self._request_delay_sec))
+
+    def _token_cache_path(self) -> pathlib.Path:
+        default = pathlib.Path.home() / ".cache" / "pretrend" / "kis_token_cache.json"
+        p = pathlib.Path(os.getenv("KIS_TOKEN_CACHE_PATH", str(default)))
+        p.parent.mkdir(parents=True, exist_ok=True)
+        return p
+
+    def _load_cached_token(self) -> None:
+        """Load persisted token from disk if not yet expired.
+
+        갱신 여부는 _ensure_token()의 300초 버퍼 로직이 결정한다.
+        여기서는 만료 전이면 무조건 로드하여 불필요한 재발급을 방지한다.
+        (수동 다중 실행 시 KIS 일일 발급 한도 소진 방지)
+        """
+        try:
+            p = self._token_cache_path()
+            if not p.exists():
+                return
+            data = json.loads(p.read_text(encoding="utf-8"))
+            if data.get("app_key") != self.config.app_key:
+                return
+            token = str(data.get("access_token", ""))
+            expires = float(data.get("expires_at_epoch", 0.0))
+            if token and time.time() < expires:
+                self._token = _TokenState(access_token=token, expires_at_epoch=expires)
+        except Exception:
+            pass
+
+    def _save_cached_token(self) -> None:
+        """Persist current token to disk (atomic write via temp file)."""
+        if not self._token.access_token:
+            return
+        try:
+            p = self._token_cache_path()
+            data = {
+                "app_key": self.config.app_key,
+                "access_token": self._token.access_token,
+                "expires_at_epoch": self._token.expires_at_epoch,
+            }
+            tmp = p.with_suffix(".tmp")
+            tmp.write_text(json.dumps(data), encoding="utf-8")
+            tmp.replace(p)
+        except Exception:
+            pass
 
     def _load_cod_symbol_map(self) -> Dict[str, Dict[str, str]]:
         if self._cod_symbol_map is not None:
@@ -114,6 +162,7 @@ class KISMockAdapter(BrokerAdapter):
         self._token_refresh_count += 1
         self._last_refresh_at = datetime.now(timezone.utc)
         self._last_auth_error_code = None
+        self._save_cached_token()
         return token
 
     def _headers(self, tr_id: str) -> Dict[str, str]:
@@ -634,6 +683,36 @@ class KISMockAdapter(BrokerAdapter):
         rows = info.get("debug_attempts")
         return rows if isinstance(rows, list) else []
 
+    def _inquire_algo_ccnl(self, order_id: str, *, order_date: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Fetch overseas-stock fill rows for an accepted order."""
+        if self.config.dry_run:
+            return []
+        self._throttle()
+        url = f"{self.config.base_url}/uapi/overseas-stock/v1/trading/inquire-algo-ccnl"
+        headers = self._headers("TTTS6059R")
+        ord_dt = order_date or datetime.now().astimezone().strftime("%Y%m%d")
+        resp = self._request_with_auth_retry(
+            "GET",
+            url,
+            headers=headers,
+            params={
+                "CANO": self.config.account_no,
+                "ACNT_PRDT_CD": self.config.product_code,
+                "ORD_DT": ord_dt,
+                "ORD_GNO_BRNO": "",
+                "ODNO": str(order_id),
+                "TTLZ_ICLD_YN": "Y",
+                "CTX_AREA_NK200": "",
+                "CTX_AREA_FK200": "",
+            },
+            timeout=self.config.timeout_sec,
+        )
+        resp.raise_for_status()
+        body = resp.json()
+        self._raise_if_kis_error(body, "inquire-algo-ccnl")
+        rows = body.get("output", []) if isinstance(body, dict) else []
+        return rows if isinstance(rows, list) else []
+
     def _place_order(self, side: str, symbol: str, qty: int, order_type: str = "MARKET") -> OrderResult:
         now = datetime.now(timezone.utc)
         if self.config.dry_run:
@@ -650,16 +729,31 @@ class KISMockAdapter(BrokerAdapter):
             )
 
         self._throttle()
-        tr_id = "VTTT1002U" if side == "BUY" else "VTTT1001U"
         url = f"{self.config.base_url}/uapi/overseas-stock/v1/trading/order"
+        market = self._resolve_symbol_market(symbol)
+        requested_price: Optional[float] = None
+        if order_type.upper() not in {"MARKET", "LIMIT"}:
+            raise ValueError(f"unsupported order_type for KIS mock: {order_type}")
+        # KIS mock US stock orders only support limit(00); use current price as a limit anchor.
+        if order_type.upper() in {"MARKET", "LIMIT"}:
+            try:
+                px = self.get_current_price(symbol)
+            except Exception:
+                px = 0.0
+            if px and px > 0:
+                requested_price = float(px)
+        tr_id = "VTTT1002U" if side == "BUY" else "VTTT1006U"
         payload = {
             "CANO": self.config.account_no,
             "ACNT_PRDT_CD": self.config.product_code,
-            "OVRS_EXCG_CD": "NASD",
-            "PDNO": symbol,
-            "ORD_DVSN": "00" if order_type.upper() == "MARKET" else "01",
+            "OVRS_EXCG_CD": market["ovrs_excg_cd"],
+            "PDNO": market["symb"],
+            "ORD_DVSN": "00",
             "ORD_QTY": str(int(qty)),
-            "OVRS_ORD_UNPR": "0" if order_type.upper() == "MARKET" else "",
+            "OVRS_ORD_UNPR": self._format_order_price(requested_price) if requested_price else "0",
+            "CTAC_TLNO": "",
+            "MGCO_APTM_ODNO": "",
+            "SLL_TYPE": "00" if side == "SELL" else "",
             "ORD_SVR_DVSN_CD": "0",
         }
         headers = self._headers(tr_id)
@@ -677,10 +771,10 @@ class KISMockAdapter(BrokerAdapter):
         status = "ACCEPTED" if order_no else "FAILED"
         return OrderResult(
             order_id=order_no,
-            symbol=symbol,
+            symbol=market["symb"],
             side=side,
             quantity=float(qty),
-            requested_price=None,
+            requested_price=requested_price,
             filled_price=None,
             status=status,
             executed_at=now,
@@ -694,7 +788,73 @@ class KISMockAdapter(BrokerAdapter):
         return self._place_order("SELL", symbol, qty, order_type)
 
     def get_order_status(self, order_id: str) -> str:
-        # For now, dry-run returns FILLED immediately. Live path can be expanded.
         if self.config.dry_run:
             return "FILLED"
+        rows = self._inquire_algo_ccnl(order_id)
+        if not rows:
+            return "ACCEPTED"
+
+        def _pick(row: Dict[str, Any], *keys: str) -> float:
+            for key in keys:
+                val = self._to_float_safe(row.get(key))
+                if val is not None:
+                    return float(val)
+            return 0.0
+
+        filled = 0.0
+        ordered = 0.0
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            filled += _pick(row, "FT_CCLD_QTY", "ft_ccld_qty", "ccld_qty")
+            ordered = max(ordered, _pick(row, "FT_ORD_QTY", "ft_ord_qty", "ord_qty"))
+        if ordered > 0 and filled >= ordered:
+            return "FILLED"
+        if filled > 0:
+            return "PARTIAL_FILLED"
         return "ACCEPTED"
+
+    def cancel_order(self, order_id: str, symbol: str, qty: int, side: str) -> Dict[str, Any]:
+        """Cancel an outstanding order by original order number (ORGN_ODNO).
+
+        Returns dict with keys:
+            status : "CANCELLED" | "FAILED"
+            raw    : raw KIS response body (or dry-run marker)
+        """
+        if self.config.dry_run:
+            return {"status": "CANCELLED", "order_id": order_id, "raw": {"mode": "dry_run"}}
+
+        self._throttle()
+        url = f"{self.config.base_url}/uapi/overseas-stock/v1/trading/order"
+        market = self._resolve_symbol_market(symbol)
+        # mock: VTTT1004U, live: TTTT1004U
+        tr_id = "VTTT1004U" if self.config.is_mock else "TTTT1004U"
+        payload = {
+            "CANO": self.config.account_no,
+            "ACNT_PRDT_CD": self.config.product_code,
+            "OVRS_EXCG_CD": market["ovrs_excg_cd"],
+            "PDNO": market["symb"],
+            "ORGN_ODNO": str(order_id),
+            "ORD_DVSN": "00",
+            "RVSE_CNCL_DVSN_CD": "02",   # 02 = 취소
+            "ORD_QTY": "0",               # 0 = 잔량 전부
+            "OVRS_ORD_UNPR": "0",
+            "CTAC_TLNO": "",
+            "MGCO_APTM_ODNO": "",
+            "ORD_SVR_DVSN_CD": "0",
+        }
+        try:
+            headers = self._headers(tr_id)
+            resp = self._request_with_auth_retry(
+                "POST",
+                url,
+                headers=headers,
+                json=payload,
+                timeout=self.config.timeout_sec,
+            )
+            resp.raise_for_status()
+            body = resp.json()
+            self._raise_if_kis_error(body, f"cancel_order({order_id})")
+            return {"status": "CANCELLED", "order_id": order_id, "raw": body}
+        except Exception as exc:
+            return {"status": "FAILED", "order_id": order_id, "error": str(exc), "raw": {}}

@@ -119,6 +119,11 @@ def test_format_message_includes_gate_and_strength_section() -> None:
         group_gate_applied_groups=["BOND", "SECTOR"],
         group_gate_reduced_groups=["COMMODITY"],
         group_gate_source="SNAPSHOT",
+        execution_mode="SIM",
+        capital_source="ENV_SIM",
+        broker_source="KIS_MOCK",
+        account_id="****1133-01",
+        nav_source="SIM_LEDGER",
         fx_usdkrw=1400,
         paper_start_date="2026-01-01",
     )
@@ -135,6 +140,7 @@ def test_format_message_includes_gate_and_strength_section() -> None:
     assert "10D 전환위험: +88.0%" in msg
     assert "브로커 인증:" in msg
     assert "브로커 체결:" in msg
+    assert "실행 식별: mode=SIM, capital=ENV_SIM, broker=KIS_MOCK, account=****1133-01, nav=SIM_LEDGER" in msg
     assert "전술 적용 근거" in msg
     assert "적용 그룹: BOND, SECTOR" in msg
     assert "축소 그룹: COMMODITY" in msg
@@ -159,6 +165,7 @@ def test_format_message_gate_section_fallback_unknown() -> None:
     assert "risk_gate=UNKNOWN" in msg
     assert "전술 강도: slots=N/A, weight=N/A" in msg
     assert "10D 전환위험: N/A" in msg
+    assert "실행 식별: mode=UNKNOWN, capital=UNKNOWN, broker=UNKNOWN, account=UNKNOWN, nav=UNKNOWN" in msg
     assert "적용 그룹: N/A" in msg
     assert "축소 그룹: 없음" in msg
     assert "그룹 게이트 소스: UNKNOWN" in msg
@@ -186,3 +193,83 @@ def test_save_paper_result_payload_writes_registry(tmp_path, monkeypatch) -> Non
     assert out.exists()
     reg = query_registry(tmp_path / "result" / "backtest" / "registry", pipeline="paper")
     assert not reg.empty
+
+
+def test_save_paper_result_payload_splits_registry_by_execution_mode(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("PRETREND_RESULT_ROOT", str(tmp_path / "result"))
+    base_kwargs = dict(
+        source_job="paper_trading_dag",
+        decision_date="2026-02-25",
+        simulation_date="2026-02-25",
+        action="HOLD",
+        next_invested_ratio=0.6,
+        delta_ratio=0.0,
+        nav=1_100_000.0,
+    )
+    sim_payload = build_paper_result_payload(**base_kwargs, execution_mode="SIM")
+    mock_payload = build_paper_result_payload(**base_kwargs, execution_mode="MOCK")
+    sim_out = save_paper_result_payload(sim_payload)
+    mock_out = save_paper_result_payload(mock_payload)
+
+    assert sim_out.exists()
+    assert mock_out.exists()
+    sim_files = list(sim_out.glob("paper_result_*_sim_*.parquet"))
+    mock_files = list(mock_out.glob("paper_result_*_mock_*.parquet"))
+    assert sim_files
+    assert mock_files
+
+    reg = query_registry(tmp_path / "result" / "backtest" / "registry", pipeline="paper")
+    assert not reg.empty
+    assert {"paper_sim", "paper_mock"}.issubset(set(reg["preset"].dropna().astype(str).tolist()))
+    assert {"sim", "mock"}.issubset(set(reg["execution_mode"].dropna().astype(str).tolist()))
+
+
+def test_format_message_is_payload_only_not_env_dependent(monkeypatch) -> None:
+    payload = build_paper_result_payload(
+        source_job="paper_trading_dag",
+        decision_date="2026-02-25",
+        simulation_date="2026-02-25",
+        action="HOLD",
+        next_invested_ratio=0.5,
+        delta_ratio=0.0,
+        initial_capital=1_000_000.0,
+        monthly_addition=300_000.0,
+        fx_usdkrw=1464.0,
+    )
+    msg_before = format_paper_result_message(payload)
+
+    monkeypatch.setenv("PAPER_INITIAL_CAPITAL_KRW", "99999999")
+    monkeypatch.setenv("PAPER_MONTHLY_ADDITION_KRW", "99999999")
+    monkeypatch.setenv("PAPER_FX_USDKRW", "9999")
+    msg_after = format_paper_result_message(payload)
+
+    assert msg_before == msg_after
+
+
+def test_format_message_mock_mode_uses_broker_balance_not_sim_capital() -> None:
+    payload = build_paper_result_payload(
+        source_job="paper_trading_mock",
+        decision_date="2026-03-06",
+        simulation_date="2026-03-06",
+        action="HOLD",
+        next_invested_ratio=0.0,
+        delta_ratio=0.0,
+        execution_mode="MOCK",
+        account_id="****1133-01",
+        broker_status="OK",
+        broker_balance_total=368787500.0,
+        broker_balance_cash=0.0,
+        broker_balance_currency="KRW",
+        fx_usdkrw=1464.0,
+        initial_capital=1_000_000.0,
+        monthly_addition=300_000.0,
+        paper_start_date="2026-03-02",
+    )
+    msg = format_paper_result_message(payload)
+    assert "운영 모드: MOCK(브로커 잔고 연동)" in msg
+    assert "시작 자본 기준: 브로커 계좌 스냅샷 (****1133-01)" in msg
+    assert "계좌 잔고: 368,787,500.00 KRW" in msg
+    assert "주문가능현금: 368,787,500.00 KRW" in msg
+    assert "Paper 시작일:" not in msg
+    assert "초기자금:" not in msg
+    assert "월 첫 거래일 DCA:" not in msg

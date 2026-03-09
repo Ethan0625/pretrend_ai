@@ -21,9 +21,9 @@ def test_paper_trading_dag_has_expected_tasks() -> None:
     paper_trading_dag = _load_module().paper_trading_dag
     task_ids = set(paper_trading_dag.task_ids)
     assert "build_paper_execution" in task_ids
-    assert "execute_broker_orders" in task_ids
     assert "build_paper_result_payload" in task_ids
     assert "send_paper_result_telegram" in task_ids
+    assert "execute_broker_orders" not in task_ids
 
 
 def test_paper_payload_includes_gate_strength_fields_in_dag_source() -> None:
@@ -40,13 +40,31 @@ def test_paper_payload_includes_gate_strength_fields_in_dag_source() -> None:
     assert "group_gate_applied_groups=" in text
     assert "group_gate_reduced_groups=" in text
     assert "group_gate_source=" in text
-    assert "fx_daily" in text
+    assert "execution_mode=" in text
+    assert "capital_source=" in text
+    assert "broker_source=" in text
+    assert "account_id=" in text
+    assert "nav_source=" in text
     assert "fx_usdkrw" in text
-    assert "get_usdkrw_rate" in text
-    assert "orderable_usd" in text
-    assert "get_orderable_info" in text
-    assert "orderable_krw_amt" in text
-    assert "orderable_overseas_amt" in text
+    # broker-specific fields must NOT be in paper DAG (moved to broker_mock_trading_dag)
+    assert "fx_daily" not in text
+    assert "get_usdkrw_rate" not in text
+    assert "orderable_usd" not in text
+    assert "get_orderable_info" not in text
+    assert "KISMockAdapter" not in text
+    assert "execute_from_ledger_rows" not in text
+
+
+def test_telegram_mode_policy_is_fixed_in_source() -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+    text = (repo_root / "dags" / "paper_trading_dag.py").read_text(encoding="utf-8")
+    # SIM-only: always save and send a single SIM payload, no mode branching.
+    assert "save_paper_result_payload(payload)" in text
+    assert "source_job=\"paper_trading_sim\"" in text
+    # Must NOT have MOCK/compare mode branching in paper DAG.
+    assert "PAPER_TELEGRAM_MODE" not in text
+    assert "paper_trading_mock" not in text
+    assert "paper_trading_compare" not in text
 
 
 def test_resolve_paper_capital_params_default() -> None:

@@ -1,6 +1,8 @@
 """Broker order execution + reconciliation helpers."""
 from __future__ import annotations
 
+import os
+import time
 from datetime import date
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
@@ -136,6 +138,14 @@ def execute_from_ledger_rows(
     count = 0
     remaining_budget_usd: Optional[float] = None
 
+    def _safe_float(v: Any) -> Optional[float]:
+        try:
+            if v is None:
+                return None
+            return float(v)
+        except Exception:
+            return None
+
     def _init_balance_budget() -> None:
         nonlocal remaining_budget_usd
         if remaining_budget_usd is not None:
@@ -149,9 +159,34 @@ def execute_from_ledger_rows(
                 except Exception:
                     fx = None
             if fx and fx > 0:
-                remaining_budget_usd = float(bal.total_value) / float(fx)
+                total_usd = float(bal.total_value) / float(fx)
             else:
+                total_usd = None
+            if total_usd is None:
                 remaining_budget_usd = None
+                return
+
+            max_ratio = _safe_float(os.getenv("PAPER_MAX_INVESTED_RATIO", "1.0"))
+            if max_ratio is None:
+                max_ratio = 0.8
+            max_ratio = min(1.0, max(0.0, max_ratio))
+
+            invested_usd = 0.0
+            try:
+                for pos in adapter.get_positions():
+                    mv = _safe_float(getattr(pos, "market_value", None))
+                    if mv is None or mv <= 0:
+                        qty = _safe_float(getattr(pos, "quantity", None)) or 0.0
+                        mp = _safe_float(getattr(pos, "market_price", None))
+                        if mp is None or mp <= 0:
+                            mp = _safe_float(getattr(pos, "avg_price", None)) or 0.0
+                        mv = qty * mp
+                    invested_usd += max(0.0, mv)
+            except Exception:
+                invested_usd = 0.0
+
+            budget_cap_usd = float(total_usd) * float(max_ratio)
+            remaining_budget_usd = max(0.0, budget_cap_usd - invested_usd)
         except Exception:
             remaining_budget_usd = None
     for _, r in ledger_df.iterrows():
@@ -219,6 +254,88 @@ def execute_from_ledger_rows(
         source_job=source_job,
     )
     return orders_df, fills_df, warnings
+
+
+def check_and_cancel_unfilled(
+    adapter: BrokerAdapter,
+    orders_df: pd.DataFrame,
+    *,
+    wait_sec: int = 30,
+) -> Tuple[pd.DataFrame, List[str]]:
+    """Wait, then cancel any ACCEPTED (unfilled) orders.
+
+    Policy:
+    - ACCEPTED  → cancel_order() 호출, cancelled_df에 기록
+    - PARTIAL_FILLED → 경고만 (취소 안 함 — 잔여 처리는 2단계)
+    - FILLED    → 정상, 기록 없음
+
+    Returns:
+        cancelled_df  : 취소된 주문 행 (order_id, symbol, side, status, cancel_status, error)
+        warnings      : 경고 메시지 목록
+    """
+    warnings: List[str] = []
+    cancelled_rows: List[Dict[str, Any]] = []
+
+    if orders_df is None or orders_df.empty:
+        return pd.DataFrame(), warnings
+
+    # cancel_order가 없는 adapter는 경고만
+    if not hasattr(adapter, "cancel_order"):
+        warnings.append("adapter does not support cancel_order — fill check skipped")
+        return pd.DataFrame(), warnings
+
+    if wait_sec > 0:
+        time.sleep(wait_sec)
+
+    for _, row in orders_df.iterrows():
+        order_id = str(row.get("order_id", "")).strip()
+        symbol = str(row.get("symbol", "")).strip().upper()
+        side = str(row.get("side", "")).strip().upper()
+        qty = int(float(row.get("qty", 0) or 0))
+
+        if not order_id or not symbol:
+            continue
+
+        try:
+            fill_status = adapter.get_order_status(order_id)
+        except Exception as exc:
+            warnings.append(f"{symbol} get_order_status failed: {exc}")
+            fill_status = "UNKNOWN"
+
+        if fill_status == "FILLED":
+            continue
+
+        if fill_status == "PARTIAL_FILLED":
+            warnings.append(f"{symbol} {side} order_id={order_id} 부분체결 — 잔여 수량 미처리 (수동 확인 필요)")
+            continue
+
+        # ACCEPTED or UNKNOWN → cancel
+        try:
+            result = adapter.cancel_order(order_id=order_id, symbol=symbol, qty=qty, side=side)
+            cancel_status = result.get("status", "FAILED")
+            error = result.get("error")
+        except Exception as exc:
+            cancel_status = "FAILED"
+            error = str(exc)
+
+        cancelled_rows.append(
+            {
+                "order_id": order_id,
+                "symbol": symbol,
+                "side": side,
+                "qty": qty,
+                "fill_status": fill_status,
+                "cancel_status": cancel_status,
+                "error": error,
+            }
+        )
+
+        if cancel_status == "CANCELLED":
+            warnings.append(f"{symbol} {side} order_id={order_id} 미체결 → 취소 완료")
+        else:
+            warnings.append(f"{symbol} {side} order_id={order_id} 취소 실패: {error}")
+
+    return pd.DataFrame(cancelled_rows), warnings
 
 
 def reconcile_positions(

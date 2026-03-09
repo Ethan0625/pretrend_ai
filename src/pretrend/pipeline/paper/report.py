@@ -65,6 +65,11 @@ def build_paper_result_payload(
     broker_token_refresh_count: Optional[int] = None,
     broker_orders_count: Optional[int] = None,
     broker_fills_count: Optional[int] = None,
+    execution_mode: Optional[str] = None,
+    capital_source: Optional[str] = None,
+    broker_source: Optional[str] = None,
+    account_id: Optional[str] = None,
+    nav_source: Optional[str] = None,
     broker_status: Optional[str] = None,
     broker_balance_cash: Optional[float] = None,
     broker_balance_total: Optional[float] = None,
@@ -133,6 +138,11 @@ def build_paper_result_payload(
         ),
         "broker_orders_count": None if broker_orders_count is None else int(broker_orders_count),
         "broker_fills_count": None if broker_fills_count is None else int(broker_fills_count),
+        "execution_mode": execution_mode,
+        "capital_source": capital_source,
+        "broker_source": broker_source,
+        "account_id": account_id,
+        "nav_source": nav_source,
         "broker_status": broker_status,
         "broker_balance_cash": (None if broker_balance_cash is None else float(broker_balance_cash)),
         "broker_balance_total": (None if broker_balance_total is None else float(broker_balance_total)),
@@ -190,17 +200,53 @@ def format_paper_result_message(payload: Dict[str, Any]) -> str:
     paper_start_date = payload.get("paper_start_date")
     if not paper_start_date:
         paper_start_date = "N/A"
+    execution_mode = str(payload.get("execution_mode", "SIM")).upper()
+    broker_ccy = payload.get("broker_balance_currency")
+    broker_cash = payload.get("broker_balance_cash")
+    broker_total = payload.get("broker_balance_total")
+    broker_status = payload.get("broker_status")
+
     lines += [
         "",
         "📐 <b>운영 조건</b>",
-        f"- Paper 시작일: {paper_start_date}",
-        f"- 초기자금: {payload.get('initial_capital', 0):,.0f}원",
-        f"- 월 첫 거래일 DCA: {payload.get('monthly_addition', 0):,.0f}원",
-        f"- 환산환율: 1 USD = {float(fx_usdkrw):,.0f} KRW",
-        f"- 매수 규칙: {payload.get('buy_day_rule', 'N/A')}",
-        f"- 매도 규칙: {payload.get('sell_day_rule', 'N/A')} ({tranche_txt})",
-        f"- SCHD 매도: {'금지' if payload.get('schd_sell_locked', True) else '허용'}",
     ]
+    if execution_mode == "MOCK":
+        broker_cash_display = broker_cash
+        if (
+            (broker_cash_display is None or float(broker_cash_display) <= 0.0)
+            and broker_total is not None
+        ):
+            # Policy: mock account treats total as usable cash baseline when explicit cash is missing/zero.
+            broker_cash_display = broker_total
+        lines += [
+            "- 운영 모드: MOCK(브로커 잔고 연동)",
+            f"- 시작 자본 기준: 브로커 계좌 스냅샷 ({payload.get('account_id') or 'UNKNOWN'})",
+            f"- 브로커 상태: {broker_status if broker_status else 'UNKNOWN'}",
+            (
+                f"- 계좌 잔고: {float(broker_total):,.2f} {broker_ccy}"
+                if broker_total is not None and broker_ccy
+                else "- 계좌 잔고: 집계 데이터 없음"
+            ),
+            (
+                f"- 주문가능현금: {float(broker_cash_display):,.2f} {broker_ccy}"
+                if broker_cash_display is not None and broker_ccy
+                else "- 주문가능현금: 집계 데이터 없음"
+            ),
+            f"- 환산환율: 1 USD = {float(fx_usdkrw):,.0f} KRW",
+            f"- 매수 규칙: {payload.get('buy_day_rule', 'N/A')}",
+            f"- 매도 규칙: {payload.get('sell_day_rule', 'N/A')} ({tranche_txt})",
+            f"- SCHD 매도: {'금지' if payload.get('schd_sell_locked', True) else '허용'}",
+        ]
+    else:
+        lines += [
+            f"- Paper 시작일: {paper_start_date}",
+            f"- 초기자금: {payload.get('initial_capital', 0):,.0f}원",
+            f"- 월 첫 거래일 DCA: {payload.get('monthly_addition', 0):,.0f}원",
+            f"- 환산환율: 1 USD = {float(fx_usdkrw):,.0f} KRW",
+            f"- 매수 규칙: {payload.get('buy_day_rule', 'N/A')}",
+            f"- 매도 규칙: {payload.get('sell_day_rule', 'N/A')} ({tranche_txt})",
+            f"- SCHD 매도: {'금지' if payload.get('schd_sell_locked', True) else '허용'}",
+        ]
 
     fills = payload.get("virtual_fills") or ["가상 체결 데이터 없음"]
     lines += [f"- {item}" for item in fills]
@@ -266,6 +312,13 @@ def format_paper_result_message(payload: Dict[str, Any]) -> str:
     lines.append(
         f"- 브로커 체결: orders={payload.get('broker_orders_count', 'N/A')}, "
         f"fills={payload.get('broker_fills_count', 'N/A')}"
+    )
+    lines.append(
+        f"- 실행 식별: mode={payload.get('execution_mode') or 'UNKNOWN'}, "
+        f"capital={payload.get('capital_source') or 'UNKNOWN'}, "
+        f"broker={payload.get('broker_source') or 'UNKNOWN'}, "
+        f"account={payload.get('account_id') or 'UNKNOWN'}, "
+        f"nav={payload.get('nav_source') or 'UNKNOWN'}"
     )
     applied_groups = payload.get("group_gate_applied_groups") or []
     reduced_groups = payload.get("group_gate_reduced_groups") or []
@@ -338,7 +391,8 @@ def save_paper_result_payload(
 
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     decision_date = str(payload.get("decision_date"))
-    stem = f"paper_result_{decision_date.replace('-', '')}_{ts}"
+    mode = str(payload.get("execution_mode", "unknown")).strip().lower() or "unknown"
+    stem = f"paper_result_{decision_date.replace('-', '')}_{mode}_{ts}"
 
     payload_json = root / f"{stem}.json"
     payload_json.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
@@ -349,10 +403,12 @@ def save_paper_result_payload(
     entry = {
         "pipeline": "paper",
         "artifact_path": str(payload_parquet),
-        "preset": "paper_v1",
+        "preset": f"paper_{mode}",
         "start_date": None,
         "end_date": str(payload.get("simulation_date")),
         "decision_date_ref": decision_date,
+        "execution_mode": mode,
+        "source_job": payload.get("source_job"),
         "code_version": os.getenv("PRETREND_CODE_VERSION", "unknown"),
         "data_version": os.getenv("PRETREND_DATA_VERSION", "unknown"),
         "metrics_hash": hashlib.md5(
