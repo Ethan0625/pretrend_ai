@@ -57,57 +57,129 @@ _GROUP_STATE_LABELS = {
     "UNKNOWN": "판단보류",
 }
 
-_ANALYSIS_SYSTEM_PROMPT = """\
-역할: Pretrend AI 시장 해석 애널리스트
+_PHASE_LABELS = {
+    "EXPANSION": "확장 국면",
+    "RECOVERY": "회복 국면",
+    "LATE_CYCLE": "후기 국면",
+    "SLOWDOWN": "둔화 국면",
+    "RECESSION": "침체 국면",
+    "UNKNOWN": "판단 보류",
+}
 
-당신은 Pretrend AI 시스템의 모든 시장 신호를 읽고, 한국어로 통합 해석 보고서를 작성합니다.
+_REGIME_LABELS = {
+    "RISK_ON": "위험선호",
+    "RISK_OFF": "위험회피",
+    "NEUTRAL": "중립",
+    "UNKNOWN": "판단 보류",
+}
+
+_SHORT_LABELS = {
+    "PANIC": "단기 공황",
+    "STABLE": "안정",
+    "RELIEF": "단기 안도",
+    "UNKNOWN": "판단 보류",
+}
+
+_ANALYSIS_SYSTEM_PROMPT = """\
+역할: Pretrend AI 수석 매크로 전략가
+
+당신은 Pretrend AI 시스템의 시장 신호를 읽고, 한국어로 전략적 해석 보고서를 작성합니다.
 Telegram 메시지로 전송되며, HTML 태그(<b>, <i>)를 사용할 수 있습니다.
+입력 데이터는 압축 구조화 형식입니다. regime / horizon_bias / relative_strength /
+behavior / text_summary 필드를 활용하여 추론하십시오.
 
 ━━━ 핵심 작성 원칙 ━━━
 
 1) 데이터 충실: 입력 데이터의 사실과 방향만 전달한다. 없는 사실을 만들지 않는다.
 2) 코드 제거: 상태 코드(RECESSION, RISK_OFF 등)를 직접 쓰지 않는다.
-   대신 "침체 국면", "위험회피 흐름" 같은 자연어로 바꾼다.
-3) 교차 분석 필수: 서로 다른 섹션의 신호를 연결하여 해석한다.
-   예: "방어주(XLU)+국채(TLT) 동반 강세"와 "장기 침체"를 연결하면
+   대신 regime.phase / regime.sentiment / regime.signal 필드의 한국어 표현을 사용한다.
+3) 교차 분석 필수: 서로 다른 필드의 신호를 연결하여 해석한다.
+   예: relative_strength에서 방어주+국채 동반 강세 + regime.phase=침체 →
    "투자자들이 이미 경기 둔화를 대비하고 있다"는 해석이 된다.
-4) 불일치 강조: 시계열 간 방향이 다르면(장기 침체 vs 단기 안도) 반드시 왜 그런지 설명한다.
+4) 불일치 강조: horizon_bias.conflict_5d_vs_60d=true이면 반드시 왜 그런지 설명한다.
 5) 분량: 전체 3000자 이내.
+6) 일반론 투자 조언 금지: "분산투자가 중요합니다", "장기 투자를 유지하세요",
+   "투자자는 신중해야 합니다" 같은 데이터와 무관한 일반 조언은 절대 쓰지 않는다.
+7) 반복 표현 금지: "이 데이터는", "이 수치는", "이를 시사합니다" 같은 도입 문구를 2회 이상 사용하지 않는다.
+   각 섹션은 서로 다른 시제·어조로 시작한다.
+   (예: 섹션1=현재 상태 진단, 섹션2=미래 위험 경보, 섹션3=근거 서술, 섹션4=행동 지시)
+   [종합 요약]은 섹션 1-4에서 쓴 문장을 그대로 반복하지 않고 새로운 각도로 연결한다.
+8) RS 해석: relative_strength의 각 항목은 이미 "+8.7%" 형식으로 포맷되어 있다.
+   "SPY 대비 +8.7%" 식으로 자연스럽게 문장에 녹여 쓴다.
+9) 텍스트 데이터 처리: text_available=false이면 Section 3의 <b>텍스트 해석:</b> 소제목을 생략하고
+   "최근 문서 데이터 미수집으로 텍스트 흐름 분석을 생략합니다." 한 문장으로 대체한다.
+10) behavior 필드 활용: behavior.guidance.detail, behavior.risk.summary,
+    behavior.confidence.detail은 이미 한국어 해석문이다. 그대로 복붙하지 않고
+    자연스럽게 문장에 녹여 쓴다.
+11) 추론 패턴 명시: 아래 추론 패턴 중 하나와 일치하면 섹션 1 또는 2에서 시나리오 이름을
+    직접 언급한다. (예: "이는 Bear Market Relief Rally 패턴입니다.")
+12) 해석 금지 영역:
+   - horizon_bias.has_horizon_conflict=false이면 "불일치", "충돌", "엇갈림", "분기" 표현 금지.
+     대신 "단기부터 중장기까지 방향이 일치합니다" 또는 "전 지평이 방어 쪽을 가리킵니다"처럼 서술한다.
+   - text_available=false이면 텍스트 기반 원인론 금지 ("문서가 ... 을 보여줍니다" 같은 표현).
+   - sell_priority에 없는 종목 언급 금지.
+   - 입력에 없는 macro 스토리 생성 금지 (예: "연준이 금리를 인하할 것입니다").
 
-━━━ 출력 형식 ━━━
+━━━ 추론 패턴 (해당 신호 조합이 있으면 반드시 시나리오 이름 명시) ━━━
+
+1) "Bear Market Relief Rally":
+   regime.phase=침체/둔화 + horizon_bias.5d=공격 쪽 전망 + horizon_bias.60d=방어 쪽 전망
+   → "단기 반등이지만 중장기 방향은 아직 하락 쪽입니다. 추격 매수는 피해야 합니다."
+
+2) "스태그플레이션 경고":
+   relative_strength 섹터에서 에너지 강세 + 채권 약세 + text_summary에 인플레이션 토픽 우세
+   → "성장 둔화와 물가 상승이 동시에 진행 중임을 시사합니다."
+
+3) "경기 후기 분산 (Late Cycle Divergence)":
+   horizon_bias.conflict_5d_vs_60d=true (5D=공격 + 60D/120D=방어)
+   → "단기 추격은 위험하며, 중장기 방어 준비가 필요합니다."
+
+4) "연준 정책 교착":
+   regime.sentiment=중립 + text_summary에 연준 정책/동결 토픽 집중
+   → "시장이 정책 불확실성에 갇혀 방향성 신호가 약합니다."
+
+5) "전환 임박 경보":
+   horizon_bias.hazard > 20% + expected 방향 = 방어/침체
+   → "전환 확률이 높습니다. 포지션 축소 준비가 필요합니다."
+
+패턴이 여러 개 동시에 해당할 수 있음. 해당 없으면 시나리오 명시 생략.
+
+━━━ 출력 형식 (4섹션 + 종합 요약) ━━━
 
 각 섹션은 아래 구조를 따른다:
 - 섹션 제목: <b>번호. 카테고리: "핵심 메시지"</b>
 - 본문은 <b>소제목:</b> 다음에 해석문을 쓴다.
 - 소제목마다 줄바꿈으로 구분한다.
 
-<b>1. 시장 국면: "핵심 문구"</b>
-<b>시계열 상태:</b> 장기/중기/단기 세 시계열 상태를 한 문장으로 요약한다.
-<b>해석:</b> 현재 시장이 어떤 위치에 있는지, 불일치가 있다면 어떤 의미인지 풀어쓴다.
-(예: "지금의 반등은 펀더멘털 개선이 아니라 과매도 해소에 따른 안도 랠리입니다.")
+<b>1. 시장 국면: "핵심 문구"</b> — 사용 필드: regime.*만
+<b>시계열 상태:</b> regime.phase / regime.sentiment / regime.signal 세 시계열을 한 문장으로 요약한다.
+<b>해석:</b> 현재 시장이 어떤 위치에 있는지 풀어쓴다. allocation/sell_priority 언급 금지.
+해당하는 추론 패턴이 있으면 시나리오 이름을 명시한다.
+(예: "지금의 반등은 이른바 Bear Market Relief Rally 패턴입니다. 펀더멘털 개선이 아닌 과매도 해소입니다.")
 
-<b>2. 가설과 위험: "핵심 문구"</b>
-<b>전환 위험:</b> hazard_10d 수치와 예상 전이 방향을 자연어로 설명한다.
-<b>시계열 전망:</b> 단기(5D)와 중장기(60D~120D) 전망의 차이가 있으면 대비시킨다.
-<b>해석:</b> 이 데이터가 투자자에게 의미하는 바를 1-2문장으로 짚는다.
+<b>2. 가설과 위험: "핵심 문구"</b> — 사용 필드: horizon_bias.*만
+<b>전환 위험:</b> horizon_bias.hazard 수치와 expected 방향을 자연어로 설명한다.
+<b>시계열 전망:</b> horizon_bias.5d(단기)와 horizon_bias.60d/120d(중장기)를 비교한다.
+  has_horizon_conflict=true이면 "단기 안도에도 중장기는 여전히 방어 전망"처럼 분기 신호로 해석한다.
+  has_horizon_conflict=false이면 "전 지평이 [방향] 쪽으로 일치합니다"로 한 문장. "불일치/충돌/엇갈림" 금지.
+<b>해석:</b> 위험 데이터가 투자자에게 의미하는 바를 1-2문장으로 짚는다. regime/RS 언급 금지.
 (예: "지금은 파티의 마지막 5분을 즐길 때이지, 새로 자리를 잡을 때가 아닙니다.")
 
-<b>3. 시장 근거: "핵심 문구"</b>
-<b>매크로 지표:</b> delta_6m_z 등 핵심 수치의 의미를 풀어쓴다. 숫자를 나열하지 않고 방향성을 해석한다.
-<b>텍스트 해석:</b> text_windows에서 주요 토픽/태그를 활용해 시장 심리를 1-2문장으로 요약한다.
-(예: "60일간 문서 분석 결과 연준/금융/동결 주제에 집중되어 있어, 시장이 금리 정책에만 의존하고 있음을 보여줍니다.")
+<b>3. 시장 근거 및 수급: "핵심 문구"</b> — 사용 필드: relative_strength.*, text_summary.*만
+<b>수급·상대강도:</b> relative_strength에서 주목할 패턴을 2-3개 관찰한다.
+  소제목은 관찰된 패턴에 따라 자유롭게 정한다.
+  (예: "<b>방어주와 국채의 동반 강세:</b> 투자자들이 침체를 준비하며 방어선으로 대피 중입니다.")
+  (예: "<b>에너지의 독주:</b> 스태그플레이션 우려가 수면 위로 오르고 있습니다.")
+<b>텍스트 해석:</b> text_summary의 tone과 상위 토픽으로 시장 심리를 1-2문장으로 요약한다.
+  (text_available=false이면 이 소제목 전체를 "최근 문서 데이터 미수집으로 텍스트 흐름 분석을 생략합니다." 한 문장으로 대체한다.)
+  behavior/regime/sell_priority 언급 금지.
 
-<b>4. 수급 및 상대강도: "핵심 문구"</b>
-tactical_etf 데이터에서 주목할 패턴을 2-3개 소제목으로 뽑는다.
-소제목은 관찰된 패턴에 따라 자유롭게 정한다.
-(예: "<b>방어주와 국채의 강세:</b> XLU, XLRE, TLT가 시장보다 강합니다. 투자자들이 침체를 준비하며 방어선으로 대피 중입니다.")
-(예: "<b>에너지의 독주:</b> 방어주와 함께 에너지가 강하다는 것은 스태그플레이션 우려가 깔려 있음을 시사합니다.")
-rs 수치를 활용하되 "SPY 대비 +8.7%" 식으로 자연스럽게 녹인다.
-
-<b>5. 투자 행동 가이드: "핵심 문구"</b>
-<b>행동 제언:</b> guidance에 따른 구체적 행동(추격 매수 금지, 분할 매도, 적극 매수 등)을 명확히 쓴다.
-<b>매도 우선순위:</b> sell_priority가 있으면 종목명과 함께 왜 그 순서인지 해석한다.
-<b>신뢰도:</b> confidence 수준과 의미를 1문장으로 전달한다.
+<b>4. 투자 행동 가이드: "핵심 문구"</b> — 사용 필드: behavior.*, sell_priority만
+<b>행동 제언:</b> behavior.guidance에 따른 구체적 행동(추격 매수 금지, 분할 매도, 적극 매수 등)을 명확히 쓴다.
+<b>매도 우선순위:</b> sell_priority 최대 3개 종목만 서술. 왜 이 순서인지 해석. 목록 나열 금지.
+  sell_priority가 없으면 이 소제목을 생략한다.
+<b>신뢰도:</b> behavior.confidence 수준과 의미를 1문장으로 전달한다.
+  regime/RS/horizon_bias 반복 금지.
 
 <b>[종합 요약]</b>
 전체 분석을 1문단으로 연결한다.
@@ -290,8 +362,24 @@ def _window_phrase(window_row: Optional[Dict[str, Any]], horizon_label: str) -> 
 
 def _build_next_step_material(nrow: Dict[str, Any]) -> Dict[str, Any]:
     expected_parts = _parse_transition_parts(nrow.get("transition_expected_10d", "UNKNOWN"))
+
+    def _bias_entry(bias_key: str) -> Dict[str, Any]:
+        v = str(nrow.get(bias_key, "UNKNOWN"))
+        conf_key = bias_key.replace("bias_", "confidence_")
+        return {
+            "bias": v,
+            "label": _BIAS_LABELS.get(v, v),
+            "confidence": _pct_str(nrow.get(conf_key)),
+        }
+
     return {
-        "bias_10d": str(nrow.get("bias_10d", "UNKNOWN")),
+        # Multi-horizon bias (5D/10D/20D/60D/120D)
+        "bias_5d": _bias_entry("bias_5d"),
+        "bias_10d": _bias_entry("bias_10d"),
+        "bias_20d": _bias_entry("bias_20d"),
+        "bias_60d": _bias_entry("bias_60d"),
+        "bias_120d": _bias_entry("bias_120d"),
+        # Backward-compat flat fields (기존 소비자용)
         "bias_10d_label": _BIAS_LABELS.get(str(nrow.get("bias_10d", "UNKNOWN")), str(nrow.get("bias_10d", "UNKNOWN"))),
         "confidence_10d": _pct_str(nrow.get("confidence_10d")),
         "hazard_10d": _pct_str(nrow.get("transition_hazard_10d")),
@@ -645,8 +733,11 @@ def build_llm_analysis_payload(
         "decision_date": decision_date,
         "market_position": {
             "long_phase": long_phase,
+            "long_phase_label": _PHASE_LABELS.get(long_phase, long_phase),
             "mid_regime": mid_regime,
+            "mid_regime_label": _REGIME_LABELS.get(mid_regime, mid_regime),
             "short_signal": short_signal,
+            "short_signal_label": _SHORT_LABELS.get(short_signal, short_signal),
             "risk_gate": risk_gate,
             "run_universe": run_universe,
         },
@@ -673,13 +764,98 @@ def build_llm_analysis_payload(
         "sell_advice": {
             "sell_budget": sell_budget,
             "sell_priority": sell_list,
+            "sell_priority_note": "RS 최하위 / 목표 비중 초과 순 정렬",
         },
-        "text_windows": text_windows or {},
+        "text_windows": text_windows,
+        "text_available": text_windows is not None and bool(text_windows),
         "behavior": {
             "guidance": guidance_struct,
             "risk": risk_struct,
             "confidence": confidence_struct,
         },
+    }
+
+
+def _build_compact_llm_input(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """LLM 입력용 압축 payload. ~1500토큰 → ~600토큰 목표.
+
+    제거 항목: detail(long/mid/short), group_transition, backward-compat next_step 키
+    compact 항목: text_windows → tone + 상위 3 토픽 + doc_count만
+    포맷 변환: rs float → "+8.7%" string, ratio float → "45%"
+    """
+    ns = payload.get("next_step", {})
+    mp = payload.get("market_position", {})
+
+    def _hb(key: str) -> Dict[str, str]:
+        entry = ns.get(key, {})
+        if isinstance(entry, dict):
+            return {"label": entry.get("label", "판단 보류"), "pct": entry.get("confidence", "N/A")}
+        return {"label": "판단 보류", "pct": "N/A"}
+
+    def _is_risk_on(e: Dict[str, str]) -> Optional[bool]:
+        lbl = e.get("label", "")
+        if "공격" in lbl:
+            return True
+        if "방어" in lbl:
+            return False
+        return None
+
+    b5, b60 = _hb("bias_5d"), _hb("bias_60d")
+    d5, d60 = _is_risk_on(b5), _is_risk_on(b60)
+    conflict = (d5 is not None) and (d60 is not None) and (d5 != d60)
+
+    rs_by_group: Dict[str, List[str]] = {}
+    for group, entries in payload.get("tactical_etf", {}).items():
+        lbl = _GROUP_LABELS.get(group, group)
+        rs_by_group[lbl] = [
+            f"{e['name_ko']} {'+' if e['rs'] >= 0 else ''}{e['rs']:.1%}"
+            for e in entries
+        ]
+
+    text_summary = None
+    if payload.get("text_available"):
+        text_summary = {}
+        for win_name, win in (payload.get("text_windows") or {}).items():
+            topics = [_TOPIC_LABELS.get(t, t) for t in (win.get("topics") or [])[:3]]
+            text_summary[win_name] = {
+                "tone": win.get("tone"),
+                "topics": topics,
+                "doc_count": win.get("doc_count"),
+            }
+
+    alloc = payload.get("allocation", {})
+    sell = payload.get("sell_advice", {})
+
+    return {
+        "date": payload.get("decision_date"),
+        "regime": {
+            "phase": mp.get("long_phase_label"),
+            "sentiment": mp.get("mid_regime_label"),
+            "signal": mp.get("short_signal_label"),
+            "risk_gate": mp.get("risk_gate"),
+        },
+        "horizon_bias": {
+            "5d": b5,
+            "10d": _hb("bias_10d"),
+            "20d": _hb("bias_20d"),
+            "60d": b60,
+            "120d": _hb("bias_120d"),
+            "has_horizon_conflict": conflict,
+            "conflict_5d_vs_60d": conflict,
+            "conflict_pair": ["5d", "60d"] if conflict else [],
+            "hazard": ns.get("hazard_10d"),
+            "expected": ns.get("expected_10d"),
+        },
+        "allocation": {
+            "action": alloc.get("action"),
+            "current": f"{alloc.get('current_ratio', 0.0):.0%}",
+            "next": f"{alloc.get('next_ratio', 0.0):.0%}",
+        },
+        "relative_strength": rs_by_group,
+        "text_summary": text_summary,
+        "behavior": payload.get("behavior"),
+        "sell_priority": (sell.get("sell_priority") or [])[:3] or None,
+        "text_available": payload.get("text_available", False),
     }
 
 
@@ -701,13 +877,15 @@ def generate_llm_analysis(
     try:
         client = _get_report_ollama_client(base_url)
         temperature = float(os.getenv("REPORT_LLM_TEMPERATURE", "0.4"))
+        num_predict = int(os.getenv("REPORT_LLM_NUM_PREDICT", "2048"))
+        compact = _build_compact_llm_input(payload)
         response = client.chat(
             model=model,
             messages=[
                 {"role": "system", "content": _ANALYSIS_SYSTEM_PROMPT},
-                {"role": "user", "content": json.dumps(payload, ensure_ascii=False, default=str)},
+                {"role": "user", "content": json.dumps(compact, ensure_ascii=False, default=str)},
             ],
-            options={"temperature": temperature},
+            options={"temperature": temperature, "num_predict": num_predict},
         )
         raw = str(response["message"]["content"]).strip()
         if not raw:

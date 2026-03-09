@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pretrend.pipeline.strategy_engine.report_context import (
     build_llm_analysis_payload as _build_llm_analysis_payload,
+    _build_compact_llm_input,
     build_risk_summary_struct as _build_risk_summary_struct,
     build_signal_confidence_struct as _build_signal_confidence_struct,
     build_trading_guidance_struct as _build_trading_guidance_struct,
@@ -400,10 +401,19 @@ def _make_payload_kwargs():
         sell_budget=0.10,
         sell_list=["UNG", "INDA", "XLF"],
         next_step_row={
+            "bias_5d": "RISK_OFF_BIAS",
+            "confidence_5d": 0.80,
             "bias_10d": "RISK_OFF_BIAS",
             "confidence_10d": 0.71,
+            "bias_20d": "RISK_OFF_BIAS",
+            "confidence_20d": 0.65,
+            "bias_60d": "NEUTRAL_BIAS",
+            "confidence_60d": 0.55,
+            "bias_120d": "NEUTRAL_BIAS",
+            "confidence_120d": 0.50,
             "transition_hazard_10d": 1.0,
             "transition_expected_10d": "RECESSION_NEUTRAL_RELIEF",
+            "horizon_bias_diversity_count": 2,
         },
         group_rows=[
             {"asset_group": "BOND", "group_state_now": "NEUTRAL", "group_expected_10d": "STRONG"},
@@ -419,23 +429,97 @@ def test_build_llm_analysis_payload_structure() -> None:
     payload = _build_llm_analysis_payload(**_make_payload_kwargs())
     assert isinstance(payload, dict)
     assert payload["decision_date"] == "2026-03-05"
+    # market_position codes + labels
     assert payload["market_position"]["long_phase"] == "RECESSION"
+    assert payload["market_position"]["long_phase_label"] == "침체 국면"
     assert payload["market_position"]["mid_regime"] == "NEUTRAL"
+    assert payload["market_position"]["mid_regime_label"] == "중립"
     assert payload["market_position"]["short_signal"] == "RELIEF"
+    assert payload["market_position"]["short_signal_label"] == "단기 안도"
     assert payload["market_position"]["risk_gate"] is True
     assert payload["market_position"]["run_universe"] is True
+    # allocation
     assert payload["allocation"]["action"] == "DECREASE"
     assert payload["allocation"]["current_ratio"] == 0.30
     assert payload["allocation"]["next_ratio"] == 0.20
     assert payload["allocation"]["v2_target"] == 0.10
+    # tactical_etf
     assert "SECTOR" in payload["tactical_etf"]
     assert len(payload["tactical_etf"]["SECTOR"]) == 2
     assert payload["tactical_etf"]["SECTOR"][0]["symbol"] == "XLE"
+    # sell_advice
     assert payload["sell_advice"]["sell_budget"] == 0.10
     assert payload["sell_advice"]["sell_priority"] == ["UNG", "INDA", "XLF"]
+    assert "sell_priority_note" in payload["sell_advice"]
+    # behavior
     assert payload["behavior"]["guidance"]["guidance"] == "분할 접근"
     assert payload["behavior"]["risk"]["reason"] == "HAZARD_HIGH"
     assert payload["behavior"]["confidence"]["level"] == "낮음"
+    # text_available (text_windows=None → False)
+    assert payload["text_available"] is False
+    assert payload["text_windows"] is None
+
+
+def test_build_llm_analysis_payload_multihorizon_bias() -> None:
+    payload = _build_llm_analysis_payload(**_make_payload_kwargs())
+    ns = payload["next_step"]
+    # 5개 horizon 모두 존재
+    for h in ("bias_5d", "bias_10d", "bias_20d", "bias_60d", "bias_120d"):
+        assert h in ns, f"{h} missing from next_step"
+        assert "bias" in ns[h]
+        assert "label" in ns[h]
+        assert "confidence" in ns[h]
+    # 단기(5D/10D/20D) = RISK_OFF_BIAS → 방어 쪽 전망
+    assert ns["bias_5d"]["bias"] == "RISK_OFF_BIAS"
+    assert ns["bias_5d"]["label"] == "방어 쪽 전망"
+    # 중기(60D/120D) = NEUTRAL_BIAS → 중립 전망
+    assert ns["bias_60d"]["bias"] == "NEUTRAL_BIAS"
+    assert ns["bias_60d"]["label"] == "중립 전망"
+    assert ns["bias_120d"]["label"] == "중립 전망"
+    # confidence는 문자열 (None이 아님)
+    assert isinstance(ns["bias_5d"]["confidence"], str)
+    # backward-compat 평탄 키도 유지
+    assert "bias_10d_label" in ns
+    assert "confidence_10d" in ns
+
+
+def test_build_llm_analysis_payload_text_available_false() -> None:
+    kwargs = _make_payload_kwargs()
+    kwargs["text_windows"] = None
+    payload = _build_llm_analysis_payload(**kwargs)
+    assert payload["text_available"] is False
+    assert payload["text_windows"] is None
+
+
+def test_build_llm_analysis_payload_text_available_true() -> None:
+    kwargs = _make_payload_kwargs()
+    kwargs["text_windows"] = {"short": {"tone": "hawkish", "doc_count": 5}}
+    payload = _build_llm_analysis_payload(**kwargs)
+    assert payload["text_available"] is True
+    assert payload["text_windows"] is not None
+
+
+def test_build_llm_analysis_payload_phase_labels() -> None:
+    for phase, expected_label in [
+        ("RECESSION", "침체 국면"),
+        ("EXPANSION", "확장 국면"),
+        ("LATE_CYCLE", "후기 국면"),
+        ("SLOWDOWN", "둔화 국면"),
+        ("RECOVERY", "회복 국면"),
+    ]:
+        kwargs = _make_payload_kwargs()
+        kwargs["long_phase"] = phase
+        payload = _build_llm_analysis_payload(**kwargs)
+        assert payload["market_position"]["long_phase_label"] == expected_label
+    for regime, expected_label in [
+        ("RISK_ON", "위험선호"),
+        ("RISK_OFF", "위험회피"),
+        ("NEUTRAL", "중립"),
+    ]:
+        kwargs = _make_payload_kwargs()
+        kwargs["mid_regime"] = regime
+        payload = _build_llm_analysis_payload(**kwargs)
+        assert payload["market_position"]["mid_regime_label"] == expected_label
 
 
 def test_build_llm_analysis_payload_empty_tactical() -> None:
@@ -498,3 +582,123 @@ def test_generate_llm_analysis_returns_string_on_success(monkeypatch) -> None:
     )
     assert isinstance(result, str)
     assert "시장 국면" in result
+
+
+# ── 신규: compact LLM input builder ──
+
+
+def test_compact_llm_input_structure() -> None:
+    payload = _build_llm_analysis_payload(**_make_payload_kwargs())
+    compact = _build_compact_llm_input(payload)
+    # 상위 레벨 키 존재
+    for key in ("date", "regime", "horizon_bias", "allocation", "relative_strength", "behavior", "text_available"):
+        assert key in compact, f"{key} missing from compact"
+    # 대형 nested dict 제거됨
+    assert "detail" not in compact
+    assert "group_transition" not in compact
+    assert "next_step" not in compact
+    # regime 필드
+    assert compact["regime"]["phase"] == "침체 국면"
+    assert compact["regime"]["sentiment"] == "중립"
+    assert compact["regime"]["signal"] == "단기 안도"
+    assert compact["regime"]["risk_gate"] is True
+    # allocation 포맷
+    assert compact["allocation"]["current"] == "30%"
+    assert compact["allocation"]["next"] == "20%"
+    assert compact["allocation"]["action"] == "DECREASE"
+
+
+def test_compact_llm_input_horizon_conflict() -> None:
+    # 5D=방어, 60D=중립 → conflict (방어 vs 중립은 not None & not equal)
+    payload = _build_llm_analysis_payload(**_make_payload_kwargs())
+    compact = _build_compact_llm_input(payload)
+    hb = compact["horizon_bias"]
+    assert hb["5d"]["label"] == "방어 쪽 전망"
+    assert hb["60d"]["label"] == "중립 전망"
+    # 방어 vs 중립: _is_risk_on("방어 쪽 전망")=False, _is_risk_on("중립 전망")=None → conflict=False
+    assert hb["conflict_5d_vs_60d"] is False
+    assert hb["has_horizon_conflict"] is False
+    assert hb["conflict_pair"] == []
+
+    # 5D=공격 vs 60D=방어 → conflict=True
+    kwargs = _make_payload_kwargs()
+    kwargs["next_step_row"]["bias_5d"] = "RISK_ON_BIAS"
+    kwargs["next_step_row"]["bias_60d"] = "RISK_OFF_BIAS"
+    payload2 = _build_llm_analysis_payload(**kwargs)
+    compact2 = _build_compact_llm_input(payload2)
+    assert compact2["horizon_bias"]["conflict_5d_vs_60d"] is True
+    assert compact2["horizon_bias"]["has_horizon_conflict"] is True
+    assert compact2["horizon_bias"]["conflict_pair"] == ["5d", "60d"]
+
+    # 5D=방어 vs 60D=방어 → conflict=False (동일 방향)
+    kwargs3 = _make_payload_kwargs()
+    kwargs3["next_step_row"]["bias_5d"] = "RISK_OFF_BIAS"
+    kwargs3["next_step_row"]["bias_60d"] = "RISK_OFF_BIAS"
+    payload3 = _build_llm_analysis_payload(**kwargs3)
+    compact3 = _build_compact_llm_input(payload3)
+    assert compact3["horizon_bias"]["conflict_5d_vs_60d"] is False
+    assert compact3["horizon_bias"]["has_horizon_conflict"] is False
+    assert compact3["horizon_bias"]["conflict_pair"] == []
+
+
+def test_compact_llm_input_sell_priority_truncated() -> None:
+    kwargs = _make_payload_kwargs()
+    kwargs["sell_list"] = ["UNG", "INDA", "XLF", "SLV", "XLK", "SPY", "DBA"]  # 7개
+    payload = _build_llm_analysis_payload(**kwargs)
+    compact = _build_compact_llm_input(payload)
+    assert compact["sell_priority"] is not None
+    assert len(compact["sell_priority"]) == 3
+    assert compact["sell_priority"] == ["UNG", "INDA", "XLF"]  # 순서 유지
+
+    # 빈 리스트 → None
+    kwargs2 = _make_payload_kwargs()
+    kwargs2["sell_list"] = []
+    payload2 = _build_llm_analysis_payload(**kwargs2)
+    compact2 = _build_compact_llm_input(payload2)
+    assert compact2["sell_priority"] is None
+
+
+def test_compact_llm_input_rs_format() -> None:
+    kwargs = _make_payload_kwargs()
+    kwargs["tactical_by_group"] = {
+        "SECTOR": [("에너지", "XLE", 0.087), ("유틸리티", "XLU", -0.032)],
+    }
+    payload = _build_llm_analysis_payload(**kwargs)
+    compact = _build_compact_llm_input(payload)
+    rs_entries = compact["relative_strength"]["섹터"]
+    assert any("+8.7%" in entry for entry in rs_entries), f"expected +8.7% in {rs_entries}"
+    assert any("-3.2%" in entry for entry in rs_entries), f"expected -3.2% in {rs_entries}"
+
+
+def test_compact_llm_input_text_summary() -> None:
+    kwargs = _make_payload_kwargs()
+    kwargs["text_windows"] = {
+        "short": {
+            "tone": "negative",
+            "topics": ["fed_policy", "inflation", "employment", "treasury_yield"],
+            "doc_count": 5,
+        }
+    }
+    payload = _build_llm_analysis_payload(**kwargs)
+    compact = _build_compact_llm_input(payload)
+    assert compact["text_available"] is True
+    summary = compact["text_summary"]
+    assert summary is not None
+    assert "short" in summary
+    short = summary["short"]
+    assert short["tone"] == "negative"
+    assert short["doc_count"] == 5
+    # 상위 3 토픽만 (4개 중 3개)
+    assert len(short["topics"]) == 3
+    # 한국어 레이블 변환
+    assert short["topics"][0] == "연준 정책"
+    assert short["topics"][1] == "인플레이션"
+    assert short["topics"][2] == "고용"
+
+    # text_windows=None → text_summary=None
+    kwargs2 = _make_payload_kwargs()
+    kwargs2["text_windows"] = None
+    payload2 = _build_llm_analysis_payload(**kwargs2)
+    compact2 = _build_compact_llm_input(payload2)
+    assert compact2["text_available"] is False
+    assert compact2["text_summary"] is None
