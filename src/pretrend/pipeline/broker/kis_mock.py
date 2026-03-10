@@ -707,6 +707,9 @@ class KISMockAdapter(BrokerAdapter):
             },
             timeout=self.config.timeout_sec,
         )
+        # 5xx: VTS 서버 오류 또는 잘못된 ODNO → 빈 결과로 처리 (ACCEPTED fallback)
+        if resp.status_code >= 500:
+            return []
         resp.raise_for_status()
         body = resp.json()
         self._raise_if_kis_error(body, "inquire-algo-ccnl")
@@ -766,9 +769,12 @@ class KISMockAdapter(BrokerAdapter):
         )
         resp.raise_for_status()
         body = resp.json()
+        self._raise_if_kis_error(body, "place_order")
         output = body.get("output", {}) if isinstance(body, dict) else {}
-        order_no = str(output.get("ODNO", "") or output.get("odno", "") or uuid.uuid4().hex[:12])
+        order_no = str(output.get("ODNO", "") or output.get("odno", "") or "")
         status = "ACCEPTED" if order_no else "FAILED"
+        if not order_no:
+            order_no = f"FAILED-{uuid.uuid4().hex[:8]}"
         return OrderResult(
             order_id=order_no,
             symbol=market["symb"],

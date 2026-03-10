@@ -468,3 +468,77 @@ def test_cancel_order_api_failure(monkeypatch) -> None:
     result = adapter.cancel_order(order_id="ORD-003", symbol="SPY", qty=1, side="BUY")
     assert result["status"] == "FAILED"
     assert "connection timeout" in result["error"]
+
+
+def test_place_order_raises_on_kis_application_error(monkeypatch) -> None:
+    """KIS rt_cd != 0 응답 시 RuntimeError 발생 (UUID fallback 방지)."""
+    adapter = _live_mock_adapter(monkeypatch)
+
+    class _FakeResp:
+        status_code = 200
+
+        def raise_for_status(self): pass
+
+        def json(self):
+            return {"rt_cd": "1", "msg_cd": "OPSQ1301", "msg1": "장마감 이후에는 주문이 불가합니다"}
+
+    monkeypatch.setattr(adapter, "_throttle", lambda: None)
+    monkeypatch.setattr(adapter, "_headers", lambda tr_id: {})
+    monkeypatch.setattr(adapter, "get_current_price", lambda sym: 100.0)
+    monkeypatch.setattr(
+        adapter, "_request_with_auth_retry",
+        lambda method, url, **kw: _FakeResp(),
+    )
+
+    import pytest
+    with pytest.raises(RuntimeError, match="rt_cd=1"):
+        adapter.place_buy_order("SPY", qty=1)
+
+
+def test_place_order_failed_prefix_when_odno_missing(monkeypatch) -> None:
+    """ODNO 없는 성공 응답 시 FAILED- prefix order_id 반환."""
+    adapter = _live_mock_adapter(monkeypatch)
+
+    class _FakeResp:
+        status_code = 200
+
+        def raise_for_status(self): pass
+
+        def json(self):
+            return {"rt_cd": "0", "output": {}}  # ODNO 없음
+
+    monkeypatch.setattr(adapter, "_throttle", lambda: None)
+    monkeypatch.setattr(adapter, "_headers", lambda tr_id: {})
+    monkeypatch.setattr(adapter, "get_current_price", lambda sym: 100.0)
+    monkeypatch.setattr(
+        adapter, "_request_with_auth_retry",
+        lambda method, url, **kw: _FakeResp(),
+    )
+
+    result = adapter.place_buy_order("IAU", qty=2)
+    assert result.status == "FAILED"
+    assert result.order_id.startswith("FAILED-")
+
+
+def test_inquire_algo_ccnl_returns_empty_on_server_error(monkeypatch) -> None:
+    """inquire-algo-ccnl 500 응답 시 빈 리스트 반환 (예외 아님)."""
+    adapter = _live_mock_adapter(monkeypatch)
+
+    class _FakeResp:
+        status_code = 500
+
+        def raise_for_status(self):
+            raise Exception("500 Internal Server Error")
+
+        def json(self):
+            return {}
+
+    monkeypatch.setattr(adapter, "_throttle", lambda: None)
+    monkeypatch.setattr(adapter, "_headers", lambda tr_id: {})
+    monkeypatch.setattr(
+        adapter, "_request_with_auth_retry",
+        lambda method, url, **kw: _FakeResp(),
+    )
+
+    rows = adapter._inquire_algo_ccnl("4d05f83a9261")
+    assert rows == []

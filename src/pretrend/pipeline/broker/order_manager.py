@@ -128,6 +128,7 @@ def execute_from_ledger_rows(
     simulation_date: date,
     source_job: str,
     max_orders: int = 20,
+    qty_scale_factor: float = 1.0,
 ) -> Tuple[pd.DataFrame, pd.DataFrame, List[str]]:
     """Execute broker orders from execution_ledger rows."""
     if ledger_df is None or ledger_df.empty:
@@ -201,9 +202,10 @@ def execute_from_ledger_rows(
         if not side:
             continue
         try:
-            qty = int(float(r.get("shares", 0.0)))
+            raw_shares = float(r.get("shares", 0.0))
         except Exception:
-            qty = 0
+            raw_shares = 0.0
+        qty = max(0, round(raw_shares * qty_scale_factor))
         if qty <= 0:
             continue
         try:
@@ -256,33 +258,69 @@ def execute_from_ledger_rows(
     return orders_df, fills_df, warnings
 
 
+def _sum_ccnl_qty(
+    adapter: BrokerAdapter,
+    order_id: str,
+    warnings: List[str],
+) -> Optional[float]:
+    """Call _inquire_algo_ccnl if available and return summed FT_CCLD_QTY."""
+    if not hasattr(adapter, "_inquire_algo_ccnl"):
+        return None
+    try:
+        rows = adapter._inquire_algo_ccnl(order_id)  # type: ignore[attr-defined]
+    except Exception:
+        return None
+    if not rows:
+        warnings.append(f"fill inquiry empty for order_id={order_id} — actual_filled_qty=None")
+        return None
+    total = 0.0
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        for key in ("FT_CCLD_QTY", "ft_ccld_qty", "ccld_qty"):
+            v = row.get(key)
+            if v is not None:
+                try:
+                    total += float(str(v).replace(",", ""))
+                except Exception:
+                    pass
+                break
+    return total if total > 0 else None
+
+
 def check_and_cancel_unfilled(
     adapter: BrokerAdapter,
     orders_df: pd.DataFrame,
+    fills_df: Optional[pd.DataFrame] = None,
     *,
     wait_sec: int = 30,
-) -> Tuple[pd.DataFrame, List[str]]:
+) -> Tuple[pd.DataFrame, pd.DataFrame, List[str]]:
     """Wait, then cancel any ACCEPTED (unfilled) orders.
 
     Policy:
-    - ACCEPTED  → cancel_order() 호출, cancelled_df에 기록
-    - PARTIAL_FILLED → 경고만 (취소 안 함 — 잔여 처리는 2단계)
-    - FILLED    → 정상, 기록 없음
+    - FILLED         → actual_filled_qty = FT_CCLD_QTY 합산 (via _inquire_algo_ccnl)
+    - PARTIAL_FILLED → actual_filled_qty = 체결된 FT_CCLD_QTY 합산, 경고만 (취소 안 함)
+    - ACCEPTED       → cancel_order() 호출, actual_filled_qty = 0.0
+    - UNKNOWN        → cancel_order() 호출, actual_filled_qty = None + 경고
 
     Returns:
-        cancelled_df  : 취소된 주문 행 (order_id, symbol, side, status, cancel_status, error)
-        warnings      : 경고 메시지 목록
+        cancelled_df      : 취소된 주문 행 (order_id, symbol, side, status, cancel_status, error)
+        fills_df_updated  : fills_df에 actual_filled_qty 컬럼 추가한 DataFrame (fills_df=None이면 빈 DataFrame)
+        warnings          : 경고 메시지 목록
     """
     warnings: List[str] = []
     cancelled_rows: List[Dict[str, Any]] = []
+    actual_qty_map: Dict[str, Optional[float]] = {}
+
+    _fills_out = fills_df if fills_df is not None else pd.DataFrame()
 
     if orders_df is None or orders_df.empty:
-        return pd.DataFrame(), warnings
+        return pd.DataFrame(), _fills_out, warnings
 
     # cancel_order가 없는 adapter는 경고만
     if not hasattr(adapter, "cancel_order"):
         warnings.append("adapter does not support cancel_order — fill check skipped")
-        return pd.DataFrame(), warnings
+        return pd.DataFrame(), _fills_out, warnings
 
     if wait_sec > 0:
         time.sleep(wait_sec)
@@ -296,6 +334,11 @@ def check_and_cancel_unfilled(
         if not order_id or not symbol:
             continue
 
+        # FAILED- prefix: place_order가 ODNO 없이 실패한 주문 → status 조회 생략
+        if order_id.startswith("FAILED-"):
+            warnings.append(f"{symbol} {side} order_id={order_id} 주문접수 실패 — fill check 생략")
+            continue
+
         try:
             fill_status = adapter.get_order_status(order_id)
         except Exception as exc:
@@ -303,13 +346,19 @@ def check_and_cancel_unfilled(
             fill_status = "UNKNOWN"
 
         if fill_status == "FILLED":
+            actual_qty_map[order_id] = _sum_ccnl_qty(adapter, order_id, warnings)
             continue
 
         if fill_status == "PARTIAL_FILLED":
             warnings.append(f"{symbol} {side} order_id={order_id} 부분체결 — 잔여 수량 미처리 (수동 확인 필요)")
+            actual_qty_map[order_id] = _sum_ccnl_qty(adapter, order_id, warnings)
             continue
 
         # ACCEPTED or UNKNOWN → cancel
+        if fill_status == "UNKNOWN":
+            actual_qty_map[order_id] = None
+            warnings.append(f"{symbol} {side} order_id={order_id} 상태 불명 (UNKNOWN) — actual_filled_qty=None")
+
         try:
             result = adapter.cancel_order(order_id=order_id, symbol=symbol, qty=qty, side=side)
             cancel_status = result.get("status", "FAILED")
@@ -330,12 +379,41 @@ def check_and_cancel_unfilled(
             }
         )
 
+        if fill_status == "ACCEPTED":
+            actual_qty_map[order_id] = 0.0
+
         if cancel_status == "CANCELLED":
             warnings.append(f"{symbol} {side} order_id={order_id} 미체결 → 취소 완료")
         else:
-            warnings.append(f"{symbol} {side} order_id={order_id} 취소 실패: {error}")
+            # Cancel failed: recheck fill status.
+            # KIS VTS에서 체결 직후 _inquire_algo_ccnl이 빈 응답을 반환해 ACCEPTED로 오판 후
+            # 취소 시도 → 취소 실패하는 경우를 처리한다.
+            recheck_status = "UNKNOWN"
+            try:
+                recheck_status = adapter.get_order_status(order_id)
+            except Exception:
+                pass
+            if recheck_status in {"FILLED", "PARTIAL_FILLED"}:
+                warnings.append(
+                    f"{symbol} {side} order_id={order_id} 취소 불필요 — 이미 체결됨 확인 (recheck={recheck_status})"
+                )
+                cancelled_rows[-1]["cancel_status"] = "ALREADY_FILLED"
+                cancelled_rows[-1]["error"] = f"recheck_status={recheck_status}"
+                # Correct actual_qty_map: order was filled, not 0.0
+                actual_qty_map[order_id] = _sum_ccnl_qty(adapter, order_id, warnings)
+            else:
+                warnings.append(f"{symbol} {side} order_id={order_id} 취소 실패: {error}")
 
-    return pd.DataFrame(cancelled_rows), warnings
+    # Build fills_df_updated
+    if fills_df is not None and not fills_df.empty and "order_id" in fills_df.columns:
+        fills_df_updated = fills_df.copy()
+        fills_df_updated["actual_filled_qty"] = fills_df_updated["order_id"].map(actual_qty_map)
+    elif fills_df is not None:
+        fills_df_updated = fills_df.copy()
+    else:
+        fills_df_updated = pd.DataFrame()
+
+    return pd.DataFrame(cancelled_rows), fills_df_updated, warnings
 
 
 def reconcile_positions(
