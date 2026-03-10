@@ -85,18 +85,23 @@ _ANALYSIS_SYSTEM_PROMPT = """\
 
 당신은 Pretrend AI 시스템의 시장 신호를 읽고, 한국어로 전략적 해석 보고서를 작성합니다.
 Telegram 메시지로 전송되며, HTML 태그(<b>, <i>)를 사용할 수 있습니다.
-입력 데이터는 압축 구조화 형식입니다. regime / horizon_bias / relative_strength /
-behavior / text_summary 필드를 활용하여 추론하십시오.
+입력 데이터는 압축 구조화 형식입니다. regime / horizon_bias / rs_assets_top5 /
+rs_asset_groups_summary / relative_strength / behavior / text_summary /
+sell_priority_reason_summary 필드를 활용하여 추론하십시오.
 
 ━━━ 핵심 작성 원칙 ━━━
 
 1) 데이터 충실: 입력 데이터의 사실과 방향만 전달한다. 없는 사실을 만들지 않는다.
 2) 코드 제거: 상태 코드(RECESSION, RISK_OFF 등)를 직접 쓰지 않는다.
-   대신 regime.phase / regime.sentiment / regime.signal 필드의 한국어 표현을 사용한다.
+   입력 필드 이름(sentiment, signal, market 등 영문 key)을 출력 문장에 쓰지 않는다.
+   대신 regime.phase / regime.시장심리 / regime.단기신호 필드의 한국어 값을 사용한다.
 3) 교차 분석 필수: 서로 다른 필드의 신호를 연결하여 해석한다.
    예: relative_strength에서 방어주+국채 동반 강세 + regime.phase=침체 →
    "투자자들이 이미 경기 둔화를 대비하고 있다"는 해석이 된다.
-4) 불일치 강조: horizon_bias.conflict_5d_vs_60d=true이면 반드시 왜 그런지 설명한다.
+4) 불일치 서사 통제: horizon_bias.conflict_label="NONE"이면
+   불일치/conflict/mismatch/divergence/엇갈림/상충 표현을 절대 쓰지 않는다.
+   대신 "단기부터 중장기까지 방향이 일치합니다" 또는 "전 지평이 방어 쪽을 가리킵니다"처럼 서술한다.
+   conflict_label="SHORT_VS_LONG"일 때만 분기 해석을 서술한다.
 5) 분량: 전체 3000자 이내.
 6) 일반론 투자 조언 금지: "분산투자가 중요합니다", "장기 투자를 유지하세요",
    "투자자는 신중해야 합니다" 같은 데이터와 무관한 일반 조언은 절대 쓰지 않는다.
@@ -104,6 +109,7 @@ behavior / text_summary 필드를 활용하여 추론하십시오.
    각 섹션은 서로 다른 시제·어조로 시작한다.
    (예: 섹션1=현재 상태 진단, 섹션2=미래 위험 경보, 섹션3=근거 서술, 섹션4=행동 지시)
    [종합 요약]은 섹션 1-4에서 쓴 문장을 그대로 반복하지 않고 새로운 각도로 연결한다.
+   "~에 주목할 필요가 있습니다", "~을 고려해야 합니다" 패턴을 섹션당 2회 초과 사용하지 않는다.
 8) RS 해석: relative_strength의 각 항목은 이미 "+8.7%" 형식으로 포맷되어 있다.
    "SPY 대비 +8.7%" 식으로 자연스럽게 문장에 녹여 쓴다.
 9) 텍스트 데이터 처리: text_available=false이면 Section 3의 <b>텍스트 해석:</b> 소제목을 생략하고
@@ -114,11 +120,18 @@ behavior / text_summary 필드를 활용하여 추론하십시오.
 11) 추론 패턴 명시: 아래 추론 패턴 중 하나와 일치하면 섹션 1 또는 2에서 시나리오 이름을
     직접 언급한다. (예: "이는 Bear Market Relief Rally 패턴입니다.")
 12) 해석 금지 영역:
-   - horizon_bias.has_horizon_conflict=false이면 "불일치", "충돌", "엇갈림", "분기" 표현 금지.
-     대신 "단기부터 중장기까지 방향이 일치합니다" 또는 "전 지평이 방어 쪽을 가리킵니다"처럼 서술한다.
    - text_available=false이면 텍스트 기반 원인론 금지 ("문서가 ... 을 보여줍니다" 같은 표현).
    - sell_priority에 없는 종목 언급 금지.
    - 입력에 없는 macro 스토리 생성 금지 (예: "연준이 금리를 인하할 것입니다").
+13) RS 자산 제한: Section 3에서 개별 ETF/자산명을 언급할 때는
+    rs_assets_top5에 있는 종목만 언급한다.
+    rs_assets_top5에 없는 자산명은 출력에 쓰지 않는다.
+    그룹 수준은 rs_asset_groups_summary.strongest/weakest로만 표현한다.
+14) 매도 근거 활용: Section 4의 매도 우선순위 설명 시
+    sell_priority_reason_summary의 reason_tag를 자연어로 변환해 이유를 1문장 추가한다.
+    HIGH_VOL_COMMODITY→"변동성이 높은 원자재 ETF", EM_RISK→"신흥국 리스크 노출",
+    RATE_SENSITIVE→"금리 민감 채권", SECTOR_ROTATION→"섹터 로테이션 압력",
+    RS_UNDERPERFORMER→"상대강도 열위"
 
 ━━━ 추론 패턴 (해당 신호 조합이 있으면 반드시 시나리오 이름 명시) ━━━
 
@@ -135,7 +148,7 @@ behavior / text_summary 필드를 활용하여 추론하십시오.
    → "단기 추격은 위험하며, 중장기 방어 준비가 필요합니다."
 
 4) "연준 정책 교착":
-   regime.sentiment=중립 + text_summary에 연준 정책/동결 토픽 집중
+   regime.시장심리=중립 + text_summary에 연준 정책/동결 토픽 집중
    → "시장이 정책 불확실성에 갇혀 방향성 신호가 약합니다."
 
 5) "전환 임박 경보":
@@ -152,7 +165,7 @@ behavior / text_summary 필드를 활용하여 추론하십시오.
 - 소제목마다 줄바꿈으로 구분한다.
 
 <b>1. 시장 국면: "핵심 문구"</b> — 사용 필드: regime.*만
-<b>시계열 상태:</b> regime.phase / regime.sentiment / regime.signal 세 시계열을 한 문장으로 요약한다.
+<b>시계열 상태:</b> regime.phase / regime.시장심리 / regime.단기신호 세 시계열을 한 문장으로 요약한다.
 <b>해석:</b> 현재 시장이 어떤 위치에 있는지 풀어쓴다. allocation/sell_priority 언급 금지.
 해당하는 추론 패턴이 있으면 시나리오 이름을 명시한다.
 (예: "지금의 반등은 이른바 Bear Market Relief Rally 패턴입니다. 펀더멘털 개선이 아닌 과매도 해소입니다.")
@@ -160,12 +173,12 @@ behavior / text_summary 필드를 활용하여 추론하십시오.
 <b>2. 가설과 위험: "핵심 문구"</b> — 사용 필드: horizon_bias.*만
 <b>전환 위험:</b> horizon_bias.hazard 수치와 expected 방향을 자연어로 설명한다.
 <b>시계열 전망:</b> horizon_bias.5d(단기)와 horizon_bias.60d/120d(중장기)를 비교한다.
-  has_horizon_conflict=true이면 "단기 안도에도 중장기는 여전히 방어 전망"처럼 분기 신호로 해석한다.
-  has_horizon_conflict=false이면 "전 지평이 [방향] 쪽으로 일치합니다"로 한 문장. "불일치/충돌/엇갈림" 금지.
+  conflict_label="SHORT_VS_LONG"이면 "단기 안도에도 중장기는 여전히 방어 전망"처럼 분기 신호로 해석한다.
+  conflict_label="NONE"이면 "전 지평이 [방향] 쪽으로 일치합니다"로 한 문장. "불일치/충돌/엇갈림/상충" 금지.
 <b>해석:</b> 위험 데이터가 투자자에게 의미하는 바를 1-2문장으로 짚는다. regime/RS 언급 금지.
 (예: "지금은 파티의 마지막 5분을 즐길 때이지, 새로 자리를 잡을 때가 아닙니다.")
 
-<b>3. 시장 근거 및 수급: "핵심 문구"</b> — 사용 필드: relative_strength.*, text_summary.*만
+<b>3. 시장 근거 및 수급: "핵심 문구"</b> — 사용 필드: rs_assets_top5, rs_asset_groups_summary, relative_strength.*, text_summary.*만 (rs_assets_top5에 없는 종목명 언급 금지)
 <b>수급·상대강도:</b> relative_strength에서 주목할 패턴을 2-3개 관찰한다.
   소제목은 관찰된 패턴에 따라 자유롭게 정한다.
   (예: "<b>방어주와 국채의 동반 강세:</b> 투자자들이 침체를 준비하며 방어선으로 대피 중입니다.")
@@ -174,9 +187,9 @@ behavior / text_summary 필드를 활용하여 추론하십시오.
   (text_available=false이면 이 소제목 전체를 "최근 문서 데이터 미수집으로 텍스트 흐름 분석을 생략합니다." 한 문장으로 대체한다.)
   behavior/regime/sell_priority 언급 금지.
 
-<b>4. 투자 행동 가이드: "핵심 문구"</b> — 사용 필드: behavior.*, sell_priority만
+<b>4. 투자 행동 가이드: "핵심 문구"</b> — 사용 필드: behavior.*, sell_priority, sell_priority_reason_summary만
 <b>행동 제언:</b> behavior.guidance에 따른 구체적 행동(추격 매수 금지, 분할 매도, 적극 매수 등)을 명확히 쓴다.
-<b>매도 우선순위:</b> sell_priority 최대 3개 종목만 서술. 왜 이 순서인지 해석. 목록 나열 금지.
+<b>매도 우선순위:</b> sell_priority 최대 3개 종목만 서술. sell_priority_reason_summary의 reason_tag를 자연어로 변환해 이유를 함께 설명한다. 목록 나열 금지.
   sell_priority가 없으면 이 소제목을 생략한다.
 <b>신뢰도:</b> behavior.confidence 수준과 의미를 1문장으로 전달한다.
   regime/RS/horizon_bias 반복 금지.
@@ -776,6 +789,26 @@ def build_llm_analysis_payload(
     }
 
 
+_EM_ETF_SYMBOLS = {"EEM", "INDA", "MCHI", "FXI", "VWO", "EWZ", "EWT"}
+
+
+def _infer_sell_reason_tag(sym: str, payload: Dict[str, Any]) -> str:
+    """tactical_etf group 기반으로 sell priority 이유 태그를 추론한다."""
+    for group, entries in payload.get("tactical_etf", {}).items():
+        for e in entries:
+            if e.get("symbol") == sym:
+                if group == "COMMODITY":
+                    return "HIGH_VOL_COMMODITY"
+                if group == "COUNTRY" and sym in _EM_ETF_SYMBOLS:
+                    return "EM_RISK"
+                if group == "BOND":
+                    return "RATE_SENSITIVE"
+                if group == "SECTOR":
+                    return "SECTOR_ROTATION"
+                return "RS_UNDERPERFORMER"
+    return "RS_UNDERPERFORMER"
+
+
 def _build_compact_llm_input(payload: Dict[str, Any]) -> Dict[str, Any]:
     """LLM 입력용 압축 payload. ~1500토큰 → ~600토큰 목표.
 
@@ -805,12 +838,47 @@ def _build_compact_llm_input(payload: Dict[str, Any]) -> Dict[str, Any]:
     conflict = (d5 is not None) and (d60 is not None) and (d5 != d60)
 
     rs_by_group: Dict[str, List[str]] = {}
+    rs_by_group_raw: Dict[str, List[float]] = {}
+    all_assets_raw: List[Dict[str, Any]] = []
     for group, entries in payload.get("tactical_etf", {}).items():
         lbl = _GROUP_LABELS.get(group, group)
         rs_by_group[lbl] = [
             f"{e['name_ko']} {'+' if e['rs'] >= 0 else ''}{e['rs']:.1%}"
             for e in entries
         ]
+        rs_vals = [e["rs"] for e in entries]
+        if rs_vals:
+            rs_by_group_raw[lbl] = rs_vals
+        for e in entries:
+            all_assets_raw.append({
+                "name_ko": e["name_ko"],
+                "symbol": e["symbol"],
+                "rs_float": e["rs"],
+                "group": lbl,
+            })
+
+    # rs_assets_top5: 전체 자산 중 RS 상위 5개 (raw float 기준 정렬)
+    all_assets_sorted = sorted(all_assets_raw, key=lambda x: x["rs_float"], reverse=True)
+    rs_assets_top5 = [
+        {
+            "name_ko": a["name_ko"],
+            "symbol": a["symbol"],
+            "rs": f"+{a['rs_float']:.1%}" if a["rs_float"] >= 0 else f"{a['rs_float']:.1%}",
+            "group": a["group"],
+        }
+        for a in all_assets_sorted[:5]
+    ]
+
+    # rs_asset_groups_summary: 그룹별 평균 RS → 최강/최약 그룹
+    group_avg = {
+        lbl: sum(vals) / len(vals)
+        for lbl, vals in rs_by_group_raw.items()
+        if vals
+    }
+    rs_asset_groups_summary = {
+        "strongest": max(group_avg, key=group_avg.get) if group_avg else None,
+        "weakest": min(group_avg, key=group_avg.get) if group_avg else None,
+    }
 
     text_summary = None
     if payload.get("text_available"):
@@ -825,13 +893,20 @@ def _build_compact_llm_input(payload: Dict[str, Any]) -> Dict[str, Any]:
 
     alloc = payload.get("allocation", {})
     sell = payload.get("sell_advice", {})
+    sell_list = (sell.get("sell_priority") or [])[:3]
+
+    # sell_priority_reason_summary: 매도 우선순위 종목별 이유 태그
+    sell_priority_reason_summary = [
+        {"symbol": sym, "reason_tag": _infer_sell_reason_tag(sym, payload)}
+        for sym in sell_list
+    ]
 
     return {
         "date": payload.get("decision_date"),
         "regime": {
             "phase": mp.get("long_phase_label"),
-            "sentiment": mp.get("mid_regime_label"),
-            "signal": mp.get("short_signal_label"),
+            "시장심리": mp.get("mid_regime_label"),
+            "단기신호": mp.get("short_signal_label"),
             "risk_gate": mp.get("risk_gate"),
         },
         "horizon_bias": {
@@ -841,6 +916,7 @@ def _build_compact_llm_input(payload: Dict[str, Any]) -> Dict[str, Any]:
             "60d": b60,
             "120d": _hb("bias_120d"),
             "has_horizon_conflict": conflict,
+            "conflict_label": "NONE" if not conflict else "SHORT_VS_LONG",
             "conflict_5d_vs_60d": conflict,
             "conflict_pair": ["5d", "60d"] if conflict else [],
             "hazard": ns.get("hazard_10d"),
@@ -852,9 +928,12 @@ def _build_compact_llm_input(payload: Dict[str, Any]) -> Dict[str, Any]:
             "next": f"{alloc.get('next_ratio', 0.0):.0%}",
         },
         "relative_strength": rs_by_group,
+        "rs_assets_top5": rs_assets_top5,
+        "rs_asset_groups_summary": rs_asset_groups_summary,
         "text_summary": text_summary,
         "behavior": payload.get("behavior"),
-        "sell_priority": (sell.get("sell_priority") or [])[:3] or None,
+        "sell_priority": sell_list or None,
+        "sell_priority_reason_summary": sell_priority_reason_summary,
         "text_available": payload.get("text_available", False),
     }
 

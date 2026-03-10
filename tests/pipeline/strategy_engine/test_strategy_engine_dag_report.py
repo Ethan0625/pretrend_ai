@@ -597,10 +597,10 @@ def test_compact_llm_input_structure() -> None:
     assert "detail" not in compact
     assert "group_transition" not in compact
     assert "next_step" not in compact
-    # regime 필드
+    # regime 필드 (P3-6b: 영문 key → 한국어 key)
     assert compact["regime"]["phase"] == "침체 국면"
-    assert compact["regime"]["sentiment"] == "중립"
-    assert compact["regime"]["signal"] == "단기 안도"
+    assert compact["regime"]["시장심리"] == "중립"
+    assert compact["regime"]["단기신호"] == "단기 안도"
     assert compact["regime"]["risk_gate"] is True
     # allocation 포맷
     assert compact["allocation"]["current"] == "30%"
@@ -702,3 +702,107 @@ def test_compact_llm_input_text_summary() -> None:
     compact2 = _build_compact_llm_input(payload2)
     assert compact2["text_available"] is False
     assert compact2["text_summary"] is None
+
+
+# ── P3-6b: Fact Control 신규 테스트 ──
+
+
+def test_compact_rs_assets_top5_present() -> None:
+    """rs_assets_top5 필드가 존재하고 최대 5개이며 각 항목에 필수 키가 있다."""
+    kwargs = _make_payload_kwargs()
+    kwargs["tactical_by_group"] = {
+        "SECTOR": [("에너지", "XLE", 0.15), ("유틸리티", "XLU", 0.08)],
+        "BOND": [("미국채20Y", "TLT", 0.05), ("하이일드", "HYG", -0.03)],
+        "COMMODITY": [("금", "IAU", 0.12), ("원유", "USO", 0.09)],
+    }
+    payload = _build_llm_analysis_payload(**kwargs)
+    compact = _build_compact_llm_input(payload)
+
+    assert "rs_assets_top5" in compact
+    top5 = compact["rs_assets_top5"]
+    assert isinstance(top5, list)
+    assert 1 <= len(top5) <= 5
+
+    for item in top5:
+        assert "name_ko" in item
+        assert "symbol" in item
+        assert "rs" in item
+        assert "group" in item
+        # rs는 "+X.X%" 또는 "-X.X%" 형식
+        assert "%" in item["rs"]
+
+    # rs 내림차순 정렬 확인
+    rs_floats = [float(item["rs"].replace("+", "").replace("%", "")) for item in top5]
+    assert rs_floats == sorted(rs_floats, reverse=True)
+
+
+def test_compact_conflict_label_none_when_no_conflict() -> None:
+    """5d와 60d가 같은 방향이면 conflict_label="NONE"이다."""
+    kwargs = _make_payload_kwargs()
+    # 기본 fixture: 5d=RISK_OFF_BIAS, 60d=NEUTRAL_BIAS → 방어 vs None → conflict=False
+    kwargs["next_step_row"]["bias_5d"] = "RISK_OFF_BIAS"
+    kwargs["next_step_row"]["bias_60d"] = "RISK_OFF_BIAS"
+    payload = _build_llm_analysis_payload(**kwargs)
+    compact = _build_compact_llm_input(payload)
+
+    assert compact["horizon_bias"]["conflict_label"] == "NONE"
+    assert compact["horizon_bias"]["has_horizon_conflict"] is False
+
+
+def test_compact_conflict_label_short_vs_long_when_conflict() -> None:
+    """5d=공격, 60d=방어이면 conflict_label="SHORT_VS_LONG"이다."""
+    kwargs = _make_payload_kwargs()
+    kwargs["next_step_row"]["bias_5d"] = "RISK_ON_BIAS"
+    kwargs["next_step_row"]["bias_60d"] = "RISK_OFF_BIAS"
+    payload = _build_llm_analysis_payload(**kwargs)
+    compact = _build_compact_llm_input(payload)
+
+    assert compact["horizon_bias"]["conflict_label"] == "SHORT_VS_LONG"
+    assert compact["horizon_bias"]["has_horizon_conflict"] is True
+
+
+def test_compact_regime_keys_no_english_schema_terms() -> None:
+    """compact regime에 영문 스키마 key(sentiment, signal)가 없고 한국어 key가 존재한다."""
+    payload = _build_llm_analysis_payload(**_make_payload_kwargs())
+    compact = _build_compact_llm_input(payload)
+
+    regime = compact["regime"]
+    assert "sentiment" not in regime, "영문 key 'sentiment'이 compact regime에 남아 있음"
+    assert "signal" not in regime, "영문 key 'signal'이 compact regime에 남아 있음"
+    assert "시장심리" in regime
+    assert "단기신호" in regime
+    assert isinstance(regime["시장심리"], str)
+    assert isinstance(regime["단기신호"], str)
+
+
+def test_compact_sell_priority_reason_summary_structure() -> None:
+    """sell_priority가 있을 때 sell_priority_reason_summary 리스트가 존재하고 각 항목에 symbol/reason_tag가 있다."""
+    kwargs = _make_payload_kwargs()
+    kwargs["tactical_by_group"] = {
+        "COMMODITY": [("원유", "UNG", 0.05)],
+        "COUNTRY": [("인도", "INDA", -0.10)],
+        "SECTOR": [("금융", "XLF", 0.02)],
+    }
+    kwargs["sell_list"] = ["UNG", "INDA", "XLF"]
+    payload = _build_llm_analysis_payload(**kwargs)
+    compact = _build_compact_llm_input(payload)
+
+    assert "sell_priority_reason_summary" in compact
+    summary = compact["sell_priority_reason_summary"]
+    assert isinstance(summary, list)
+    assert len(summary) == 3
+
+    symbols = [item["symbol"] for item in summary]
+    assert symbols == ["UNG", "INDA", "XLF"]
+
+    tags = {item["symbol"]: item["reason_tag"] for item in summary}
+    assert tags["UNG"] == "HIGH_VOL_COMMODITY"
+    assert tags["INDA"] == "EM_RISK"
+    assert tags["XLF"] == "SECTOR_ROTATION"
+
+    # sell_priority 없으면 빈 리스트
+    kwargs2 = _make_payload_kwargs()
+    kwargs2["sell_list"] = []
+    payload2 = _build_llm_analysis_payload(**kwargs2)
+    compact2 = _build_compact_llm_input(payload2)
+    assert compact2["sell_priority_reason_summary"] == []
