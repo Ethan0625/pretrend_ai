@@ -7,6 +7,140 @@
 
 > 참고: changelog 과거 섹션은 작성 시점 원문을 보존한다.
 
+## v2026.03.10b — P4-2 Broker 독립 실행 계획 (SIM 의존 제거)
+
+### feat(broker): Broker 실행 플래너 — strategy stages 기반 독립 주문 계획
+- `src/pretrend/pipeline/broker/execution_planner.py` (신규)
+  - `build_broker_target_orders()`: strategy `exposure` + `what_to_hold` + broker NAV/positions/live_prices → broker-scale delta order DataFrame
+  - Core 비중: SPY 30%, SCHD 50%, IAU 20% (전 국면 불변)
+  - Tactical 슬롯: RISK_ON_BIAS=그룹당 2, NEUTRAL_BIAS=1, RISK_OFF_BIAS=0
+  - missing live price → crash 없이 해당 심볼 skip
+  - action="HOLD" → 빈 DataFrame
+
+### refactor(broker-dag): broker_mock_trading_dag SIM execution_ledger 의존 제거
+- `dags/broker_mock_trading_dag.py`
+  - `load_sim_ledger_task`: SIM ledger 로드 제거 → strategy `exposure` 최신 trade_date 기준 실행 여부 판단
+  - `execute_broker_orders_task`: strategy stages(`exposure`, `what_to_hold`, `next_step_signal`) + broker state로 직접 주문 계획 생성
+  - `qty_scale_factor` 계산 블록 제거 (임시 해결책 삭제)
+  - Telegram `virtual_fills`: SIM ledger 행 → `broker_fills` parquet 기반 실체결 내역으로 교체
+
+### 운영 관측 변화
+- 기존: broker_mock_trading_dag가 SIM execution_ledger를 입력으로 받아 qty_scale_factor로 수량 스케일
+- 변경: strategy stages + broker 실시간 NAV/positions/live price를 직접 참조하여 broker-scale 수량 계산
+- Telegram "모의계좌 체결 요약": SIM 계획 내역(BUY/SELL 달러 금액) → 실제 broker 체결 내역(심볼 수량 @ 가격) 형식으로 변경
+- paper_trading_dag(SIM)와 broker_mock_trading_dag는 완전 독립 실행 (SIM 데이터 의존 없음)
+
+## v2026.03.10a — P4-1 hotfix: 취소 오경보 수정 + SIM→broker qty 스케일
+
+### fix(broker): cancel 실패 후 FILLED 재확인 — "취소 실패" 오경보 억제
+- `src/pretrend/pipeline/broker/order_manager.py`
+  - `check_and_cancel_unfilled()`: cancel 실패 시 `get_order_status()` 재조회 추가
+    - 재조회 결과가 `FILLED/PARTIAL_FILLED`이면 `cancel_status="ALREADY_FILLED"`, warning은 `"이미 체결됨 확인"`으로 격하
+    - `"취소 실패"` warning은 재조회 후에도 FILLED 미확인 시에만 발송
+  - 배경: KIS VTS fill inquiry 즉시 빈 응답 → `ACCEPTED` 오판 → cancel 시도 → cancel 실패 → 오경보 체인
+  - 한계: VTS 처리 지연 시 재조회도 `ACCEPTED` 반환 가능 — 이 경우 warning은 정상적으로 유지됨
+
+### feat(broker): SIM 소수 shares → broker 계좌 규모 비례 스케일 (qty_scale_factor)
+- `src/pretrend/pipeline/broker/order_manager.py`
+  - `execute_from_ledger_rows()`에 `qty_scale_factor: float = 1.0` 파라미터 추가
+  - `qty = max(0, round(raw_shares * qty_scale_factor))` — BUY/SELL 공통 적용
+  - 기존 `int(shares)` 절사: SIM 소수 shares(예: SPY=0.183, IAU=0.871)가 모두 0으로 소멸
+- `dags/broker_mock_trading_dag.py`
+  - `qty_scale_factor = max(1.0, broker_budget_usd / sim_buy_total_usd)` 계산 후 전달
+  - `broker_budget_usd = broker_nav_usd * PAPER_MAX_INVESTED_RATIO`
+  - 실제 투자 한도는 `execute_from_ledger_rows()` 내부 `remaining_budget_usd`(기존 보유량 차감 후)가 cap
+
+### 운영 관측 변화
+- 기존: SIM ledger에 소수 shares인 종목들(SPY, IAU, USO 등)이 broker 주문 미발생
+- 변경: broker 계좌 규모에 비례하여 모든 종목이 정수 수량으로 주문됨
+- MOCK Telegram `"취소 실패"` 오경보가 FILLED 확인 시 `"이미 체결됨 확인"`으로 대체됨
+
+## v2026.03.09g — P4-1a broker fills actual_filled_qty 반영
+
+### feat(broker): fill inquiry 기반 실체결 수량 저장
+- `src/pretrend/pipeline/broker/order_manager.py`
+  - `check_and_cancel_unfilled()` 반환을 3-tuple로 고정:
+    - `cancelled_df`
+    - `fills_df_updated`
+    - `warnings`
+  - `fills_df_updated["actual_filled_qty"]` 컬럼 추가
+  - `FILLED/PARTIAL_FILLED` 주문은 `_inquire_algo_ccnl()`의 `FT_CCLD_QTY` 합산값을 반영
+  - `ACCEPTED -> cancel` 주문은 `actual_filled_qty=0.0`
+  - fill inquiry가 비어 있으면 `actual_filled_qty=None` + warning 유지
+
+### feat(broker-dag): broker fills parquet에 actual_filled_qty 포함
+- `dags/broker_mock_trading_dag.py`
+  - `check_and_cancel_unfilled(..., fills_df=fills_df, ...)` 호출로 갱신된 fills dataframe을 저장
+
+### 운영 관측 변화
+- `data/paper/MOCK/broker_fills/` parquet에 `actual_filled_qty` 컬럼이 추가될 수 있음
+- 기존 `filled_qty`는 요청 수량이고, `actual_filled_qty`가 실체결 수량 정본 역할을 맡음
+
+## v2026.03.09e — P3-5d broker mock financial metrics 근사 반영
+
+### feat(broker-dag): MOCK Telegram PnL/원금 근사치 반영
+- `dags/broker_mock_trading_dag.py`
+  - `build_broker_result_payload_task`에 전일 `broker_bootstrap` 스냅샷 기반 `daily_pnl` 근사 계산 추가
+  - `PAPER_INITIAL_CAPITAL_KRW + 월별 DCA` 기준 `cumulative_pnl`, `total_invested_capital` 근사 계산 추가
+  - `broker_positions`가 비어 있으면 `포지션 없음(당일 미체결 가능성)` 문구를 position summary에 고정
+  - 전일 스냅샷 부재 시 `daily_pnl=0.0` 근사치와 warning을 함께 기록
+
+### feat(report): MOCK 전용 `(근사)` 라벨 명시
+- `src/pretrend/pipeline/paper/report.py`
+  - `execution_mode=MOCK`이고 값이 존재할 때:
+    - `당일(근사)`
+    - `누적(근사)`
+    - `총투입원금(근사)`
+  - SIM 렌더링은 변경하지 않음
+
+### 운영 관측 변화
+- MOCK Telegram에서 기존 `집계 데이터 없음` 대신 근사치가 우선 노출될 수 있음
+- 포지션 미집계 상태는 단순 공백이 아니라 `포지션 없음(당일 미체결 가능성)`으로 표시됨
+- 근사치임을 명시적으로 노출하여 broker snapshot 기반 계산임을 구분함
+
+## v2026.03.09c — P3-5 broker mock 안정화: fill/cancel 버그 수정 + 미체결 취소 루프
+
+### fix(broker): _place_order rt_cd 미검출 버그 수정
+- `kis_mock.py` — `_place_order()` 내 `_raise_if_kis_error()` 누락 수정
+  - KIS VTS HTTP 200 응답에서 `rt_cd ≠ 0` (예: 장마감) 시 `RuntimeError` 발생 (`execute_from_ledger_rows`에서 warn 처리)
+  - 기존: `output.ODNO` 미수신 → `uuid.uuid4().hex[:12]` fallback → 유효하지 않은 ODNO로 inquire-algo-ccnl 500 체인 발생
+  - 변경: `ODNO` 없을 때 `FAILED-{8자리hex}` prefix 사용 (명시적 실패 표시)
+- `kis_mock.py` — `_inquire_algo_ccnl()` KIS 500 응답 graceful 처리 (`[]` 반환, `ACCEPTED` fallback)
+- `order_manager.py` — `FAILED-` prefix order_id는 fill 상태 조회 없이 skip + warn
+
+### feat(broker): 미체결 취소 루프 구현
+- `order_manager.py` — `check_and_cancel_unfilled()` 추가
+  - 대기 후 `ACCEPTED` → `cancel_order()` 실행, `PARTIAL_FILLED` → warn only
+  - 대기 시간: `BROKER_FILL_WAIT_SEC` 환경변수 (기본값 `30`)
+- `kis_mock.py` — `cancel_order()` KIS VTS 취소 API 연동 (`VTTT1004U` / `TTTT1004U`)
+
+### 신규 환경변수
+| 변수명 | 기본값 | 설명 |
+|--------|--------|------|
+| `BROKER_FILL_WAIT_SEC` | `30` | 미체결 취소 전 대기 시간(초) — `broker_mock_trading_dag` |
+
+### 운영 관측 변화
+- `data/paper/MOCK/broker_orders/` parquet의 `order_id` 컬럼에 `FAILED-XXXXXXXX` 형태 값이 기록될 수 있음 (KIS 장외 실행, API 오류 등)
+- `FAILED-` prefix order는 fill check, cancel 없이 warn으로 처리되므로 DAG 실행은 계속됨
+
+---
+
+## v2026.03.09d — P3-5c broker mock market-hours gate
+
+### feat(broker-dag): 미국 정규장 외 시간 broker mock 실행 skip
+- `dags/broker_mock_trading_dag.py`
+  - `load_sim_ledger_task` 앞단에 ET 기준 장 시간 게이트 추가
+  - 평일 `09:30~16:00` 외 시간대와 주말은 `status="skipped"`, `reason="장외 시간"` 반환
+  - `BROKER_SKIP_MARKET_HOURS_CHECK=1` 설정 시 테스트/수동 검증용 우회 허용
+- 기존 `execute_broker_orders_task`의 `status != "ok"` skip 경로를 그대로 재사용하여 회귀를 피함
+
+### test(broker-dag): 장중/장외/주말/우회 케이스 고정
+- `tests/dags/test_broker_mock_trading_dag.py`
+  - 장중 통과
+  - 장전 skip
+  - 주말 skip
+  - env 우회 허용
+
 ## v2026.03.06a — P3-5a 선행 고정: Paper SIM/MOCK 분리 경계 문서화
 
 ### docs(contract): PAPER_RESULT 식별축 계약 추가
@@ -1979,3 +2113,9 @@ print_phase_distribution(policy_df, group_by="year")
 - 전 종목 EOD 수집은 스코프에서 제외
 - Universe는 "신호 → 테마 → 종목"의 탑다운 방식으로 생성하고,
   U0~U3 각 단계의 역할과 필요 데이터 정의를 완료
+## 2026-03-10
+
+### Broker Mock DAG 독립 실행 전환
+- `broker_mock_trading_dag`가 더 이상 SIM `execution_ledger`를 입력으로 사용하지 않도록 변경했다.
+- broker 주문은 strategy stages(`exposure`, `what_to_hold`, `next_step`) + broker 실시간 상태를 직접 읽어 `build_broker_target_orders()`로 계산한다.
+- MOCK Telegram의 `virtual_fills`는 SIM 계획 행이 아니라 `broker_fills` 기준 실제 broker 체결 요약으로 표시된다.

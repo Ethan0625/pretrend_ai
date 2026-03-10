@@ -1,7 +1,7 @@
 """Broker Mock Trading DAG — KIS mock API 연동 주문 실행 및 MOCK Telegram 전송.
 
 정책:
-- paper_trading_dag의 SIM execution_ledger를 입력으로 받음
+- strategy stages + broker state 기준으로 독립 주문 계획을 계산함
 - KIS mock API 연동으로 실제 주문 인프라 검증
 - 전송 실패는 fail-open (경고 로그 후 성공 유지)
 - 수동 트리거 전용 (BROKER_MOCK_AUTO_SCHEDULE_ENABLED=1 시 ET 09:40 자동)
@@ -19,6 +19,7 @@ import pandas as pd
 from airflow.decorators import dag, task
 from pretrend.pipeline.broker.kis_mock import KISMockAdapter
 from pretrend.pipeline.broker.cod_reference import load_cod_reference
+from pretrend.pipeline.broker.execution_planner import build_broker_target_orders
 from pretrend.pipeline.broker.order_manager import (
     check_and_cancel_unfilled,
     execute_from_ledger_rows,
@@ -46,6 +47,8 @@ DEFAULT_ARGS: Dict[str, Any] = {
     "retry_delay": timedelta(minutes=5),
     "depends_on_past": False,
 }
+
+_ET_TZ = pendulum.timezone("America/New_York")
 
 
 def _broker_schedule_interval() -> str | None:
@@ -80,6 +83,25 @@ def _resolve_account_id() -> str:
     return f"{masked}-{prd}" if prd else masked
 
 
+def _should_skip_market_hours(now_et: pendulum.DateTime | None = None) -> tuple[bool, str | None, bool]:
+    """Return (should_skip, reason, bypassed) for broker mock execution."""
+    bypass = os.getenv("BROKER_SKIP_MARKET_HOURS_CHECK", "0").strip().lower() in {"1", "true", "yes"}
+    if bypass:
+        return False, None, True
+
+    current = now_et or pendulum.now(_ET_TZ)
+    current = current.in_timezone(_ET_TZ)
+
+    if current.day_of_week >= 5:
+        return True, "장외 시간", False
+
+    market_open = current.replace(hour=9, minute=30, second=0, microsecond=0)
+    market_close = current.replace(hour=16, minute=0, second=0, microsecond=0)
+    if current < market_open or current > market_close:
+        return True, "장외 시간", False
+    return False, None, False
+
+
 def _save_quality_json(root: Path, decision_date: date, quality: Dict[str, Any]) -> None:
     part = root / f"decision_date={decision_date.isoformat()}"
     part.mkdir(parents=True, exist_ok=True)
@@ -87,27 +109,66 @@ def _save_quality_json(root: Path, decision_date: date, quality: Dict[str, Any])
     out.write_text(json.dumps(quality, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-def _list_sim_decision_dates(paper_root: Path) -> List[date]:
-    ledger_root = paper_root / "execution_ledger"
+def _latest_row_at_or_before(df: pd.DataFrame, date_col: str, td: date) -> pd.Series | None:
+    if df is None or df.empty or date_col not in df.columns:
+        return None
+    x = df.copy()
+    x[date_col] = pd.to_datetime(x[date_col]).dt.date
+    x = x[x[date_col] <= td]
+    if x.empty:
+        return None
+    latest = x[date_col].max()
+    row = x[x[date_col] == latest]
+    if row.empty:
+        return None
+    return row.iloc[-1]
+
+
+def _latest_window_at_or_before(df: pd.DataFrame, date_col: str, td: date) -> pd.DataFrame:
+    if df is None or df.empty or date_col not in df.columns:
+        return pd.DataFrame()
+    x = df.copy()
+    x[date_col] = pd.to_datetime(x[date_col]).dt.date
+    x = x[x[date_col] <= td]
+    if x.empty:
+        return pd.DataFrame()
+    latest = x[date_col].max()
+    return x[x[date_col] == latest].copy()
+
+
+def _list_partition_dates(root: Path) -> List[date]:
     dates: List[date] = []
-    if not ledger_root.exists():
+    if not root.exists():
         return dates
-    for part in ledger_root.glob("decision_date=*"):
-        sim_part = part / "execution_mode=SIM"
-        if not sim_part.exists():
-            # also accept flat layout without execution_mode subdir
-            if any(part.glob("*.parquet")):
-                try:
-                    dates.append(date.fromisoformat(part.name.split("=", 1)[1]))
-                except Exception:
-                    continue
+    for part in root.glob("decision_date=*"):
+        try:
+            dates.append(date.fromisoformat(part.name.split("=", 1)[1]))
+        except Exception:
             continue
-        if any(sim_part.glob("*.parquet")):
-            try:
-                dates.append(date.fromisoformat(part.name.split("=", 1)[1]))
-            except Exception:
-                continue
     return sorted(dates)
+
+
+def _estimate_total_invested_capital_usd(
+    *,
+    paper_start: date,
+    decision_date: date,
+    initial_krw: float,
+    monthly_krw: float,
+    fx_usdkrw: float,
+) -> float | None:
+    if fx_usdkrw <= 0:
+        return None
+    total_krw = float(initial_krw)
+    month_cursor = date(paper_start.year, paper_start.month, 1)
+    decision_month = date(decision_date.year, decision_date.month, 1)
+    while month_cursor <= decision_month:
+        if month_cursor >= date(paper_start.year, paper_start.month, 1):
+            total_krw += float(monthly_krw)
+        if month_cursor.month == 12:
+            month_cursor = date(month_cursor.year + 1, 1, 1)
+        else:
+            month_cursor = date(month_cursor.year, month_cursor.month + 1, 1)
+    return total_krw / fx_usdkrw
 
 
 @dag(
@@ -123,29 +184,29 @@ def _list_sim_decision_dates(paper_root: Path) -> List[date]:
 def broker_mock_trading_pipeline():
     @task(task_id="load_sim_ledger")
     def load_sim_ledger_task(**context: Any) -> Dict[str, Any]:
-        data_root = Path(os.getenv("PRETREND_DATA_ROOT", "data"))
-        paper_root = data_root / "paper"
+        import logging
 
-        decision_dates = _list_sim_decision_dates(paper_root)
-        if not decision_dates:
+        logger = logging.getLogger(__name__)
+        data_root = Path(os.getenv("PRETREND_DATA_ROOT", "data"))
+        should_skip, skip_reason, bypassed = _should_skip_market_hours()
+        if bypassed:
+            logger.warning("broker market hours check bypassed by BROKER_SKIP_MARKET_HOURS_CHECK=1")
+        if should_skip:
             return {
                 "status": "skipped",
-                "reason": "SIM execution_ledger 없음",
+                "reason": skip_reason or "장외 시간",
                 "decision_date": date.today().isoformat(),
             }
 
-        decision_date = decision_dates[-1]
-        ld_df = load_decision_partition(
-            paper_root / "execution_ledger",
-            decision_date,
-            execution_mode="SIM",
-        )
-        if ld_df is None or ld_df.empty:
+        exposure_df = load_strategy_stage(data_root, "exposure", "trade_date")
+        if exposure_df is None or exposure_df.empty:
             return {
                 "status": "skipped",
-                "reason": f"execution_ledger 비어있음 (decision_date={decision_date})",
-                "decision_date": decision_date.isoformat(),
+                "reason": "strategy exposure 없음",
+                "decision_date": date.today().isoformat(),
             }
+
+        decision_date = pd.to_datetime(exposure_df["trade_date"]).dt.date.max()
 
         now_kst = pendulum.now("Asia/Seoul").date().isoformat()
         return {
@@ -153,7 +214,6 @@ def broker_mock_trading_pipeline():
             "decision_date": decision_date.isoformat(),
             "simulation_date": now_kst,
             "source_job": "broker_mock_trading_dag",
-            "ledger_rows": len(ld_df),
         }
 
     @task(task_id="execute_broker_orders")
@@ -162,7 +222,7 @@ def broker_mock_trading_pipeline():
 
         logger = logging.getLogger(__name__)
         if ledger_meta.get("status") != "ok":
-            return {"status": "skipped", "warnings": [ledger_meta.get("reason", "ledger 없음")]}
+            return {"status": "skipped", "warnings": [ledger_meta.get("reason", "strategy stage 없음")]}
 
         decision_date = date.fromisoformat(str(ledger_meta.get("decision_date")))
         simulation_date = date.fromisoformat(str(ledger_meta.get("simulation_date")))
@@ -175,16 +235,27 @@ def broker_mock_trading_pipeline():
             balance = adapter.get_balance()
             broker_positions = adapter.get_positions()
 
-            ld_df = load_decision_partition(
-                paper_root / "execution_ledger",
-                decision_date,
-                execution_mode="SIM",
+            exposure_df = load_strategy_stage(data_root, "exposure", "trade_date")
+            what_to_hold_df = load_strategy_stage(data_root, "what_to_hold", "rebalance_date")
+            next_step_df = load_next_step_runtime_stage(data_root)
+
+            exposure_row = _latest_row_at_or_before(exposure_df, "trade_date", decision_date)
+            if exposure_row is None:
+                return {
+                    "status": "skipped",
+                    "warnings": [f"exposure 없음 (decision_date={decision_date})"],
+                }
+
+            action = str(exposure_row.get("action", "HOLD")).upper()
+            next_invested_ratio = float(exposure_row.get("next_invested_ratio", 0.0))
+            delta_ratio = float(exposure_row.get("delta_ratio", 0.0))
+            next_row = load_next_step_for_date(next_step_df, decision_date)
+            effective_bias = (
+                str(next_row.get("bias_effective"))
+                if next_row is not None and next_row.get("bias_effective") is not None
+                else str(next_row.get("bias_20d", "UNKNOWN")) if next_row is not None else "UNKNOWN"
             )
-            pos_df = load_decision_partition(
-                paper_root / "positions_daily",
-                decision_date,
-                execution_mode="SIM",
-            )
+            universe_df = _latest_window_at_or_before(what_to_hold_df, "rebalance_date", decision_date)
 
             bootstrap_df = pd.DataFrame(
                 [
@@ -227,9 +298,18 @@ def broker_mock_trading_pipeline():
                     cod_quality.as_dict(),
                 )
 
-            # Market probe: price + orderable info per symbol in ledger
+            # Market probe: price + orderable info per symbol in strategy/broker universe
             probe_rows: List[Dict[str, Any]] = []
-            symbols = sorted({str(s).upper() for s in ld_df.get("symbol", pd.Series(dtype=str)).head(20).tolist() if str(s).strip()})
+            strategy_symbols = set()
+            if not universe_df.empty and "symbol" in universe_df.columns:
+                strategy_symbols.update(
+                    str(s).upper() for s in universe_df["symbol"].tolist() if str(s).strip()
+                )
+            strategy_symbols.update({"SPY", "SCHD", "IAU"})
+            strategy_symbols.update(str(p.symbol).upper() for p in broker_positions)
+            symbols = sorted(strategy_symbols)
+            live_prices: Dict[str, float] = {}
+            planning_warnings: List[str] = []
             for sym in symbols:
                 price_ok = False
                 quote_ok = False
@@ -249,6 +329,8 @@ def broker_mock_trading_pipeline():
                     last_price = float(adapter.get_current_price(sym))
                     price_ok = last_price > 0
                     quote_ok = price_ok
+                    if price_ok:
+                        live_prices[sym] = last_price
                     try:
                         info = adapter.get_orderable_info(sym, exchange_code="NASD", order_price=last_price if last_price > 0 else None)
                         orderable_ccy = info.get("tr_crcy_cd")
@@ -267,6 +349,7 @@ def broker_mock_trading_pipeline():
                         orderable_usd = None
                 except Exception as exc:
                     error_code = str(exc)
+                    planning_warnings.append(f"{sym} live price unavailable: {exc}")
                 probe_rows.append(
                     {
                         "decision_date": decision_date,
@@ -297,68 +380,52 @@ def broker_mock_trading_pipeline():
                 )
             probe_df = pd.DataFrame(probe_rows)
 
-            # Merge probe into candidate_report if available
-            cand_df = load_decision_partition(
-                paper_root / "candidate_report",
-                decision_date,
-                execution_mode="SIM",
+            target_orders_df = build_broker_target_orders(
+                action=action,
+                next_invested_ratio=next_invested_ratio,
+                what_to_hold_df=universe_df,
+                broker_nav_usd=(float(balance.total_value) / float(balance.fx_usdkrw or 1300.0)),
+                broker_positions=broker_positions,
+                live_prices=live_prices,
+                effective_bias=effective_bias,
+                decision_date=decision_date,
+                simulation_date=simulation_date,
+                source_job=source_job,
             )
-            if not cand_df.empty and not probe_df.empty and "symbol" in cand_df.columns:
-                merged = cand_df.merge(
-                    probe_df[
-                        [
-                            "symbol",
-                            "last_price",
-                            "orderable_available",
-                            "orderable_usd",
-                            "orderable_overseas_amt",
-                            "orderable_krw_amt",
-                            "orderable_ccy",
-                            "orderable_exrt",
-                            "orderable_status_code",
-                            "orderable_rt_cd",
-                            "orderable_msg_cd",
-                            "orderable_msg1",
-                            "orderable_error",
-                        ]
-                    ],
-                    on="symbol",
-                    how="left",
-                )
-                save_decision_partition(
-                    merged,
-                    paper_root / "candidate_report",
-                    decision_date,
-                    "candidate_report",
-                    execution_mode="SIM",
-                )
+            ledger_like_df = pd.DataFrame()
+            if not target_orders_df.empty:
+                ledger_like_df = target_orders_df.rename(columns={"qty": "shares"})
 
-            # Execute broker orders from SIM ledger
-            if ld_df.empty:
+            # Execute broker orders from broker target plan
+            if ledger_like_df.empty:
                 orders_df = pd.DataFrame()
                 fills_df = pd.DataFrame()
                 cancelled_df = pd.DataFrame()
-                warnings: List[str] = ["execution_ledger 없음 - broker 주문 생략(잔고/인증 조회는 수행)"]
+                warnings = ["broker target orders 없음 - broker 주문 생략(잔고/인증 조회는 수행)"]
             else:
                 orders_df, fills_df, warnings = execute_from_ledger_rows(
                     adapter,
-                    ledger_df=ld_df.head(20),
+                    ledger_df=ledger_like_df.head(20),
                     decision_date=decision_date,
                     simulation_date=simulation_date,
                     source_job=source_job,
                 )
                 fill_wait_sec = int(os.getenv("BROKER_FILL_WAIT_SEC", "30"))
-                cancelled_df, cancel_warnings = check_and_cancel_unfilled(
+                cancelled_df, fills_df, cancel_warnings = check_and_cancel_unfilled(
                     adapter,
                     orders_df,
+                    fills_df=fills_df,
                     wait_sec=fill_wait_sec,
                 )
                 warnings += cancel_warnings
+            warnings += planning_warnings
 
             broker_positions = adapter.get_positions()
             recon_df = reconcile_positions(
                 broker_positions=broker_positions,
-                paper_positions_df=pos_df,
+                paper_positions_df=pd.DataFrame(
+                    [{"trade_date": decision_date, "symbol": p.symbol, "shares": float(p.quantity)} for p in broker_positions]
+                ),
                 decision_date=decision_date,
                 source_job=source_job,
             )
@@ -453,6 +520,9 @@ def broker_mock_trading_pipeline():
             "decision_date": decision_date.isoformat(),
             "simulation_date": simulation_date.isoformat(),
             "source_job": source_job,
+            "action": action,
+            "next_invested_ratio": next_invested_ratio,
+            "delta_ratio": delta_ratio,
             "orders_count": int(len(orders_df)),
             "fills_count": int(len(fills_df)),
             "cancelled_count": int(len(cancelled_df)),
@@ -498,9 +568,9 @@ def broker_mock_trading_pipeline():
                 decision_date=decision_date_str,
                 simulation_date=simulation_date_str,
                 paper_start_date="N/A",
-                action="HOLD",
-                next_invested_ratio=0.0,
-                delta_ratio=0.0,
+                action=str(broker_meta.get("action", "HOLD")),
+                next_invested_ratio=float(broker_meta.get("next_invested_ratio", 0.0)),
+                delta_ratio=float(broker_meta.get("delta_ratio", 0.0)),
                 initial_capital=float(os.getenv("PAPER_INITIAL_CAPITAL_KRW", "1000000")) / 1300.0,
                 monthly_addition=float(os.getenv("PAPER_MONTHLY_ADDITION_KRW", "300000")) / 1300.0,
                 fx_usdkrw=1300.0,
@@ -536,23 +606,43 @@ def broker_mock_trading_pipeline():
 
         initial_krw = float(os.getenv("PAPER_INITIAL_CAPITAL_KRW", "1000000"))
         monthly_krw = float(os.getenv("PAPER_MONTHLY_ADDITION_KRW", "300000"))
+        paper_start_date = date.fromisoformat(os.getenv("PAPER_START_DATE", "2026-01-01"))
 
-        ld_df = load_decision_partition(
-            data_root / "paper" / "execution_ledger",
+        fills_df = load_decision_partition(
+            data_root / "paper" / "broker_fills",
             decision_date,
-            execution_mode="SIM",
+            execution_mode="MOCK",
         )
         next_step_df = load_next_step_runtime_stage(data_root)
         group_transition_df = load_group_transition_runtime_stage(data_root)
         policy_df = load_strategy_stage(data_root, "policy_selection", "trade_date")
 
-        # action from SIM ledger
-        action = "HOLD"
-        fills: List[str] = ["체결 없음 (HOLD)"]
-        if ld_df is not None and not ld_df.empty:
-            first_action = str(ld_df["action"].iloc[0])
-            action = "INCREASE" if first_action == "BUY" else ("DECREASE" if first_action == "SELL" else "HOLD")
-            fills = [f"{r['symbol']} {r['action']} ${float(r['amount']):,.2f}" for _, r in ld_df.head(10).iterrows()]
+        action = str(broker_meta.get("action", "HOLD")).upper()
+        fills: List[str] = ["실제 broker 체결 없음"]
+        if fills_df is not None and not fills_df.empty:
+            fill_lines: List[str] = []
+            for _, row in fills_df.head(10).iterrows():
+                status = str(row.get("fill_status", "")).upper()
+                if status not in {"FILLED", "PARTIAL_FILLED"}:
+                    continue
+                qty = row.get("actual_filled_qty", row.get("filled_qty", 0))
+                try:
+                    qty = float(qty)
+                except Exception:
+                    qty = 0.0
+                if qty <= 0:
+                    continue
+                side = str(row.get("side", "UNKNOWN")).upper()
+                filled_price = row.get("filled_price")
+                try:
+                    filled_price = float(filled_price) if filled_price is not None else 0.0
+                except Exception:
+                    filled_price = 0.0
+                fill_lines.append(
+                    f"{row.get('symbol')} {side} {int(round(qty))}주 @ ${filled_price:,.2f}"
+                )
+            if fill_lines:
+                fills = fill_lines
 
         # broker NAV from balance
         bal_total = broker_meta.get("balance_total")
@@ -607,13 +697,68 @@ def broker_mock_trading_pipeline():
         else:
             next_ratio = 0.0
 
-        position_changes = [
-            f"브로커 보유종목 {len(broker_raw_positions)}개, 상위 {len(top_positions)}개 표시",
+        total_invested_capital = _estimate_total_invested_capital_usd(
+            paper_start=paper_start_date,
+            decision_date=decision_date,
+            initial_krw=initial_krw,
+            monthly_krw=monthly_krw,
+            fx_usdkrw=fx_usdkrw,
+        )
+        cumulative_pnl = None
+        if (
+            nav_usd is not None
+            and total_invested_capital is not None
+            and float(total_invested_capital) > 0
+        ):
+            cumulative_pnl = (float(nav_usd) - float(total_invested_capital)) / float(total_invested_capital)
+
+        daily_pnl = None
+        previous_nav_usd = None
+        bootstrap_root = data_root / "paper" / "broker_bootstrap"
+        for prior_date in reversed(_list_partition_dates(bootstrap_root)):
+            if prior_date >= decision_date:
+                continue
+            prev_df = load_decision_partition(
+                bootstrap_root,
+                prior_date,
+                execution_mode="MOCK",
+            )
+            if prev_df is None or prev_df.empty:
+                continue
+            prev_total = prev_df.iloc[-1].get("total_value")
+            prev_ccy = str(prev_df.iloc[-1].get("currency", "UNKNOWN")).upper()
+            prev_fx = prev_df.iloc[-1].get("fx_usdkrw")
+            try:
+                if prev_total is not None:
+                    prev_total = float(prev_total)
+                    if prev_ccy == "KRW":
+                        px = float(prev_fx) if prev_fx is not None and float(prev_fx) > 0 else fx_usdkrw
+                        previous_nav_usd = prev_total / px if px > 0 else None
+                    elif prev_ccy == "USD":
+                        previous_nav_usd = prev_total
+            except Exception:
+                previous_nav_usd = None
+            if previous_nav_usd is not None:
+                break
+        if nav_usd is not None:
+            if previous_nav_usd is not None and float(previous_nav_usd) > 0:
+                daily_pnl = (float(nav_usd) - float(previous_nav_usd)) / float(previous_nav_usd)
+            else:
+                daily_pnl = 0.0
+
+        position_changes = []
+        if broker_raw_positions:
+            position_changes.append(f"브로커 보유종목 {len(broker_raw_positions)}개, 상위 {len(top_positions)}개 표시")
+        else:
+            position_changes.append("포지션 없음(당일 미체결 가능성)")
+        position_changes += [
             f"브로커 기준 현금(USD): {cash_usd:,.2f}" if cash_usd is not None else "브로커 기준 현금(USD): N/A",
             f"브로커 주문 {broker_meta.get('orders_count', 0)}건 / 체결 {broker_meta.get('fills_count', 0)}건",
         ]
         risk_warnings = list(broker_meta.get("warnings", []))
-        risk_warnings.append("MOCK 결과는 브로커 실시간 스냅샷 기준(NAV/PnL은 당일 누적 미집계)")
+        risk_warnings.append("MOCK 결과는 브로커 실시간 스냅샷 기준이며 PnL/원금은 근사치입니다")
+        if previous_nav_usd is None:
+            risk_warnings.append("전일 브로커 스냅샷 부재로 당일 수익률은 0.0% 근사치로 표시됩니다")
 
         next_row = load_next_step_for_date(next_step_df, decision_date)
         effective_bias = str(next_row.get("bias_effective")) if next_row is not None and next_row.get("bias_effective") is not None else None
@@ -686,10 +831,10 @@ def broker_mock_trading_pipeline():
             source_job=source_job,
             decision_date=decision_date.isoformat(),
             simulation_date=simulation_date,
-            paper_start_date="N/A",
+            paper_start_date=paper_start_date.isoformat(),
             action=action,
-            next_invested_ratio=next_ratio,
-            delta_ratio=0.0,
+            next_invested_ratio=float(broker_meta.get("next_invested_ratio", next_ratio)),
+            delta_ratio=float(broker_meta.get("delta_ratio", 0.0)),
             initial_capital=initial_krw / fx_usdkrw,
             monthly_addition=monthly_krw / fx_usdkrw,
             fx_usdkrw=fx_usdkrw,
@@ -698,12 +843,12 @@ def broker_mock_trading_pipeline():
             sell_tranches=[0.50, 0.30, 0.20],
             schd_sell_locked=True,
             virtual_fills=fills,
-            daily_pnl=None,
-            cumulative_pnl=None,
+            daily_pnl=daily_pnl,
+            cumulative_pnl=cumulative_pnl,
             position_changes=position_changes,
             risk_warnings=risk_warnings,
             nav=nav_usd,
-            total_invested_capital=None,
+            total_invested_capital=total_invested_capital,
             top_positions=top_positions,
             effective_bias=effective_bias,
             bias_source="SNAPSHOT" if next_row is not None else "UNKNOWN",

@@ -219,29 +219,35 @@ Backtest/Walk-forward 해석 키:
   - `docs/architecture/next_step_signal_contract.md`
   - `docs/architecture/walk_forward_validation_contract.md`
 
-### Paper Broker (KIS 모의투자, 옵션)
-- 기본값: 비활성 (`PAPER_BROKER_ENABLED=0`)
-- 활성 시:
-  - `paper_trading_dag`에서 execution ledger를 broker 주문으로 변환 실행
-  - 저장 경로:
-    - `data/paper/broker_orders/decision_date=...`
-    - `data/paper/broker_fills/decision_date=...`
-    - `data/paper/broker_bootstrap/decision_date=...`
-    - `data/paper/broker_auth/decision_date=...`
-    - `data/paper/fx_daily/decision_date=...`
-    - `data/paper/market_probe/decision_date=...`
-    - `data/paper/candidate_report/decision_date=...`
-    - `data/paper/reconciliation/decision_date=...`
-  - 실패 정책: fail-open (브로커 실패 시 paper 시뮬레이션/Telegram은 계속 진행)
+### Paper Broker (KIS 모의투자 — broker_mock_trading_dag)
+- **DAG**: `broker_mock_trading_dag` (SIM 결과 기반 KIS MOCK 주문 실행, 수동 트리거)
+- **선행**: `paper_trading_dag` SIM 실행 완료 후 해당 날짜의 SIM ledger가 존재해야 함
+- 실행 경로:
+  - `paper_trading_dag` → SIM execution_ledger 저장 (`data/paper/SIM/...`)
+  - `broker_mock_trading_dag` → SIM ledger 읽기 → KIS MOCK 주문 실행 → 결과 저장
+- 저장 경로 (MOCK 전용):
+  - `data/paper/MOCK/broker_orders/decision_date=...`
+  - `data/paper/MOCK/broker_fills/decision_date=...`
+  - `data/paper/MOCK/broker_cancelled/decision_date=...`
+  - `data/paper/MOCK/reconciliation/decision_date=...`
+  - `data/paper/MOCK/broker_bootstrap/decision_date=...`
+  - `data/paper/MOCK/fx_daily/decision_date=...`
+  - `data/paper/MOCK/market_probe/decision_date=...`
+  - `data/paper/MOCK/candidate_report/decision_date=...`
+- 실패 정책: fail-open (브로커 실패 시 Telegram 경고 후 계속 진행)
+- 장 시간 게이트: 미국 ET 09:30~16:00 평일 외 실행 시 `status="skipped"` 반환 — 주문 없이 종료
 - 환경변수:
-  - `PAPER_BROKER_ENABLED=1`
   - `KIS_IS_MOCK=true`
   - `KIS_DRY_RUN=true` (권장 기본)
+  - `BROKER_FILL_WAIT_SEC=30` — 미체결 취소 전 대기 시간(초), 기본 30
+  - `BROKER_SKIP_MARKET_HOURS_CHECK=1` — 장 시간 체크 우회 (테스트/수동 실행 전용)
   - 모의 우선 키: `KIS_MOCK_APP_KEY`, `KIS_MOCK_APP_SECRET`, `KIS_MOCK_ACCOUNT_NO`, `KIS_MOCK_PRODUCT_CODE`, `KIS_MOCK_BASE_URL`
   - 실전 키(준비용): `KIS_LIVE_APP_KEY`, `KIS_LIVE_APP_SECRET`, `KIS_LIVE_ACCOUNT_NO`, `KIS_LIVE_PRODUCT_CODE`, `KIS_LIVE_BASE_URL`
   - 레거시 fallback: `KIS_APP_KEY`, `KIS_APP_SECRET`, `KIS_ACCOUNT_NO`, `KIS_PRODUCT_CODE`, `KIS_BASE_URL`
   - 토큰 정책: 1시간 만료 기준 55분 선제 갱신 + 401/403 시 1회 재발급 재시도
   - 환율 정책: 가능하면 KIS 응답(`fx_usdkrw`) 우선 사용, 없으면 내부 fallback `1300`
+- FAILED- prefix 주문: KIS 오류(장마감, 계좌 한도 등)로 ODNO 미수신 시 `order_id=FAILED-{8자리}` 기록 — fill check/cancel 없이 warn 처리
+- 미체결 취소: ACCEPTED 주문은 `BROKER_FILL_WAIT_SEC` 대기 후 자동 취소, PARTIAL_FILLED는 경고만
 
 ### SIM/MOCK 동시 운영 기준
 - 실행/저장은 SIM과 MOCK를 항상 수행한다.

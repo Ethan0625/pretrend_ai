@@ -339,11 +339,14 @@ def format_paper_result_message(payload: Dict[str, Any]) -> str:
     cum_pnl = payload.get("cumulative_pnl")
     nav = payload.get("nav")
     invested_capital = payload.get("total_invested_capital")
-    lines.append(f"- 당일: {_fmt_pct(daily_pnl) if daily_pnl is not None else '집계 데이터 없음'}")
-    lines.append(f"- 누적: {_fmt_pct(cum_pnl) if cum_pnl is not None else '집계 데이터 없음'}")
+    daily_label = "당일(근사)" if execution_mode == "MOCK" and daily_pnl is not None else "당일"
+    cumulative_label = "누적(근사)" if execution_mode == "MOCK" and cum_pnl is not None else "누적"
+    capital_label = "총투입원금(근사)" if execution_mode == "MOCK" and invested_capital is not None else "총투입원금"
+    lines.append(f"- {daily_label}: {_fmt_pct(daily_pnl) if daily_pnl is not None else '집계 데이터 없음'}")
+    lines.append(f"- {cumulative_label}: {_fmt_pct(cum_pnl) if cum_pnl is not None else '집계 데이터 없음'}")
     lines.append(f"- NAV: {f'${nav:,.2f}' if nav is not None else '집계 데이터 없음'}")
     lines.append(
-        f"- 총투입원금: {f'${invested_capital:,.2f}' if invested_capital is not None else '집계 데이터 없음'}"
+        f"- {capital_label}: {f'${invested_capital:,.2f}' if invested_capital is not None else '집계 데이터 없음'}"
     )
 
     changes = payload.get("position_changes") or ["포지션 변화 없음"]

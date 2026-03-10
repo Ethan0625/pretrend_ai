@@ -273,3 +273,25 @@ def test_format_message_mock_mode_uses_broker_balance_not_sim_capital() -> None:
     assert "Paper 시작일:" not in msg
     assert "초기자금:" not in msg
     assert "월 첫 거래일 DCA:" not in msg
+
+
+def test_format_message_mock_mode_marks_approximate_metrics_and_empty_positions() -> None:
+    payload = build_paper_result_payload(
+        source_job="broker_mock_trading_dag",
+        decision_date="2026-03-06",
+        simulation_date="2026-03-06",
+        action="HOLD",
+        next_invested_ratio=0.0,
+        delta_ratio=0.0,
+        execution_mode="MOCK",
+        daily_pnl=0.0,
+        cumulative_pnl=0.15,
+        total_invested_capital=900.0,
+        nav=1035.0,
+        position_changes=["포지션 없음(당일 미체결 가능성)"],
+    )
+    msg = format_paper_result_message(payload)
+    assert "당일(근사): +0.0%" in msg
+    assert "누적(근사): +15.0%" in msg
+    assert "총투입원금(근사): $900.00" in msg
+    assert "포지션 없음(당일 미체결 가능성)" in msg
