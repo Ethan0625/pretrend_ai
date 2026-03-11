@@ -7,6 +7,275 @@
 
 > 참고: changelog 과거 섹션은 작성 시점 원문을 보존한다.
 
+## v2026.03.11b — P4-8 SCHD floor 정책을 SIM/Mock 실행 경로로 확장
+
+### feat(paper): SIM 실행 경로에 `schd_min_weight=0.20` 적용
+- `src/pretrend/pipeline/paper/execution.py`
+  - `simulate_paper_execution(..., schd_min_weight=0.0)` 추가
+  - SCHD 매도 시 `sim_nav * schd_min_weight` 이하로 내려가는 매도 수량을 차단
+- `dags/paper_trading_dag.py`
+  - `schd_sell_locked=True` 기반 lock 정책을 중단하고
+  - `schd_sell_locked=False`, `schd_min_weight=0.20`으로 전환
+
+### feat(broker): Mock planner에 `schd_min_weight=0.20` 적용
+- `src/pretrend/pipeline/broker/execution_planner.py`
+  - `build_broker_target_orders(..., schd_min_weight=0.0)` 추가
+  - BUY는 `target_usd >= broker_nav_usd * schd_min_weight` 보장
+  - SELL은 SCHD floor 초과분만 허용
+- `dags/broker_mock_trading_dag.py`
+  - 화요일 BUY, 금요일 staged sell 모두 `lock_sell_symbols=["SCHD"]`를 제거하고
+  - `lock_sell_symbols=[]`, `schd_min_weight=0.20` 전달
+
+### ops: broker mock 자동 스케줄 활성화를 위한 env 추가
+- `.env`, `.env.airflow`에 `BROKER_MOCK_AUTO_SCHEDULE_ENABLED=1` 추가
+- `broker_mock_trading_dag.py`의 크론은 기존 구현 유지:
+  - `"40 9 * * 1-5"` (ET 기준 09:40)
+
+### test
+- 추가/확장 검증:
+  - `tests/pipeline/paper/test_execution_soft_gate.py`
+  - `tests/pipeline/broker/test_execution_planner.py`
+  - `tests/dags/test_paper_trading_dag.py`
+  - `tests/dags/test_broker_mock_trading_dag.py`
+- 결과:
+  - leaf 범위 테스트 `48 passed, 3 skipped`
+  - `tests/dags/` `26 passed, 3 skipped`
+
+### 운영 주의
+- 코드와 env 반영은 완료됐지만, Airflow scheduler 재시작은 `sudo` 비밀번호 입력이 필요한 운영 단계다.
+- 따라서 실제 자동 스케줄 활성은 scheduler 재시작 이후 확인해야 한다.
+
+## v2026.03.11a — HYG/LQD EOD 역사 데이터 backfill + credit_stress v3 재실행
+
+### fix(data): HYG/LQD bronze→silver→gold EOD 역사 backfill
+- HYG/LQD가 `OBSERVABILITY_SET_V1`에 포함되어 있었으나 초기 전체 backfill 시 수집이 누락되어 bronze가 2026-02 이후만 존재
+- `eod_job` 으로 2006-01-03 ~ 2026-03-10 전 구간 재수집
+  - HYG: bronze 2007-04-11 ~ 2026-03-10 (상장일 기준), silver/gold 동일 범위
+  - LQD: bronze 2006-01-03 ~ 2026-03-10, silver/gold 동일 범위
+
+### fix(backtest): `credit_stress` 실데이터 기반 재검증 (v3)
+- HYG/LQD backfill 완료 후 `define_slice_masks()`의 `credit_spread_20d` 조건이 정상 작동 확인
+  - `credit_spread_20d.notna().any() = True` → SPY vol 대체 분기 진입하지 않음
+  - 기존 임계값 `< -0.03` 그대로 사용
+- 슬라이스 분석 v3 재실행 결과:
+  - 산출물: `result/backtest_compare/slice_analysis/long_20060103-20240603_v341_vs_floor20_v3.md`
+  - `credit_stress n_windows = 38`, obs_days = 260 (2007-07-25 ~ 2023-04-05)
+  - v3.4.1: `nav_return +0.53%`, `mdd -1.82%`, `post_20d +2.98%`, `post_60d +7.74%`
+  - v3.4.1-schd-floor-20: `nav_return +0.42%`, `mdd -1.27%`, `post_20d +2.42%`, `post_60d +6.35%`
+  - delta(floor-lock): `nav -0.10%`, `MDD +0.55%`, `post_20d -0.56%`, `post_60d -1.39%`
+
+### 해석
+- 신용 경색 구간(HYG-LQD spread < -3%)에서 floor 전략의 MDD 방어 효과 +0.55%p가 8개 슬라이스 중 최대
+- lock 전략이 nav_return 및 사후 회복(post_20d/60d)에서 우세 → SCHD 고비중이 신용 경색 이후 반등에 유리
+- v2(SPY vol 대체) 대비 v3(실데이터)는 n_windows 7→38로 통계적 신뢰도 대폭 향상
+
+## v2026.03.10j — P4-7 credit_stress 슬라이스 보정
+
+### fix(backtest): `credit_stress` 데이터 부재 fallback 추가
+- `src/pretrend/pipeline/backtest/slice_analysis.py`
+  - `load_gold_eod_slice_features()`가 `ret_20d`와 함께 `vol_20d`도 로드
+  - `credit_spread_20d`가 실질적으로 부재하면(`HYG/LQD` 장기 데이터 없음) `credit_stress`를 `SPY vol_20d > 0.025`로 대체
+  - 다른 7개 슬라이스 정의는 유지
+- `tests/pipeline/backtest/test_slice_analysis.py`
+  - `test_define_slices_credit_stress_mask`를 fallback 경로 검증으로 갱신
+
+### 진단 결과
+- 장기 구간(2006-01-03 ~ 2024-06-03)에서 `HYG/LQD` gold EOD는 실질적으로 비어 있었다.
+  - 실제 parquet는 `2026-02`, `2026-03` 2개 파티션만 존재
+  - `ret_20d`도 null
+- 따라서 기존 `credit_spread_20d < -0.03` 정의는 표본 0개를 만들었고, leaf 문서 기준 `Case C`를 채택했다.
+
+### 재실행 결과
+- 산출물:
+  - `result/backtest_compare/slice_analysis/long_20060103-20240603_v341_vs_floor20_v2.md`
+- `credit_stress` 구간: `n_windows = 7`, 날짜 범위 `2008-09-29 ~ 2020-04-29`
+- 핵심 비교:
+  - `v3.4.1`: `nav_return +2.40%`, `mdd -5.94%`, `post_20d +0.75%`
+  - `v3.4.1-schd-floor-20`: `nav_return +3.35%`, `mdd -2.82%`, `post_20d +3.42%`
+
+### 주의사항
+- 현재 `credit_stress`는 HYG/LQD credit spread가 아니라 `SPY vol_20d` 기반 stress proxy다.
+- 향후 HYG/LQD 장기 backfill이 완료되면 원래 정의 복구 여부를 다시 검토해야 한다.
+
+## v2026.03.10i — P4-6 조건부 슬라이스 분석 추가
+
+### feat(backtest): `daily_log.schd_weight` 추가
+- `src/pretrend/pipeline/backtest/runner.py`
+  - `daily_log`에 `schd_weight` 컬럼 추가
+  - 정의: 해당 거래일 `SCHD 평가금액 / NAV`
+  - `SCHD` 미보유 시 `0.0`
+
+### feat(backtest): 조건부 슬라이스 분석 모듈 추가
+- `src/pretrend/pipeline/backtest/slice_analysis.py`
+  - 8개 시장 슬라이스 정의:
+    - `oil_shock`
+    - `rate_shock`
+    - `credit_stress`
+    - `concentration_extreme`
+    - `defensive_stress`
+    - `transition_risk_high`
+    - `oil_rate_shock`
+    - `concentration_transition`
+  - `min_days=3` 연속 구간 window 추출
+  - 전략 비교표 / 차이표 / 샘플 수 체크표 markdown 생성
+- `tests/pipeline/backtest/test_slice_analysis.py`
+  - 슬라이스 정의/윈도우 추출/지표 계산/표 구조 검증 추가
+- `tests/pipeline/backtest/test_runner.py`
+  - `schd_weight` 회귀 검증 2건 추가
+
+### 분석 결과 (장기 구간: 2006-01-03 ~ 2024-06-03)
+- 산출물:
+  - `result/backtest_compare/slice_analysis/long_20060103-20240603_v341_vs_floor20.md`
+- 핵심 해석:
+  - `defensive_stress`, `transition_risk_high`에서는 `v3.4.1-schd-floor-20`이 평균 MDD를 개선하면서 `nav_return`은 동등~소폭 우세
+  - `concentration_extreme`, `concentration_transition`에서는 floor가 방어는 개선하지만 `nav_return`은 lock 대비 소폭 열세
+  - `credit_stress`는 표본 0개, `oil_rate_shock`는 표본 3개로 결론 보류(`*`)
+
+## v2026.03.10h — P4-5b backtest SCHD floor 파라미터 추가
+
+### feat(backtest): `v3.4.1-schd-floor-20` preset 추가 — SCHD 최소 비중 floor 정책
+- `src/pretrend/pipeline/backtest/config.py`
+  - `BacktestConfig`에 `schd_min_weight: float = 0.0` 추가 (기본 0.0 = 현행 lock 동작)
+  - 기존 preset(`v3.4.1`, `v3.4.1-sim`)에 `schd_sell_locked: bool = True` 명시 (하위호환)
+  - `v3.4.1-schd-floor-20` preset 추가 (`schd_min_weight=0.20`, `schd_sell_locked=False`)
+- `src/pretrend/pipeline/backtest/rebalancer.py`
+  - `compute_schd_min_hold_value()` 추가 — SCHD 현재가 × floor 수량 계산
+- `src/pretrend/pipeline/backtest/portfolio.py`
+  - `rebalance_to_weights(..., min_hold_values={})` 추가 — floor 이하 매도 차단/캡
+- `src/pretrend/pipeline/backtest/runner.py`
+  - monthly rebalance / staged sell 경로에 SCHD floor 적용
+- `src/pretrend/pipeline/backtest/allocation.py`
+  - `v3.4.1-schd-floor-20` dispatch registry 추가
+
+### test(backtest): SCHD floor 로직 검증
+- `tests/pipeline/backtest/test_rebalancer.py` — floor 계산 + 매도 캡 로직 테스트
+- `tests/pipeline/backtest/test_allocation_v3.py` — dispatch 경로 검증
+
+### 비교 결과 (2006-01-03 ~ 2024-06-03)
+- `v3.4.1` (SCHD lock): XIRR `+8.85%`, MDD `-24.79%`, Sharpe `1.63`, 평균 SCHD 비중 `68.35%`
+- `v3.4.1-schd-floor-20` (SCHD floor 20%): XIRR `+6.59%`, MDD `-14.43%`, Sharpe `1.71`, 평균 SCHD 비중 `7.93%`
+- 차이 (`floor - lock`): XIRR `-2.25%p`, MDD `+10.36%p` 개선, Sharpe `+0.07`
+
+### 운영 해석
+- SCHD floor 정책은 방어지표(MDD -10.36%p 개선, Sharpe +0.07) 우세지만 수익지표(XIRR -2.25%p) 악화
+- 전체 장기 비교만으로는 정책 결정 불충분 → P4-6 조건부 슬라이스 분석으로 국면별 비교 예정
+
+### 주의사항
+- 전체 pytest: 2 failed (기존 문서 smoke 실패 — P4-5b 범위 외, 영향 없음)
+  - `test_universe_stock_extension_section_exists`
+  - `test_execution_research_grain_isolation_defined`
+
+## v2026.03.10g — P4-5a backtest SIM 방식 preset 추가
+
+### feat(backtest): `v3.4.1-sim` preset 추가
+- `src/pretrend/pipeline/backtest/config.py`
+  - `BacktestPreset`, `BacktestConfig`에 `monthly_rebalance: bool = True` 추가
+  - 신규 preset `v3.4.1-sim` 추가 (`monthly_rebalance=False`)
+- `src/pretrend/pipeline/backtest/runner.py`
+  - 월 첫 거래일 로직을 분리:
+    - DCA(`monthly_addition`)는 항상 수행
+    - 전면 리밸런싱은 `monthly_rebalance=True`일 때만 수행
+- `src/pretrend/pipeline/backtest/allocation.py`
+  - `v3.4.1-sim`을 allocation dispatch registry에 연결
+
+### test(backtest): SIM 방식 회귀 검증 추가
+- `tests/pipeline/backtest/test_runner.py`
+  - `monthly_rebalance=False` 시 월 첫 거래일 전면 리밸런싱 미발생 + DCA 유지 검증
+  - `monthly_rebalance=True` 기본 동작 유지 검증
+- `tests/pipeline/backtest/test_allocation_v3.py`
+  - `v3.4.1-sim` dispatch가 `compute_allocation_v3` 경로를 타는지 검증
+
+### 비교 결과 (2006-01-03 ~ 2024-06-03)
+- `v3.4.1`: XIRR `+7.33%`, MDD `-16.11%`, Sharpe `1.69`
+- `v3.4.1-sim`: XIRR `+6.92%`, MDD `-26.88%`, Sharpe `1.67`
+- 차이 (`sim - base`):
+  - XIRR `-0.41%p`
+  - MDD `-10.77%p`
+  - Sharpe `-0.02`
+
+### 운영 해석
+- SIM 방식(monthly_rebalance=False)은 월간 전면 리밸런싱을 제거해 거래 수가 줄지만, 장기 구간에서 최대낙폭이 크게 악화됐다.
+- 따라서 P4-5 상위 판단 기준상 "SIM 방식 성과 ≪ 월간 리밸런싱 성과"에 해당하며, SIM 경로의 월간 리밸런싱 추가 여부를 검토할 정량 근거가 확보됐다.
+
+## v2026.03.10f — P4-4 broker_mock 실행 규칙 정합
+
+### feat(broker-dag): broker_mock에 SIM 동일 요일 규칙 적용
+- `dags/broker_mock_trading_dag.py`
+  - ET 기준 weekday 분기 추가
+    - 월요일: 평가-only, 주문 없음
+    - 화요일: INCREASE 경로에서 `allow_sell=False`
+    - 수/목: HOLD
+    - 금요일: DECREASE 경로에서 staged sell 실행
+  - `lock_sell_symbols=["SCHD"]`를 planner에 전달해 SCHD 매도 금지 적용
+
+### feat(broker-dag): staged sell JSON 영속화 추가
+- `dags/broker_mock_trading_dag.py`
+  - `data/paper/broker_staged_sell/staged_sell_state.json` 저장/로드/삭제 helper 추가
+  - 금요일 DECREASE는 50% → 30% → 20% 트랜치로 나눠 실행
+  - 월요일 신호 반전(`action != DECREASE`) 시 staged sell 상태를 삭제
+  - JSON 파싱 실패는 fail-open(주문 없이 경고)으로 처리
+
+### feat(broker-dag): Level 2 가드레일을 broker_mock INCREASE 경로에 적용
+- `dags/broker_mock_trading_dag.py`
+  - broker bootstrap 이력에서 peak NAV를 집계
+  - `NAV / total_invested_capital < 0.85` 또는 `peak_dd < -0.20`이면 화요일 INCREASE 차단
+  - DECREASE는 가드레일 발동 중에도 허용
+
+### 운영 관측 변화
+- broker_mock는 이제 SIM과 같은 주간 실행 규칙을 따른다.
+- 장중 수동/자동 실행 시:
+  - 월요일에는 주문이 발생하지 않는다.
+  - 화요일에는 매수만 허용된다.
+  - 금요일 DECREASE는 staged sell 상태를 이어받아 순차 매도한다.
+- Telegram/운영 로그에서 Level 2 가드레일 경고가 broker_mock에도 나타날 수 있다.
+
+## v2026.03.10c — P4-3 운영 문서 정합 부분 갱신
+
+### docs(operation): broker_mock 실행 경로를 P4-2 이후 구조로 정렬
+- `docs/operation_guide.md`
+  - `broker_mock_trading_dag` 설명을 `SIM execution_ledger` 입력 기반에서
+    `strategy stages(exposure, what_to_hold, next_step) + broker state` 직접 로드 기반으로 교체
+  - 선행 조건을 `paper_trading_dag` 완료가 아니라 `strategy_engine_dag` 산출물 존재 기준으로 수정
+
+### docs(operation): SIM / broker_mock 실행 모델 차이 명시
+- `docs/operation_guide.md`
+  - 초기 자금, DCA, 가격 소스, 요일 규칙, 분할 매도, SCHD 매도 금지, Level 2 가드레일의
+    SIM vs broker_mock 차이를 표로 정리
+  - P4-4 구현 전 broker_mock의 미정합 항목을 운영 문서에서 명시
+
+### docs(operation): Level 2 운영 경계 절차를 contract §10 기준으로 정합화
+- `docs/operation_guide.md`
+  - 구 기준 `NAV < 초기자금의 70%`, `PANIC 5연속 hard stop` 제거
+  - 계약 기준으로 교체:
+    - `NAV / total_invested_capital < 0.85`
+    - `ATH 대비 낙폭 < -0.20`
+    - `PANIC streak >= 5`는 경고만
+  - 발동 시 `INCREASE` 차단 / `DECREASE` 허용 / DCA 유지 / `guardrail_paused=True` / Telegram risk warning 명시
+
+### docs(context): STABLE_CONTEXT.md §5 broker_mock 설명 갱신
+- `.agent/STABLE_CONTEXT.md`
+  - `broker_mock_trading_dag` 설명을 SIM execution_ledger 기반에서 strategy stages 직접 읽기 기반으로 교체 (P4-2 이후 구조 반영)
+  - SIM과 broker_mock의 초기 자금 / DCA / 가격 소스 / 요일 규칙 / 분할 매도 / SCHD 매도 금지 / Level 2 가드레일 차이 요약 추가 (P4-4 구현 전 gap 명시)
+
+## v2026.03.10d — P4-4a execution_planner API 확장 (allow_sell / lock_sell_symbols)
+
+### feat(broker): build_broker_target_orders() 에 allow_sell, lock_sell_symbols 파라미터 추가
+- `src/pretrend/pipeline/broker/execution_planner.py`
+  - `allow_sell: bool = True` 파라미터 추가 — `False` 시 반환 DataFrame에서 action=="SELL" 행 전체 제거
+  - `lock_sell_symbols: Sequence[str] = ()` 파라미터 추가 — 지정 심볼의 SELL 행만 선택적으로 제거
+  - `next_invested_ratio <= 0.0`인 TARGET_ZERO 경로에도 동일 필터 적용
+  - 기본값 `allow_sell=True`, `lock_sell_symbols=()` — 기존 호출자 영향 없음 (backward compat 유지)
+- `tests/pipeline/broker/test_execution_planner.py`
+  - 신규 테스트 4개 추가:
+    - `test_allow_sell_false_no_sell_orders`
+    - `test_allow_sell_true_default_behavior`
+    - `test_lock_sell_symbols_excludes_schd`
+    - `test_lock_sell_symbols_target_zero_excludes_locked`
+
+### 운영 관측 변화
+- P4-4b에서 broker_mock_trading_dag가 `allow_sell=False`(화요일), `lock_sell_symbols=["SCHD"]`를 전달하는 API가 준비됨
+- 기존 DAG 호출 코드는 파라미터 추가 없이 기존과 동일하게 동작
+
 ## v2026.03.10b — P4-2 Broker 독립 실행 계획 (SIM 의존 제거)
 
 ### feat(broker): Broker 실행 플래너 — strategy stages 기반 독립 주문 계획
@@ -2119,3 +2388,25 @@ print_phase_distribution(policy_df, group_by="year")
 - `broker_mock_trading_dag`가 더 이상 SIM `execution_ledger`를 입력으로 사용하지 않도록 변경했다.
 - broker 주문은 strategy stages(`exposure`, `what_to_hold`, `next_step`) + broker 실시간 상태를 직접 읽어 `build_broker_target_orders()`로 계산한다.
 - MOCK Telegram의 `virtual_fills`는 SIM 계획 행이 아니라 `broker_fills` 기준 실제 broker 체결 요약으로 표시된다.
+
+### Backtest SIM/SCHD 정책 비교 확장
+- `v3.4.1-sim` preset을 추가해 월간 전면 리밸런싱이 없는 SIM 방식 backtest를 별도 비교 가능하게 했다.
+- `BacktestConfig`에 `schd_min_weight`를 추가하고, `v3.4.1-schd-floor-20` preset으로 SCHD 최소 비중 floor 정책을 검증할 수 있게 했다.
+- 장기 구간(`2006-01-03 ~ 2024-06-03`) 비교 결과:
+  - `v3.4.1`: XIRR `+8.85%`, MDD `-24.79%`, Sharpe `1.63`
+  - `v3.4.1-sim`: XIRR `+6.92%`, MDD `-26.88%`, Sharpe `1.67`
+  - `v3.4.1-schd-floor-20`: XIRR `+6.59%`, MDD `-14.43%`, Sharpe `1.71`
+- 해석:
+  - SIM 방식은 XIRR 차이는 제한적이지만 장기 MDD가 크게 악화돼 현행 월간 리밸런싱 대체안으로는 부적합하다.
+  - SCHD floor 정책은 MDD/Sharpe 개선과 XIRR/CAGR 악화의 trade-off를 보였고, 운영 채택은 별도 정책 판단이 필요하다.
+
+## 2026-03-11
+
+### ^VIX EOD Observability 편입
+- `OBSERVABILITY_SET_V1`에 `^VIX`를 `VOLATILITY_INDEX` 그룹으로 추가했다.
+- `^VIX`는 매매 대상이 아니라 Short Engine v1.2의 `vix_extreme` 연구/판정용 implied volatility 센서로만 사용한다.
+- `eod_observability_contract.md`의 enum과 instrument table도 `39 ETFs + 1 Volatility Index` 기준으로 동기화했다.
+
+### ^VIX 전체 구간 Backfill 완료
+- `eod_job --start 2004-01-02 --end 2026-03-10 --symbols "^VIX"` 실행으로 Bronze/Silver/Gold 전체 구간 백필을 완료했다.
+- Gold 산출물은 `data/gold/eod/eod_features/symbol=^VIX/`에 저장되며, `adj_close`, `ret_1d`, `vol_20d`, `ma_20` 등 P5-1b step 연구용 컬럼을 포함한다.

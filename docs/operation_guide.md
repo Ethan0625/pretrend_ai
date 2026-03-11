@@ -220,11 +220,13 @@ Backtest/Walk-forward 해석 키:
   - `docs/architecture/walk_forward_validation_contract.md`
 
 ### Paper Broker (KIS 모의투자 — broker_mock_trading_dag)
-- **DAG**: `broker_mock_trading_dag` (SIM 결과 기반 KIS MOCK 주문 실행, 수동 트리거)
-- **선행**: `paper_trading_dag` SIM 실행 완료 후 해당 날짜의 SIM ledger가 존재해야 함
+- **DAG**: `broker_mock_trading_dag` (strategy stages + broker state 기반 KIS MOCK 주문 실행, 수동 트리거)
+- **선행**: `strategy_engine_dag` 실행 완료 후 해당 날짜의 strategy stages(`exposure`, `what_to_hold`, `next_step`)가 존재해야 함
 - 실행 경로:
-  - `paper_trading_dag` → SIM execution_ledger 저장 (`data/paper/SIM/...`)
-  - `broker_mock_trading_dag` → SIM ledger 읽기 → KIS MOCK 주문 실행 → 결과 저장
+  - `strategy_engine_dag` → strategy stages 저장 (`data/strategy/...`)
+  - `broker_mock_trading_dag` → strategy stages 직접 로드
+  - `build_broker_target_orders()` → broker 잔고/현재가 기반 목표 수량 계산
+  - KIS MOCK 주문 실행 → 결과 저장
 - 저장 경로 (MOCK 전용):
   - `data/paper/MOCK/broker_orders/decision_date=...`
   - `data/paper/MOCK/broker_fills/decision_date=...`
@@ -256,6 +258,18 @@ Backtest/Walk-forward 해석 키:
   - `mock`: MOCK 상세 1건
   - `compare`: 비교 요약 1건 + SIM 상세 1건 + MOCK 상세 1건
   - `off`: 미발송
+### SIM / broker_mock 실행 모델 차이
+
+| 항목 | SIM | broker_mock |
+| --- | --- | --- |
+| 초기 자금 | `PAPER_INITIAL_CAPITAL_KRW` (기본 1,000,000원) | KIS 실제 잔고 |
+| DCA | 월 첫 거래일 `PAPER_MONTHLY_ADDITION_KRW` 자동 주입 | 없음 (실제 입금으로 관리) |
+| 가격 소스 | Gold EOD `adj_close` (전날 종가) | KIS 실시간 현재가 |
+| 요일 실행 규칙 | 화=`INCREASE`, 금=`DECREASE` | P4-4 구현 전: 신호 기반 즉시 실행 |
+| 분할 매도 | `50% -> 30% -> 20%` staged sell | P4-4 구현 전: 없음 |
+| SCHD 매도 금지 | 적용 | P4-4 구현 전: 없음 |
+| Level 2 가드레일 | `NAV/TC < 0.85`, `ATH 낙폭 < -0.20` 시 INCREASE 차단 | P4-4 구현 전: 없음 |
+
 - 혼동 방지 식별 필드:
   - `execution_mode` (`SIM`, `MOCK`)
   - `capital_source` (`ENV_SIM`, `BROKER_BALANCE`)
@@ -264,17 +278,22 @@ Backtest/Walk-forward 해석 키:
 
 ### Level 2 운영 경계 절차
 - 중단 트리거:
-  - `NAV < 초기자금의 70%`
-  - `short_signal=PANIC` 5거래일 연속
+  - `NAV / total_invested_capital < 0.85` (누적 투입원금 대비 -15%)
+  - `(NAV - peak_NAV) / peak_NAV < -0.20` (ATH 대비 -20% 낙폭)
+  - `PANIC streak >= 5`는 경고만 발송 (hard stop 아님)
 - 중단 시 조치:
-  - Paper 결과 전송은 유지하되, 운영 상태를 `PAUSED`로 기록
-  - 재진입(매수 확대) 판단은 운영자 수동 승인 전까지 보류
+  - `INCREASE` 실행 차단 (Tuesday 매수 스킵)
+  - `DECREASE`는 허용 (추가 손실 방지 목적 매도는 계속)
+  - DCA 현금 주입 유지
+  - `guardrail_paused=True` 기록
+  - Telegram `risk_warnings`에 `🚨 Level 2 가드레일 발동` 포함
 - 재개 조건:
-  - 최근 5거래일 NAV가 중단 임계 상회
-  - PANIC 연속 해소 + 운영자 승인 완료
+  - `NAV / total_invested_capital >= 0.90`
+  - `ATH 대비 낙폭 >= -0.15`
 - 승인 포인트:
-  - `DECREASE` 3회 연속 후 첫 `INCREASE` 시도 구간
-  - `run_universe` 하드게이트 복귀 직후 첫 주간 판단
+  - 별도 수동 승인 없이 자동 복귀를 기본으로 한다.
+
+※ 임계값 근거: `docs/architecture/paper_execution_ledger_contract.md §10` (백테스트 2006~2024 실증)
 
 ## Walk-Forward 실행
 - v2 4년 창 / 2년 슬라이드 실행:
