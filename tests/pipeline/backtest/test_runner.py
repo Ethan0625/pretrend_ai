@@ -5,6 +5,7 @@ import pandas as pd
 import pytest
 
 from pretrend.pipeline.backtest.config import BacktestConfig
+from pretrend.pipeline.backtest.portfolio import Portfolio
 from pretrend.pipeline.backtest.runner import BacktestRunner, StagedSellPlan
 from pretrend.pipeline.backtest.allocation import compute_allocation_v1
 
@@ -117,6 +118,42 @@ class TestBacktestRunner:
         assert len(result.benchmark_nav) == 10
         assert result.benchmark_nav.iloc[0] == pytest.approx(1000.0, abs=10.0)
 
+    def test_daily_log_includes_schd_weight(self, mini_data):
+        config = BacktestConfig(
+            start_date=date(2012, 1, 3),
+            end_date=date(2012, 1, 16),
+            initial_capital=1000.0,
+            monthly_addition=0.0,
+            data_root=mini_data,
+        )
+        result = BacktestRunner().run(config)
+
+        assert "schd_weight" in result.daily_log.columns
+        assert result.daily_log["schd_weight"].iloc[0] > 0.0
+
+    def test_daily_log_schd_weight_zero_when_no_position(self, tmp_path):
+        dates = pd.bdate_range("2008-01-02", periods=5).date
+        rows = []
+        for d in dates:
+            rows.append({"symbol": "SPY", "trade_date": d, "adj_close": 140.0})
+            rows.append({"symbol": "IAU", "trade_date": d, "adj_close": 18.0})
+
+        eod_dir = tmp_path / "gold" / "eod" / "eod_features"
+        eod_dir.mkdir(parents=True)
+        pd.DataFrame(rows).to_parquet(eod_dir / "pre_schd.parquet", index=False)
+
+        config = BacktestConfig(
+            start_date=date(2008, 1, 2),
+            end_date=date(2008, 1, 8),
+            initial_capital=1000.0,
+            monthly_addition=0.0,
+            data_root=tmp_path,
+        )
+        result = BacktestRunner().run(config)
+
+        assert "schd_weight" in result.daily_log.columns
+        assert result.daily_log["schd_weight"].eq(0.0).all()
+
     def test_no_data(self, tmp_path):
         eod_dir = tmp_path / "gold" / "eod" / "eod_features"
         eod_dir.mkdir(parents=True)
@@ -157,6 +194,144 @@ class TestBacktestRunner:
         assert "SPY" in buy_symbols
         assert "IAU" in buy_symbols
         assert "SCHD" not in buy_symbols
+
+    def test_monthly_rebalance_false_skips_rebalance_but_keeps_dca(self, tmp_path, monkeypatch):
+        dates = pd.bdate_range("2012-01-23", periods=10).date  # includes Monday before month boundary
+        rows = []
+        for i, d in enumerate(dates):
+            rows.append({"symbol": "SPY", "trade_date": d, "adj_close": 130.0 + i})
+            rows.append({"symbol": "IAU", "trade_date": d, "adj_close": 16.0 + i * 0.1})
+            rows.append({"symbol": "SCHD", "trade_date": d, "adj_close": 25.0 + i * 0.2})
+
+        eod_dir = tmp_path / "gold" / "eod" / "eod_features"
+        eod_dir.mkdir(parents=True)
+        pd.DataFrame(rows).to_parquet(eod_dir / "cross_month.parquet", index=False)
+
+        ps_rows = []
+        alloc_rows = []
+        for d in dates:
+            ps_rows.append({
+                "trade_date": d,
+                "long_phase": "EXPANSION",
+                "mid_regime": "RISK_ON",
+                "short_signal": "NEUTRAL",
+                "run_universe": True,
+                "risk_gate": True,
+                "policy_profile_id": "RC_V0_DEFAULT",
+                "target_invested_lower": 0.10,
+                "target_invested_upper": 0.60,
+                "adjustment_limit": 0.10,
+                "step_size": 0.05,
+                "policy_version": "v0",
+                "notes": "",
+                "source_run_id": "test",
+            })
+            alloc_rows.append({
+                "trade_date": d,
+                "action": "HOLD",
+                "next_invested_ratio": 0.60,
+                "delta_ratio": 0.0,
+                "blocked_by_risk_gate": False,
+                "notes": "",
+            })
+        ps_dir = tmp_path / "strategy" / "policy_selection" / "decision_date=2012-02-03"
+        ps_dir.mkdir(parents=True)
+        pd.DataFrame(ps_rows).to_parquet(ps_dir / "policy_selection_20120203.parquet", index=False)
+        alloc_dir = tmp_path / "strategy" / "exposure" / "decision_date=2012-02-03"
+        alloc_dir.mkdir(parents=True)
+        pd.DataFrame(alloc_rows).to_parquet(alloc_dir / "exposure_20120203.parquet", index=False)
+
+        calls = {"count": 0}
+        original = Portfolio.rebalance_to_weights
+
+        def _counting_rebalance(self, *args, **kwargs):
+            calls["count"] += 1
+            return original(self, *args, **kwargs)
+
+        monkeypatch.setattr(Portfolio, "rebalance_to_weights", _counting_rebalance)
+
+        config = BacktestConfig(
+            start_date=date(2012, 1, 23),
+            end_date=date(2012, 2, 3),
+            initial_capital=1000.0,
+            monthly_addition=300.0,
+            monthly_rebalance=False,
+            data_root=tmp_path,
+        )
+        result = BacktestRunner().run(config)
+
+        assert calls["count"] == 0
+        assert result.total_capital_injected == pytest.approx(300.0)
+        feb_row = result.daily_log.loc[pd.Timestamp("2012-02-01")]
+        assert feb_row["cash"] >= 300.0
+
+    def test_monthly_rebalance_true_keeps_default_behavior(self, tmp_path, monkeypatch):
+        dates = pd.bdate_range("2012-01-23", periods=10).date
+        rows = []
+        for i, d in enumerate(dates):
+            rows.append({"symbol": "SPY", "trade_date": d, "adj_close": 130.0 + i})
+            rows.append({"symbol": "IAU", "trade_date": d, "adj_close": 16.0 + i * 0.1})
+            rows.append({"symbol": "SCHD", "trade_date": d, "adj_close": 25.0 + i * 0.2})
+
+        eod_dir = tmp_path / "gold" / "eod" / "eod_features"
+        eod_dir.mkdir(parents=True)
+        pd.DataFrame(rows).to_parquet(eod_dir / "cross_month.parquet", index=False)
+
+        ps_rows = []
+        alloc_rows = []
+        for d in dates:
+            ps_rows.append({
+                "trade_date": d,
+                "long_phase": "EXPANSION",
+                "mid_regime": "RISK_ON",
+                "short_signal": "NEUTRAL",
+                "run_universe": True,
+                "risk_gate": True,
+                "policy_profile_id": "RC_V0_DEFAULT",
+                "target_invested_lower": 0.10,
+                "target_invested_upper": 0.60,
+                "adjustment_limit": 0.10,
+                "step_size": 0.05,
+                "policy_version": "v0",
+                "notes": "",
+                "source_run_id": "test",
+            })
+            alloc_rows.append({
+                "trade_date": d,
+                "action": "HOLD",
+                "next_invested_ratio": 0.60,
+                "delta_ratio": 0.0,
+                "blocked_by_risk_gate": False,
+                "notes": "",
+            })
+        ps_dir = tmp_path / "strategy" / "policy_selection" / "decision_date=2012-02-03"
+        ps_dir.mkdir(parents=True)
+        pd.DataFrame(ps_rows).to_parquet(ps_dir / "policy_selection_20120203.parquet", index=False)
+        alloc_dir = tmp_path / "strategy" / "exposure" / "decision_date=2012-02-03"
+        alloc_dir.mkdir(parents=True)
+        pd.DataFrame(alloc_rows).to_parquet(alloc_dir / "exposure_20120203.parquet", index=False)
+
+        calls = {"count": 0}
+        original = Portfolio.rebalance_to_weights
+
+        def _counting_rebalance(self, *args, **kwargs):
+            calls["count"] += 1
+            return original(self, *args, **kwargs)
+
+        monkeypatch.setattr(Portfolio, "rebalance_to_weights", _counting_rebalance)
+
+        config = BacktestConfig(
+            start_date=date(2012, 1, 23),
+            end_date=date(2012, 2, 3),
+            initial_capital=1000.0,
+            monthly_addition=300.0,
+            monthly_rebalance=True,
+            data_root=tmp_path,
+        )
+        result = BacktestRunner().run(config)
+
+        assert calls["count"] >= 2
+        assert result.total_capital_injected == pytest.approx(300.0)
 
 
 # ── v1 Target-Seeking Allocation 단위 테스트 ──────────────────

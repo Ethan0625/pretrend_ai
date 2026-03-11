@@ -57,6 +57,32 @@ def compute_target_weights(
     return target_invested_ratio, weights
 
 
+def compute_schd_min_hold_value(
+    portfolio,
+    prices: Dict[str, float],
+    config: BacktestConfig,
+) -> float:
+    """현재 포트폴리오 기준 SCHD 최소 유지 금액(USD)을 계산한다.
+
+    - schd_min_weight > 0.0: floor 방식
+    - schd_min_weight == 0.0 and schd_sell_locked=True: 현행 절대 금지
+    - 그 외: 보호 금액 없음
+    """
+    schd_price = prices.get("SCHD", 0.0)
+    schd_pos = getattr(portfolio, "positions", {}).get("SCHD")
+    if schd_price <= 0 or schd_pos is None or schd_pos.shares <= 0:
+        return 0.0
+
+    schd_value = schd_pos.market_value(schd_price)
+    if config.schd_min_weight > 0.0:
+        total_nav = portfolio.total_value(prices)
+        floor_value = total_nav * config.schd_min_weight
+        return min(schd_value, floor_value)
+    if config.schd_sell_locked:
+        return schd_value
+    return 0.0
+
+
 def _should_run_tactical(policy_row: Optional[pd.Series]) -> bool:
     """전술 포지션 교체 조건 충족 여부.
 

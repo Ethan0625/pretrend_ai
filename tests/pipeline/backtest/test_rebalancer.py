@@ -7,11 +7,13 @@ import pytest
 from pretrend.pipeline.backtest.config import BacktestConfig
 from pretrend.pipeline.backtest.rebalancer import (
     compute_target_weights,
+    compute_schd_min_hold_value,
     is_rebalance_day,
     _should_run_tactical,
     _pick_tactical,
     _apply_tactical,
 )
+from pretrend.pipeline.backtest.portfolio import Portfolio
 
 
 @pytest.fixture
@@ -175,6 +177,77 @@ class TestComputeTargetWeights:
         )
         assert "SCHD" not in weights
         assert weights == {"DVY": 0.25, "VIG": 0.25, "SPY": 0.30, "IAU": 0.20}
+
+
+class TestSchdMinHold:
+    def test_schd_min_weight_zero_same_as_locked(self, default_config):
+        portfolio = Portfolio(cash=300.0)
+        portfolio.buy("SCHD", 300.0, 30.0)
+        prices = {"SCHD": 30.0}
+
+        locked_cfg = BacktestConfig(
+            start_date=default_config.start_date,
+            end_date=default_config.end_date,
+            schd_sell_locked=True,
+            schd_min_weight=0.0,
+        )
+        unlocked_cfg = BacktestConfig(
+            start_date=default_config.start_date,
+            end_date=default_config.end_date,
+            schd_sell_locked=False,
+            schd_min_weight=0.0,
+        )
+
+        assert compute_schd_min_hold_value(portfolio, prices, locked_cfg) == pytest.approx(300.0)
+        assert compute_schd_min_hold_value(portfolio, prices, unlocked_cfg) == pytest.approx(0.0)
+
+    def test_schd_min_weight_floor_blocks_sell_below_floor(self, default_config):
+        portfolio = Portfolio(cash=850.0)
+        portfolio.buy("SCHD", 150.0, 30.0)  # SCHD=150, NAV=850, weight≈17.6%
+        prices = {"SCHD": 30.0}
+        cfg = BacktestConfig(
+            start_date=default_config.start_date,
+            end_date=default_config.end_date,
+            schd_sell_locked=False,
+            schd_min_weight=0.20,
+        )
+        min_hold = compute_schd_min_hold_value(portfolio, prices, cfg)
+
+        trades = portfolio.rebalance_to_weights(
+            {"SCHD": 0.0},
+            prices,
+            target_invested_amount=0.0,
+            trade_date=date(2024, 1, 2),
+            min_hold_values={"SCHD": min_hold},
+        )
+
+        assert [t for t in trades if t.symbol == "SCHD" and t.action == "SELL"] == []
+        assert portfolio.positions["SCHD"].market_value(prices["SCHD"]) == pytest.approx(150.0)
+
+    def test_schd_min_weight_floor_allows_sell_above_floor(self, default_config):
+        portfolio = Portfolio(cash=1000.0)
+        portfolio.buy("SCHD", 300.0, 30.0)  # SCHD=300, NAV=1000, floor=200
+        prices = {"SCHD": 30.0}
+        cfg = BacktestConfig(
+            start_date=default_config.start_date,
+            end_date=default_config.end_date,
+            schd_sell_locked=False,
+            schd_min_weight=0.20,
+        )
+        min_hold = compute_schd_min_hold_value(portfolio, prices, cfg)
+
+        trades = portfolio.rebalance_to_weights(
+            {"SCHD": 0.0},
+            prices,
+            target_invested_amount=0.0,
+            trade_date=date(2024, 1, 2),
+            min_hold_values={"SCHD": min_hold},
+        )
+
+        schd_sells = [t for t in trades if t.symbol == "SCHD" and t.action == "SELL"]
+        assert len(schd_sells) == 1
+        assert schd_sells[0].amount == pytest.approx(100.0)
+        assert portfolio.positions["SCHD"].market_value(prices["SCHD"]) == pytest.approx(200.0)
 
 
 # ── Tactical v1 테스트 ────────────────────────────────────

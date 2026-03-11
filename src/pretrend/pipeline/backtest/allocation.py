@@ -247,6 +247,8 @@ ALLOCATION_REGISTRY: Dict[str, Callable] = {
     "v3.3": compute_allocation_v3,
     "v3.4": compute_allocation_v3,
     "v3.4.1": compute_allocation_v3,
+    "v3.4.1-sim": compute_allocation_v3,
+    "v3.4.1-schd-floor-20": compute_allocation_v3,
     "v3.4.2-phase": compute_allocation_v3,
     "v3.4.2a": compute_allocation_v3,
 }

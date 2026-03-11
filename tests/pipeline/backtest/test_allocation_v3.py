@@ -138,6 +138,53 @@ def test_v341_dispatch_uses_v3_logic_with_effective_bias() -> None:
     assert result["action"] == "HOLD"
 
 
+def test_v341_sim_dispatch_uses_same_v3_logic_with_effective_bias() -> None:
+    assert "v3.4.1-sim" in PRESET_REGISTRY
+    cfg = BacktestConfig.from_preset("v3.4.1-sim", start_date=date(2012, 1, 3), end_date=date(2024, 6, 3))
+    row = pd.Series(
+        {
+            "long_phase": "EXPANSION",
+            "mid_regime": "RISK_ON",
+            "next_step_bias_20d": "RISK_ON_BIAS",
+            "next_step_bias_effective": "RISK_OFF_BIAS",
+            "risk_gate": True,
+            "run_universe": True,
+        }
+    )
+    result = dispatch_allocation("v3.4.1-sim", 0.78, row, cfg)
+    assert result["action"] == "HOLD"
+
+
+def test_v341_schd_floor_20_preset_registered() -> None:
+    assert "v3.4.1-schd-floor-20" in PRESET_REGISTRY
+    result = dispatch_allocation(
+        "v3.4.1-schd-floor-20",
+        0.78,
+        pd.Series(
+            {
+                "long_phase": "EXPANSION",
+                "mid_regime": "RISK_ON",
+                "next_step_bias_effective": "RISK_OFF_BIAS",
+                "risk_gate": True,
+                "run_universe": True,
+            }
+        ),
+        BacktestConfig.from_preset(
+            "v3.4.1-schd-floor-20",
+            start_date=date(2012, 1, 3),
+            end_date=date(2024, 6, 3),
+        ),
+    )
+    cfg = BacktestConfig.from_preset(
+        "v3.4.1-schd-floor-20",
+        start_date=date(2012, 1, 3),
+        end_date=date(2024, 6, 3),
+    )
+    assert cfg.schd_sell_locked is False
+    assert cfg.schd_min_weight == 0.20
+    assert result["action"] == "HOLD"
+
+
 def test_v342_phase_dispatch_uses_v3_logic_with_effective_bias() -> None:
     assert "v3.4.2-phase" in PRESET_REGISTRY
     cfg = BacktestConfig.from_preset("v3.4.2-phase", start_date=date(2012, 1, 3), end_date=date(2024, 6, 3))

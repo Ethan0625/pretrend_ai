@@ -132,6 +132,7 @@ class Portfolio:
         prices: Dict[str, float],
         target_invested_amount: float,
         trade_date: date,
+        min_hold_values: Optional[Dict[str, float]] = None,
     ) -> List[Trade]:
         """목표 비중으로 리밸런싱.
 
@@ -151,6 +152,7 @@ class Portfolio:
         실행된 Trade 목록.
         """
         trades: List[Trade] = []
+        min_hold_values = min_hold_values or {}
 
         # 목표 포지션 금액
         target_amounts: Dict[str, float] = {}
@@ -169,8 +171,10 @@ class Portfolio:
         for sym in list(self.positions.keys()):
             if sym not in target_weights and sym in prices:
                 cur = current_amounts.get(sym, 0.0)
-                if cur > 0:
-                    t = self.sell(sym, cur, prices[sym])
+                protected_min = max(0.0, float(min_hold_values.get(sym, 0.0)))
+                sell_amt = max(cur - protected_min, 0.0)
+                if sell_amt > 0:
+                    t = self.sell(sym, sell_amt, prices[sym])
                     if t:
                         t.trade_date = trade_date
                         trades.append(t)
@@ -179,7 +183,8 @@ class Portfolio:
         for sym, target_amt in target_amounts.items():
             cur = current_amounts.get(sym, 0.0)
             if cur > target_amt + 0.01:  # 매도 필요
-                sell_amt = cur - target_amt
+                protected_min = max(0.0, float(min_hold_values.get(sym, 0.0)))
+                sell_amt = min(cur - target_amt, max(cur - protected_min, 0.0))
                 t = self.sell(sym, sell_amt, prices[sym])
                 if t:
                     t.trade_date = trade_date

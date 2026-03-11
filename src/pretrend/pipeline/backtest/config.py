@@ -33,6 +33,12 @@ class BacktestPreset:
     target_ratio_map_v3: Optional[Dict[Tuple[str, str], float]] = None
     # DCA: 매월 자금 추가액
     monthly_addition: float = 300.0
+    # 월 첫 거래일 전면 리밸런싱 여부 (False = SIM 방식)
+    monthly_rebalance: bool = True
+    # SCHD 매도 금지 여부 (True = 절대 금지, 단 schd_min_weight > 0이면 floor 방식 우선)
+    schd_sell_locked: bool = False
+    # SCHD 최소 NAV 비중 floor (0.0 = schd_sell_locked 기준, >0 = floor 방식)
+    schd_min_weight: float = 0.0
 
 
 _ALL_TACTICAL_GROUPS = ("SECTOR", "COMMODITY", "BOND", "COUNTRY")
@@ -131,6 +137,29 @@ PRESET_V3_4_1 = BacktestPreset(
     target_ratio_map_v2=None,
     target_ratio_map_v3=dict(PRESET_V2.target_ratio_map_v2 or {}),
     tactical_groups=_ALL_TACTICAL_GROUPS,
+    schd_sell_locked=True,
+)
+
+PRESET_V3_4_1_SIM = BacktestPreset(
+    name="v3.4.1-sim",
+    description="v3.4.1 + SIM mode monthly_rebalance=False (DCA only, no monthly rebalance)",
+    target_ratio_map=None,
+    target_ratio_map_v2=None,
+    target_ratio_map_v3=dict(PRESET_V2.target_ratio_map_v2 or {}),
+    tactical_groups=_ALL_TACTICAL_GROUPS,
+    monthly_rebalance=False,
+    schd_sell_locked=True,
+)
+
+PRESET_V3_4_1_SCHD_FLOOR_20 = BacktestPreset(
+    name="v3.4.1-schd-floor-20",
+    description="v3.4.1 + SCHD minimum NAV weight floor 20%",
+    target_ratio_map=None,
+    target_ratio_map_v2=None,
+    target_ratio_map_v3=dict(PRESET_V2.target_ratio_map_v2 or {}),
+    tactical_groups=_ALL_TACTICAL_GROUPS,
+    schd_sell_locked=False,
+    schd_min_weight=0.20,
 )
 
 PRESET_V3_4_2_PHASE = BacktestPreset(
@@ -140,6 +169,7 @@ PRESET_V3_4_2_PHASE = BacktestPreset(
     target_ratio_map_v2=None,
     target_ratio_map_v3=dict(PRESET_V2.target_ratio_map_v2 or {}),
     tactical_groups=_ALL_TACTICAL_GROUPS,
+    schd_sell_locked=True,
 )
 
 PRESET_V3_4_2A = BacktestPreset(
@@ -149,6 +179,7 @@ PRESET_V3_4_2A = BacktestPreset(
     target_ratio_map_v2=None,
     target_ratio_map_v3=dict(PRESET_V2.target_ratio_map_v2 or {}),
     tactical_groups=_ALL_TACTICAL_GROUPS,
+    schd_sell_locked=True,
 )
 
 PRESET_REGISTRY: Dict[str, BacktestPreset] = {
@@ -161,6 +192,8 @@ PRESET_REGISTRY: Dict[str, BacktestPreset] = {
     "v3.3": PRESET_V3_3,
     "v3.4": PRESET_V3_4,
     "v3.4.1": PRESET_V3_4_1,
+    "v3.4.1-sim": PRESET_V3_4_1_SIM,
+    "v3.4.1-schd-floor-20": PRESET_V3_4_1_SCHD_FLOOR_20,
     "v3.4.2-phase": PRESET_V3_4_2_PHASE,
     "v3.4.2a": PRESET_V3_4_2A,
 }
@@ -205,6 +238,9 @@ class BacktestConfig:
 
     # DCA: 매월 첫 거래일 자금 추가액
     monthly_addition: float = 300.0
+    monthly_rebalance: bool = True
+    schd_sell_locked: bool = False
+    schd_min_weight: float = 0.0
 
     # Allocation v1: 시장 상태 → 목표 투자비율 매핑
     # None = v0 (range-maintenance), dict = v1 (target-seeking)
@@ -238,6 +274,10 @@ class BacktestConfig:
             )
         if self.monthly_addition < 0:
             raise ValueError(f"monthly_addition must be >= 0, got {self.monthly_addition}")
+        if not (0.0 <= self.schd_min_weight <= 1.0):
+            raise ValueError(
+                f"schd_min_weight must be in [0, 1], got {self.schd_min_weight}"
+            )
         if self.target_ratio_map is not None:
             for phase, ratio in self.target_ratio_map.items():
                 if not (0.0 <= ratio <= 1.0):
@@ -287,6 +327,9 @@ class BacktestConfig:
             "tactical_groups": list(preset.tactical_groups),
             "preset_name": preset.name,
             "monthly_addition": preset.monthly_addition,
+            "monthly_rebalance": preset.monthly_rebalance,
+            "schd_sell_locked": preset.schd_sell_locked,
+            "schd_min_weight": preset.schd_min_weight,
         }
         defaults.update(overrides)
         return cls(start_date=start_date, end_date=end_date, **defaults)

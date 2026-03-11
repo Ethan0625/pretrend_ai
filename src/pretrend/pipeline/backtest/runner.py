@@ -31,7 +31,11 @@ from ._utils import load_strategy_snapshot
 from .config import BacktestConfig
 from .metrics import compute_metrics
 from .portfolio import Portfolio, Trade
-from .rebalancer import compute_target_weights, is_first_of_month
+from .rebalancer import (
+    compute_schd_min_hold_value,
+    compute_target_weights,
+    is_first_of_month,
+)
 from .allocation import dispatch_allocation
 from pretrend.pipeline.strategy_engine.universe.engine import build_universe
 
@@ -631,7 +635,7 @@ class BacktestRunner:
                 initialized = True
 
             else:
-                # [2] 월 첫 거래일: DCA 자금 투입 + 월간 리밸런싱
+                # [2] 월 첫 거래일: DCA 자금 투입 + (옵션) 월간 리밸런싱
                 if is_first_of_month(td, prev_date):
                     portfolio.add_cash(config.monthly_addition)
                     benchmark.add_cash(config.monthly_addition)
@@ -642,7 +646,7 @@ class BacktestRunner:
 
                     # 월간 리밸런싱: DCA 후 전체 포트폴리오 재조정 (매도+매수)
                     # schd_transition 진행 중에는 건너뜀 (충돌 방지)
-                    if last_monday_target_weights and schd_transition is None:
+                    if config.monthly_rebalance and last_monday_target_weights and schd_transition is None:
                         if (
                             last_monday_alloc_row is not None
                             and "next_invested_ratio" in last_monday_alloc_row.index
@@ -651,8 +655,14 @@ class BacktestRunner:
                         else:
                             monthly_target_ratio = config.initial_invested_ratio
                         monthly_target_invested = portfolio.total_value(day_prices) * monthly_target_ratio
+                        schd_min_hold = compute_schd_min_hold_value(portfolio, day_prices, config)
+                        min_hold_values = {"SCHD": schd_min_hold} if schd_min_hold > 0 else None
                         monthly_trades = portfolio.rebalance_to_weights(
-                            last_monday_target_weights, day_prices, monthly_target_invested, td,
+                            last_monday_target_weights,
+                            day_prices,
+                            monthly_target_invested,
+                            td,
+                            min_hold_values=min_hold_values,
                         )
                         trade_log.extend(monthly_trades)
                         bm_target_invested = benchmark.total_value(day_prices) * monthly_target_ratio
@@ -871,7 +881,7 @@ class BacktestRunner:
                 if staged_sell is not None:
                     if friday_risk_gate:
                         sell_trades = self._execute_sell_tranche(
-                            portfolio, staged_sell, day_prices, td
+                            portfolio, staged_sell, day_prices, td, config
                         )
                         trade_log.extend(sell_trades)
                         staged_sell.tranche_idx += 1
@@ -886,7 +896,7 @@ class BacktestRunner:
                 if bm_staged_sell is not None:
                     if friday_risk_gate:
                         bm_sell_trades = self._execute_sell_tranche(
-                            benchmark, bm_staged_sell, day_prices, td
+                            benchmark, bm_staged_sell, day_prices, td, config
                         )
                         trade_log.extend(bm_sell_trades)
                         bm_staged_sell.tranche_idx += 1
@@ -918,12 +928,16 @@ class BacktestRunner:
             # [6] 일별 NAV 기록
             nav = portfolio.total_value(day_prices)
             snap = portfolio.snapshot(day_prices)
+            schd_weight = 0.0
+            if nav > 0 and "SCHD" in snap["positions"]:
+                schd_weight = round(snap["positions"]["SCHD"]["value"] / nav, 4)
             daily_rows.append({
                 "trade_date": td,
                 "nav": round(nav, 2),
                 "cash": snap["cash"],
                 "invested": snap["invested"],
                 "invested_ratio": round(snap["invested"] / nav, 4) if nav > 0 else 0.0,
+                "schd_weight": schd_weight,
                 "n_positions": len(snap["positions"]),
             })
 
@@ -1078,6 +1092,7 @@ class BacktestRunner:
         plan: StagedSellPlan,
         prices: Dict[str, float],
         trade_date: date,
+        config: BacktestConfig,
     ) -> List[Trade]:
         """현재 트랜치 매도 실행.
 
@@ -1088,6 +1103,7 @@ class BacktestRunner:
         tranche_ratio = plan.tranches[plan.tranche_idx]
         sell_amount = plan.total_sell_amount * tranche_ratio
         total_invested = portfolio.invested_value(prices)
+        schd_min_hold = compute_schd_min_hold_value(portfolio, prices, config)
 
         if total_invested <= 0 or sell_amount <= 0:
             return trades
@@ -1103,6 +1119,11 @@ class BacktestRunner:
                 sym_current = pos.market_value(prices[sym])
                 sym_target = target_invested_after * target_weights.get(sym, 0.0)
                 sym_sell = max(sym_current - sym_target, 0.0)
+                if sym == "SCHD":
+                    if config.schd_min_weight > 0.0:
+                        sym_sell = min(sym_sell, max(sym_current - schd_min_hold, 0.0))
+                    elif config.schd_sell_locked:
+                        continue
                 if sym_sell < 0.01:
                     continue
                 t = portfolio.sell(sym, sym_sell, prices[sym])
@@ -1117,6 +1138,11 @@ class BacktestRunner:
                 sym_value = pos.market_value(prices[sym])
                 weight = sym_value / total_invested
                 sym_sell = sell_amount * weight
+                if sym == "SCHD":
+                    if config.schd_min_weight > 0.0:
+                        sym_sell = min(sym_sell, max(sym_value - schd_min_hold, 0.0))
+                    elif config.schd_sell_locked:
+                        continue
                 if sym_sell < 0.01:
                     continue
                 t = portfolio.sell(sym, sym_sell, prices[sym])
