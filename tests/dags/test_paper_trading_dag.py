@@ -67,6 +67,13 @@ def test_telegram_mode_policy_is_fixed_in_source() -> None:
     assert "paper_trading_compare" not in text
 
 
+def test_paper_trading_dag_uses_schd_floor_policy() -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+    text = (repo_root / "dags" / "paper_trading_dag.py").read_text(encoding="utf-8")
+    assert "schd_sell_locked=False" in text
+    assert "schd_min_weight=0.20" in text
+
+
 def test_resolve_paper_capital_params_default() -> None:
     module = _load_module()
     vals = module._resolve_paper_capital_params()

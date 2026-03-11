@@ -171,6 +171,69 @@ def _estimate_total_invested_capital_usd(
     return total_krw / fx_usdkrw
 
 
+def _broker_staged_sell_path(paper_root: Path) -> Path:
+    return paper_root / "broker_staged_sell" / "staged_sell_state.json"
+
+
+def _load_broker_staged_sell(paper_root: Path) -> Dict[str, Any] | None:
+    path = _broker_staged_sell_path(paper_root)
+    if not path.exists():
+        return None
+    try:
+        state = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    if not isinstance(state, dict):
+        return None
+    return state
+
+
+def _save_broker_staged_sell(paper_root: Path, state: Dict[str, Any]) -> None:
+    path = _broker_staged_sell_path(paper_root)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _clear_broker_staged_sell(paper_root: Path) -> None:
+    path = _broker_staged_sell_path(paper_root)
+    if path.exists():
+        path.unlink()
+
+
+def _load_broker_peak_nav(paper_root: Path, current_nav_usd: float) -> float:
+    bootstrap_root = paper_root / "broker_bootstrap"
+    peak_nav = float(current_nav_usd)
+    for prior_date in _list_partition_dates(bootstrap_root):
+        prev_df = load_decision_partition(
+            bootstrap_root,
+            prior_date,
+            execution_mode="MOCK",
+        )
+        if prev_df is None or prev_df.empty:
+            continue
+        row = prev_df.iloc[-1]
+        prev_total = row.get("total_value")
+        prev_ccy = str(row.get("currency", "UNKNOWN")).upper()
+        prev_fx = row.get("fx_usdkrw")
+        try:
+            if prev_total is None:
+                continue
+            prev_total_f = float(prev_total)
+            if prev_ccy == "KRW":
+                fx = float(prev_fx) if prev_fx is not None and float(prev_fx) > 0 else None
+                if fx is None or fx <= 0:
+                    continue
+                nav_usd = prev_total_f / fx
+            elif prev_ccy == "USD":
+                nav_usd = prev_total_f
+            else:
+                continue
+        except Exception:
+            continue
+        peak_nav = max(peak_nav, float(nav_usd))
+    return peak_nav
+
+
 @dag(
     dag_id="broker_mock_trading_dag",
     description="KIS mock broker order execution + MOCK Telegram (manual trigger)",
@@ -256,6 +319,9 @@ def broker_mock_trading_pipeline():
                 else str(next_row.get("bias_20d", "UNKNOWN")) if next_row is not None else "UNKNOWN"
             )
             universe_df = _latest_window_at_or_before(what_to_hold_df, "rebalance_date", decision_date)
+
+            today_et = pendulum.now("America/New_York").date()
+            weekday = today_et.weekday()
 
             bootstrap_df = pd.DataFrame(
                 [
@@ -377,21 +443,218 @@ def broker_mock_trading_pipeline():
                         "spread": None,
                         "error_code": error_code,
                     }
-                )
+            )
             probe_df = pd.DataFrame(probe_rows)
 
-            target_orders_df = build_broker_target_orders(
-                action=action,
-                next_invested_ratio=next_invested_ratio,
-                what_to_hold_df=universe_df,
-                broker_nav_usd=(float(balance.total_value) / float(balance.fx_usdkrw or 1300.0)),
-                broker_positions=broker_positions,
-                live_prices=live_prices,
-                effective_bias=effective_bias,
+            broker_nav_usd = float(balance.total_value) / float(balance.fx_usdkrw or 1300.0)
+            current_invested_ratio = 0.0
+            if broker_nav_usd > 0:
+                current_invested_ratio = max(0.0, min(1.0, invested_usd / broker_nav_usd))
+
+            staged_sell = _load_broker_staged_sell(paper_root)
+            if staged_sell is None and _broker_staged_sell_path(paper_root).exists():
+                planning_warnings.append("staged_sell JSON 파싱 실패 - 주문 없이 진행")
+
+            if action != "DECREASE" and staged_sell is not None:
+                _clear_broker_staged_sell(paper_root)
+                staged_sell = None
+
+            if weekday == 0:
+                if action != "DECREASE":
+                    _clear_broker_staged_sell(paper_root)
+                orders_df = pd.DataFrame()
+                fills_df = pd.DataFrame()
+                cancelled_df = pd.DataFrame()
+                warnings = ["월요일: 신호 평가만 수행, 주문 없음"] + planning_warnings
+                recon_df = reconcile_positions(
+                    broker_positions=broker_positions,
+                    paper_positions_df=pd.DataFrame(
+                        [{"trade_date": decision_date, "symbol": p.symbol, "shares": float(p.quantity)} for p in broker_positions]
+                    ),
+                    decision_date=decision_date,
+                    source_job=source_job,
+                )
+                auth_meta = adapter.auth_status()
+                auth_df = pd.DataFrame(
+                    [{
+                        "decision_date": decision_date,
+                        "simulation_date": simulation_date,
+                        "source_job": source_job,
+                        "token_refresh_count": auth_meta.get("token_refresh_count", 0),
+                        "last_refresh_at": auth_meta.get("last_refresh_at"),
+                        "auth_status": auth_meta.get("auth_status", "UNKNOWN"),
+                        "error_code": auth_meta.get("error_code"),
+                    }]
+                )
+                fx_df = pd.DataFrame([{
+                    "decision_date": decision_date,
+                    "simulation_date": simulation_date,
+                    "source_job": source_job,
+                    "fx_usdkrw": balance.fx_usdkrw,
+                    "fx_source": "KIS_BALANCE",
+                }])
+                save_decision_partition(bootstrap_df, paper_root / "broker_bootstrap", decision_date, "broker_bootstrap", execution_mode="MOCK")
+                save_decision_partition(auth_df, paper_root / "broker_auth", decision_date, "broker_auth", execution_mode="MOCK")
+                save_decision_partition(fx_df, paper_root / "fx_daily", decision_date, "fx_daily", execution_mode="MOCK")
+                save_decision_partition(probe_df, paper_root / "market_probe", decision_date, "market_probe", execution_mode="MOCK")
+                save_decision_partition(orders_df, paper_root / "broker_orders", decision_date, "broker_orders", execution_mode="MOCK")
+                save_decision_partition(fills_df, paper_root / "broker_fills", decision_date, "broker_fills", execution_mode="MOCK")
+                save_decision_partition(recon_df, paper_root / "reconciliation", decision_date, "reconciliation", execution_mode="MOCK")
+                save_decision_partition(cancelled_df, paper_root / "broker_cancelled", decision_date, "broker_cancelled", execution_mode="MOCK")
+                return {
+                    "status": "ok",
+                    "decision_date": decision_date.isoformat(),
+                    "simulation_date": simulation_date.isoformat(),
+                    "source_job": source_job,
+                    "action": action,
+                    "next_invested_ratio": next_invested_ratio,
+                    "delta_ratio": delta_ratio,
+                    "orders_count": 0,
+                    "fills_count": 0,
+                    "cancelled_count": 0,
+                    "balance_cash": float(balance.cash),
+                    "balance_total": float(balance.total_value),
+                    "balance_currency": str(balance.currency),
+                    "positions_count": int(len(broker_positions)),
+                    "broker_positions": [
+                        {
+                            "symbol": bp.symbol,
+                            "quantity": float(bp.quantity),
+                            "avg_price": float(bp.avg_price),
+                            "market_price": (None if bp.market_price is None else float(bp.market_price)),
+                            "market_value": (None if bp.market_value is None else float(bp.market_value)),
+                        }
+                        for bp in broker_positions
+                    ],
+                    "auth_status": str(auth_df["auth_status"].iloc[0]) if not auth_df.empty else "UNKNOWN",
+                    "token_refresh_count": int(auth_df["token_refresh_count"].iloc[0]) if not auth_df.empty else 0,
+                    "fx_usdkrw": float(fx_df["fx_usdkrw"].iloc[0]) if not fx_df.empty and pd.notna(fx_df["fx_usdkrw"].iloc[0]) else None,
+                    "warnings": warnings,
+                }
+
+            if weekday not in {1, 4}:
+                return {
+                    "status": "ok",
+                    "decision_date": decision_date.isoformat(),
+                    "simulation_date": simulation_date.isoformat(),
+                    "source_job": source_job,
+                    "action": "HOLD",
+                    "next_invested_ratio": next_invested_ratio,
+                    "delta_ratio": 0.0,
+                    "orders_count": 0,
+                    "fills_count": 0,
+                    "cancelled_count": 0,
+                    "balance_cash": float(balance.cash),
+                    "balance_total": float(balance.total_value),
+                    "balance_currency": str(balance.currency),
+                    "positions_count": int(len(broker_positions)),
+                    "broker_positions": [
+                        {
+                            "symbol": bp.symbol,
+                            "quantity": float(bp.quantity),
+                            "avg_price": float(bp.avg_price),
+                            "market_price": (None if bp.market_price is None else float(bp.market_price)),
+                            "market_value": (None if bp.market_value is None else float(bp.market_value)),
+                        }
+                        for bp in broker_positions
+                    ],
+                    "auth_status": "UNKNOWN",
+                    "token_refresh_count": 0,
+                    "fx_usdkrw": balance.fx_usdkrw,
+                    "warnings": ["수/목: 실행 요일 아님"] + planning_warnings,
+                }
+
+            initial_krw = float(os.getenv("PAPER_INITIAL_CAPITAL_KRW", "1000000"))
+            total_invested_capital_usd = _estimate_total_invested_capital_usd(
+                paper_start=date.fromisoformat(os.getenv("PAPER_START_DATE", "2026-01-01")),
                 decision_date=decision_date,
-                simulation_date=simulation_date,
-                source_job=source_job,
+                initial_krw=initial_krw,
+                monthly_krw=0.0,
+                fx_usdkrw=float(balance.fx_usdkrw or 1300.0),
             )
+            peak_nav_usd = _load_broker_peak_nav(paper_root, broker_nav_usd)
+            guardrail_paused = False
+            guardrail_warnings: List[str] = []
+            if total_invested_capital_usd is not None and total_invested_capital_usd > 0:
+                nav_tc_ratio = broker_nav_usd / total_invested_capital_usd
+                peak_dd = (broker_nav_usd - peak_nav_usd) / peak_nav_usd if peak_nav_usd > 0 else 0.0
+                if nav_tc_ratio < 0.85 or peak_dd < -0.20:
+                    guardrail_paused = True
+                    guardrail_warnings.append(
+                        f"🚨 Level 2 가드레일 발동: NAV/TC={nav_tc_ratio:.2%}, peak_dd={peak_dd:.2%}"
+                    )
+
+            if weekday == 1 and guardrail_paused and action == "INCREASE":
+                target_orders_df = pd.DataFrame()
+            elif weekday == 1:
+                _clear_broker_staged_sell(paper_root)
+                target_orders_df = build_broker_target_orders(
+                    action=action,
+                    next_invested_ratio=next_invested_ratio,
+                    what_to_hold_df=universe_df,
+                    broker_nav_usd=broker_nav_usd,
+                    broker_positions=broker_positions,
+                    live_prices=live_prices,
+                    effective_bias=effective_bias,
+                    decision_date=decision_date,
+                    simulation_date=simulation_date,
+                    source_job=source_job,
+                    allow_sell=False,
+                    lock_sell_symbols=[],
+                    schd_min_weight=0.20,
+                )
+            elif action != "DECREASE":
+                _clear_broker_staged_sell(paper_root)
+                target_orders_df = pd.DataFrame()
+                planning_warnings.append("금요일: DECREASE 신호 아님 - staged_sell 없음")
+            else:
+                if staged_sell is None:
+                    total_sell_amount_pct = max(0.0, current_invested_ratio - max(0.0, min(1.0, next_invested_ratio)))
+                    if total_sell_amount_pct > 0:
+                        staged_sell = {
+                            "tranche_idx": 0,
+                            "total_sell_amount_pct": total_sell_amount_pct,
+                            "tranches": [0.50, 0.30, 0.20],
+                            "target_ratio": next_invested_ratio,
+                            "created_decision_date": decision_date.isoformat(),
+                        }
+                        _save_broker_staged_sell(paper_root, staged_sell)
+                if staged_sell is None:
+                    target_orders_df = pd.DataFrame()
+                else:
+                    tranche_idx = int(staged_sell.get("tranche_idx", 0))
+                    tranches = list(staged_sell.get("tranches", [0.50, 0.30, 0.20]))
+                    total_sell_amount_pct = float(staged_sell.get("total_sell_amount_pct", 0.0))
+                    base_target_ratio = float(staged_sell.get("target_ratio", next_invested_ratio))
+                    if tranche_idx >= len(tranches):
+                        _clear_broker_staged_sell(paper_root)
+                        target_orders_df = pd.DataFrame()
+                    else:
+                        tranche_target_ratio = max(
+                            base_target_ratio,
+                            current_invested_ratio - (total_sell_amount_pct * float(tranches[tranche_idx])),
+                        )
+                        target_orders_df = build_broker_target_orders(
+                            action=action,
+                            next_invested_ratio=tranche_target_ratio,
+                            what_to_hold_df=universe_df,
+                            broker_nav_usd=broker_nav_usd,
+                            broker_positions=broker_positions,
+                            live_prices=live_prices,
+                            effective_bias=effective_bias,
+                            decision_date=decision_date,
+                            simulation_date=simulation_date,
+                            source_job=source_job,
+                            allow_sell=True,
+                            lock_sell_symbols=[],
+                            schd_min_weight=0.20,
+                        )
+                        staged_sell["tranche_idx"] = tranche_idx + 1
+                        if staged_sell["tranche_idx"] >= len(tranches):
+                            _clear_broker_staged_sell(paper_root)
+                        else:
+                            _save_broker_staged_sell(paper_root, staged_sell)
+
             ledger_like_df = pd.DataFrame()
             if not target_orders_df.empty:
                 ledger_like_df = target_orders_df.rename(columns={"qty": "shares"})
@@ -401,7 +664,10 @@ def broker_mock_trading_pipeline():
                 orders_df = pd.DataFrame()
                 fills_df = pd.DataFrame()
                 cancelled_df = pd.DataFrame()
-                warnings = ["broker target orders 없음 - broker 주문 생략(잔고/인증 조회는 수행)"]
+                if weekday == 1 and guardrail_paused and action == "INCREASE":
+                    warnings = guardrail_warnings + ["broker target orders 없음 - broker 주문 생략(잔고/인증 조회는 수행)"]
+                else:
+                    warnings = ["broker target orders 없음 - broker 주문 생략(잔고/인증 조회는 수행)"]
             else:
                 orders_df, fills_df, warnings = execute_from_ledger_rows(
                     adapter,
@@ -418,7 +684,7 @@ def broker_mock_trading_pipeline():
                     wait_sec=fill_wait_sec,
                 )
                 warnings += cancel_warnings
-            warnings += planning_warnings
+            warnings += planning_warnings + guardrail_warnings
 
             broker_positions = adapter.get_positions()
             recon_df = reconcile_positions(
@@ -577,7 +843,7 @@ def broker_mock_trading_pipeline():
                 buy_day_rule="월요일(T-1) 평가 후 화요일 INCREASE 실행",
                 sell_day_rule="금요일 DECREASE 분할매도",
                 sell_tranches=[0.50, 0.30, 0.20],
-                schd_sell_locked=True,
+                schd_sell_locked=False,
                 virtual_fills=["브로커 주문 실행 실패 또는 생략"],
                 daily_pnl=None,
                 cumulative_pnl=None,
@@ -841,7 +1107,7 @@ def broker_mock_trading_pipeline():
             buy_day_rule="월요일(T-1) 평가 후 화요일 INCREASE 실행",
             sell_day_rule="금요일 DECREASE 분할매도",
             sell_tranches=[0.50, 0.30, 0.20],
-            schd_sell_locked=True,
+            schd_sell_locked=False,
             virtual_fills=fills,
             daily_pnl=daily_pnl,
             cumulative_pnl=cumulative_pnl,

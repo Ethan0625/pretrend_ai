@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from datetime import date
-from typing import Dict, Iterable, List, Tuple
+from typing import Dict, Iterable, List, Sequence, Tuple
 
 import pandas as pd
 
@@ -128,6 +128,9 @@ def build_broker_target_orders(
     decision_date: date,
     simulation_date: date,
     source_job: str,
+    allow_sell: bool = True,
+    lock_sell_symbols: Sequence[str] = (),
+    schd_min_weight: float = 0.0,
 ) -> pd.DataFrame:
     if str(action).upper() == "HOLD":
         return _empty_orders_df()
@@ -139,11 +142,19 @@ def build_broker_target_orders(
         if price is not None and float(price) > 0
     }
     rows: List[Dict[str, object]] = []
+    lock_set = {str(symbol).upper() for symbol in lock_sell_symbols}
 
     if next_invested_ratio <= 0.0:
         for symbol, current_qty in position_map.items():
             price = clean_prices.get(symbol)
             if price is None:
+                continue
+            qty = int(round(current_qty))
+            if symbol == "SCHD" and schd_min_weight > 0.0 and broker_nav_usd > 0 and price > 0:
+                current_schd_usd = current_qty * price
+                floor_usd = broker_nav_usd * schd_min_weight
+                qty = min(qty, int(max(0.0, current_schd_usd - floor_usd) / price))
+            if qty <= 0:
                 continue
             rows.append(
                 {
@@ -152,12 +163,19 @@ def build_broker_target_orders(
                     "source_job": source_job,
                     "symbol": symbol,
                     "action": "SELL",
-                    "qty": int(round(current_qty)),
+                    "qty": qty,
                     "estimated_price": float(price),
                     "target_usd": 0.0,
                     "reason": "TARGET_ZERO",
                 }
             )
+        if lock_set:
+            rows = [
+                row for row in rows
+                if not (row["action"] == "SELL" and str(row["symbol"]).upper() in lock_set)
+            ]
+        if not allow_sell:
+            rows = [row for row in rows if row["action"] != "SELL"]
         return pd.DataFrame(rows, columns=_EMPTY_COLUMNS)
 
     target_weights, reasons = _compute_target_weights(what_to_hold_df, effective_bias)
@@ -169,12 +187,18 @@ def build_broker_target_orders(
         current_qty = float(position_map.get(symbol, 0.0))
         weight = float(target_weights.get(symbol, 0.0))
         target_usd = max(0.0, float(broker_nav_usd) * float(next_invested_ratio) * weight)
+        if symbol == "SCHD" and schd_min_weight > 0.0 and broker_nav_usd > 0:
+            target_usd = max(target_usd, float(broker_nav_usd) * schd_min_weight)
         target_qty = int(round(target_usd / price)) if price > 0 else 0
         delta = target_qty - current_qty
         if delta == 0:
             continue
         order_action = "BUY" if delta > 0 else "SELL"
         qty = int(abs(round(delta)))
+        if order_action == "SELL" and symbol == "SCHD" and schd_min_weight > 0.0 and broker_nav_usd > 0 and price > 0:
+            current_schd_usd = current_qty * price
+            floor_usd = broker_nav_usd * schd_min_weight
+            qty = min(qty, int(max(0.0, current_schd_usd - floor_usd) / price))
         if qty <= 0:
             continue
         rows.append(
@@ -190,5 +214,13 @@ def build_broker_target_orders(
                 "reason": reasons.get(symbol, "TARGET_EXIT" if target_qty == 0 else "TARGET_ADJUST"),
             }
         )
+
+    if lock_set:
+        rows = [
+            row for row in rows
+            if not (row["action"] == "SELL" and str(row["symbol"]).upper() in lock_set)
+        ]
+    if not allow_sell:
+        rows = [row for row in rows if row["action"] != "SELL"]
 
     return pd.DataFrame(rows, columns=_EMPTY_COLUMNS)

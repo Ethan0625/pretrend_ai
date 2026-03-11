@@ -117,6 +117,8 @@ def _rebalance_to_target(
     *,
     allow_sell: bool,
     lock_sell_symbols: Sequence[str],
+    schd_min_weight: float = 0.0,
+    nav_for_floor: float = 0.0,
 ) -> List[Trade]:
     lock_set = set(lock_sell_symbols)
     trades: List[Trade] = []
@@ -134,7 +136,13 @@ def _rebalance_to_target(
     if allow_sell:
         for sym, cur in list(current_amounts.items()):
             if sym not in target_amounts and sym not in lock_set and cur > 0:
-                t = portfolio.sell(sym, cur, prices[sym])
+                sell_amount = cur
+                if sym == "SCHD" and schd_min_weight > 0.0 and nav_for_floor > 0 and prices.get(sym, 0) > 0:
+                    floor_usd = nav_for_floor * schd_min_weight
+                    sell_amount = min(cur, max(0.0, cur - floor_usd))
+                if sell_amount <= 0.01:
+                    continue
+                t = portfolio.sell(sym, sell_amount, prices[sym])
                 if t:
                     t.trade_date = trade_date
                     trades.append(t)
@@ -145,7 +153,13 @@ def _rebalance_to_target(
             cur = portfolio.positions.get(sym)
             cur_amt = cur.market_value(prices[sym]) if cur and sym in prices else 0.0
             if cur_amt > target_amt + 0.01:
-                t = portfolio.sell(sym, cur_amt - target_amt, prices[sym])
+                sell_amount = cur_amt - target_amt
+                if sym == "SCHD" and schd_min_weight > 0.0 and nav_for_floor > 0 and prices.get(sym, 0) > 0:
+                    floor_usd = nav_for_floor * schd_min_weight
+                    sell_amount = min(sell_amount, max(0.0, cur_amt - floor_usd))
+                if sell_amount <= 0.01:
+                    continue
+                t = portfolio.sell(sym, sell_amount, prices[sym])
                 if t:
                     t.trade_date = trade_date
                     trades.append(t)
@@ -344,6 +358,7 @@ def simulate_paper_execution(
     monthly_addition: float = 300_000.0,
     sell_tranches: Sequence[float] = (0.50, 0.30, 0.20),
     schd_sell_locked: bool = True,
+    schd_min_weight: float = 0.0,
     policy_df: Optional[pd.DataFrame] = None,
     universe_df: Optional[pd.DataFrame] = None,
     next_step_df: Optional[pd.DataFrame] = None,
@@ -497,6 +512,8 @@ def simulate_paper_execution(
                 td,
                 allow_sell=False,
                 lock_sell_symbols=lock_symbols,
+                schd_min_weight=schd_min_weight,
+                nav_for_floor=portfolio.total_value(prices),
             )
             if staged_sell is not None:
                 staged_sell = None
@@ -531,6 +548,8 @@ def simulate_paper_execution(
                         td,
                         allow_sell=True,
                         lock_sell_symbols=lock_symbols,
+                        schd_min_weight=schd_min_weight,
+                        nav_for_floor=portfolio.total_value(prices),
                     )
                     staged_sell.tranche_idx += 1
                     if staged_sell.tranche_idx >= len(staged_sell.tranches):

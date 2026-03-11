@@ -163,3 +163,149 @@ def test_build_broker_target_orders_zero_target_ratio_sells_all_positions() -> N
     assert len(out) == 2
     assert set(out["action"]) == {"SELL"}
     assert set(out["reason"]) == {"TARGET_ZERO"}
+
+
+def test_build_broker_target_orders_allow_sell_false_removes_sell_orders() -> None:
+    out = build_broker_target_orders(
+        action="DECREASE",
+        next_invested_ratio=0.5,
+        what_to_hold_df=_candidate_df([]),
+        broker_nav_usd=1000.0,
+        broker_positions=[
+            BrokerPosition(symbol="SPY", quantity=5.0, avg_price=100.0),
+            BrokerPosition(symbol="QQQ", quantity=3.0, avg_price=100.0),
+        ],
+        live_prices={"SPY": 100.0, "SCHD": 50.0, "IAU": 20.0, "QQQ": 100.0},
+        effective_bias="RISK_OFF_BIAS",
+        decision_date=date(2026, 3, 10),
+        simulation_date=date(2026, 3, 10),
+        source_job="broker_mock_trading_dag",
+        allow_sell=False,
+    )
+    assert not out.empty
+    assert set(out["action"]) == {"BUY"}
+
+
+def test_build_broker_target_orders_allow_sell_true_keeps_default_behavior() -> None:
+    out = build_broker_target_orders(
+        action="DECREASE",
+        next_invested_ratio=0.5,
+        what_to_hold_df=_candidate_df([]),
+        broker_nav_usd=1000.0,
+        broker_positions=[
+            BrokerPosition(symbol="SPY", quantity=5.0, avg_price=100.0),
+            BrokerPosition(symbol="QQQ", quantity=3.0, avg_price=100.0),
+        ],
+        live_prices={"SPY": 100.0, "SCHD": 50.0, "IAU": 20.0, "QQQ": 100.0},
+        effective_bias="RISK_OFF_BIAS",
+        decision_date=date(2026, 3, 10),
+        simulation_date=date(2026, 3, 10),
+        source_job="broker_mock_trading_dag",
+        allow_sell=True,
+    )
+    assert "SELL" in set(out["action"])
+
+
+def test_build_broker_target_orders_lock_sell_symbols_excludes_schd() -> None:
+    out = build_broker_target_orders(
+        action="DECREASE",
+        next_invested_ratio=0.2,
+        what_to_hold_df=_candidate_df([]),
+        broker_nav_usd=1000.0,
+        broker_positions=[
+            BrokerPosition(symbol="SCHD", quantity=20.0, avg_price=50.0),
+            BrokerPosition(symbol="SPY", quantity=5.0, avg_price=100.0),
+        ],
+        live_prices={"SPY": 100.0, "SCHD": 50.0, "IAU": 20.0},
+        effective_bias="RISK_OFF_BIAS",
+        decision_date=date(2026, 3, 10),
+        simulation_date=date(2026, 3, 10),
+        source_job="broker_mock_trading_dag",
+        lock_sell_symbols=("SCHD",),
+    )
+    schd_sells = out[(out["symbol"] == "SCHD") & (out["action"] == "SELL")]
+    spy_sells = out[(out["symbol"] == "SPY") & (out["action"] == "SELL")]
+    assert schd_sells.empty
+    assert not spy_sells.empty
+
+
+def test_build_broker_target_orders_target_zero_respects_locked_symbols() -> None:
+    out = build_broker_target_orders(
+        action="DECREASE",
+        next_invested_ratio=0.0,
+        what_to_hold_df=_candidate_df([]),
+        broker_nav_usd=1000.0,
+        broker_positions=[
+            BrokerPosition(symbol="SCHD", quantity=10.0, avg_price=50.0),
+            BrokerPosition(symbol="SPY", quantity=2.0, avg_price=100.0),
+        ],
+        live_prices={"SPY": 100.0, "SCHD": 50.0},
+        effective_bias="RISK_OFF_BIAS",
+        decision_date=date(2026, 3, 10),
+        simulation_date=date(2026, 3, 10),
+        source_job="broker_mock_trading_dag",
+        lock_sell_symbols=("SCHD",),
+    )
+    assert set(out["symbol"]) == {"SPY"}
+    assert set(out["action"]) == {"SELL"}
+
+
+def test_build_broker_target_orders_schd_floor_buy_target_raised() -> None:
+    out = build_broker_target_orders(
+        action="INCREASE",
+        next_invested_ratio=0.2,
+        what_to_hold_df=_candidate_df([]),
+        broker_nav_usd=1000.0,
+        broker_positions=[BrokerPosition(symbol="SCHD", quantity=2.0, avg_price=50.0)],
+        live_prices={"SPY": 100.0, "SCHD": 50.0, "IAU": 20.0},
+        effective_bias="RISK_OFF_BIAS",
+        decision_date=date(2026, 3, 10),
+        simulation_date=date(2026, 3, 10),
+        source_job="broker_mock_trading_dag",
+        schd_min_weight=0.20,
+    )
+    schd_rows = out[out["symbol"] == "SCHD"]
+    assert not schd_rows.empty
+    schd = schd_rows.iloc[0]
+    assert schd["action"] == "BUY"
+    assert schd["qty"] == 2
+    assert schd["target_usd"] == 200.0
+
+
+def test_build_broker_target_orders_schd_floor_sell_capped() -> None:
+    out = build_broker_target_orders(
+        action="DECREASE",
+        next_invested_ratio=0.0,
+        what_to_hold_df=_candidate_df([]),
+        broker_nav_usd=1000.0,
+        broker_positions=[BrokerPosition(symbol="SCHD", quantity=10.0, avg_price=50.0)],
+        live_prices={"SCHD": 50.0},
+        effective_bias="RISK_OFF_BIAS",
+        decision_date=date(2026, 3, 10),
+        simulation_date=date(2026, 3, 10),
+        source_job="broker_mock_trading_dag",
+        schd_min_weight=0.20,
+    )
+    schd_rows = out[out["symbol"] == "SCHD"]
+    assert not schd_rows.empty
+    schd = schd_rows.iloc[0]
+    assert schd["action"] == "SELL"
+    assert schd["qty"] == 6
+
+
+def test_build_broker_target_orders_schd_floor_sell_zero_when_at_floor() -> None:
+    out = build_broker_target_orders(
+        action="DECREASE",
+        next_invested_ratio=0.0,
+        what_to_hold_df=_candidate_df([]),
+        broker_nav_usd=1000.0,
+        broker_positions=[BrokerPosition(symbol="SCHD", quantity=4.0, avg_price=50.0)],
+        live_prices={"SCHD": 50.0},
+        effective_bias="RISK_OFF_BIAS",
+        decision_date=date(2026, 3, 10),
+        simulation_date=date(2026, 3, 10),
+        source_job="broker_mock_trading_dag",
+        schd_min_weight=0.20,
+    )
+    schd_rows = out[out["symbol"] == "SCHD"]
+    assert schd_rows.empty

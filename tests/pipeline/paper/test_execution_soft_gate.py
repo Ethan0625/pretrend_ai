@@ -297,6 +297,101 @@ def test_max_invested_ratio_forces_staged_decrease_on_friday(monkeypatch) -> Non
     assert not fri_sells.empty
 
 
+def test_sim_schd_floor_blocks_sell_below_floor() -> None:
+    cfg = BacktestConfig(start_date=date(2026, 1, 6), end_date=date(2026, 1, 9))
+    exposure = pd.DataFrame(
+        [
+            {"trade_date": date(2026, 1, 6), "action": "INCREASE", "next_invested_ratio": 1.00, "delta_ratio": 1.00},
+            {"trade_date": date(2026, 1, 9), "action": "DECREASE", "next_invested_ratio": 0.0, "delta_ratio": -1.00},
+        ]
+    )
+    prices = pd.DataFrame(
+        [
+            {"trade_date": date(2026, 1, 6), "symbol": "SPY", "adj_close": 100.0},
+            {"trade_date": date(2026, 1, 6), "symbol": "SCHD", "adj_close": 50.0},
+            {"trade_date": date(2026, 1, 6), "symbol": "IAU", "adj_close": 20.0},
+            {"trade_date": date(2026, 1, 9), "symbol": "SPY", "adj_close": 100.0},
+            {"trade_date": date(2026, 1, 9), "symbol": "SCHD", "adj_close": 50.0},
+            {"trade_date": date(2026, 1, 9), "symbol": "IAU", "adj_close": 20.0},
+        ]
+    )
+
+    ledger, positions, _, _ = simulate_paper_execution(
+        config=cfg,
+        exposure_df=exposure,
+        prices_df=prices,
+        source_job="paper_trading_dag",
+        decision_date=date(2026, 1, 9),
+        simulation_date=date(2026, 1, 9),
+        initial_capital=1000.0,
+        monthly_addition=0.0,
+        schd_sell_locked=False,
+        schd_min_weight=0.20,
+    )
+
+    schd_friday_sell = ledger[
+        (ledger["trade_date"] == date(2026, 1, 9))
+        & (ledger["symbol"] == "SCHD")
+        & (ledger["action"] == "SELL")
+    ]
+    assert not schd_friday_sell.empty
+    assert float(schd_friday_sell["shares"].sum()) == 4.0
+
+    schd_friday_pos = positions[
+        (positions["trade_date"] == date(2026, 1, 9))
+        & (positions["symbol"] == "SCHD")
+    ]
+    assert not schd_friday_pos.empty
+    assert float(schd_friday_pos.iloc[-1]["shares"]) == 4.0
+
+
+def test_sim_schd_floor_allows_sell_above_floor_only() -> None:
+    cfg = BacktestConfig(start_date=date(2026, 1, 6), end_date=date(2026, 1, 9))
+    exposure = pd.DataFrame(
+        [
+            {"trade_date": date(2026, 1, 6), "action": "INCREASE", "next_invested_ratio": 1.00, "delta_ratio": 1.00},
+            {"trade_date": date(2026, 1, 9), "action": "DECREASE", "next_invested_ratio": 0.0, "delta_ratio": -1.00},
+        ]
+    )
+    prices = pd.DataFrame(
+        [
+            {"trade_date": date(2026, 1, 6), "symbol": "SPY", "adj_close": 100.0},
+            {"trade_date": date(2026, 1, 6), "symbol": "SCHD", "adj_close": 50.0},
+            {"trade_date": date(2026, 1, 6), "symbol": "IAU", "adj_close": 20.0},
+            {"trade_date": date(2026, 1, 9), "symbol": "SPY", "adj_close": 190.0},
+            {"trade_date": date(2026, 1, 9), "symbol": "SCHD", "adj_close": 15.0},
+            {"trade_date": date(2026, 1, 9), "symbol": "IAU", "adj_close": 3.0},
+        ]
+    )
+
+    ledger, positions, _, _ = simulate_paper_execution(
+        config=cfg,
+        exposure_df=exposure,
+        prices_df=prices,
+        source_job="paper_trading_dag",
+        decision_date=date(2026, 1, 9),
+        simulation_date=date(2026, 1, 9),
+        initial_capital=1000.0,
+        monthly_addition=0.0,
+        schd_sell_locked=False,
+        schd_min_weight=0.20,
+    )
+
+    schd_friday_sell = ledger[
+        (ledger["trade_date"] == date(2026, 1, 9))
+        & (ledger["symbol"] == "SCHD")
+        & (ledger["action"] == "SELL")
+    ]
+    assert schd_friday_sell.empty
+
+    schd_friday_pos = positions[
+        (positions["trade_date"] == date(2026, 1, 9))
+        & (positions["symbol"] == "SCHD")
+    ]
+    assert not schd_friday_pos.empty
+    assert float(schd_friday_pos.iloc[-1]["shares"]) == 10.0
+
+
 def test_guardrail_peak_dd_breach_blocks_increase() -> None:
     cfg = BacktestConfig(start_date=date(2026, 1, 6), end_date=date(2026, 1, 13))
     exposure = pd.DataFrame(

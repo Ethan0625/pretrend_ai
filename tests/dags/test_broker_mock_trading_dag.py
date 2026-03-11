@@ -3,10 +3,12 @@ from __future__ import annotations
 
 import ast
 import os
+import json
 from pathlib import Path
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 from datetime import datetime
+from tempfile import TemporaryDirectory
 
 import pytest
 
@@ -67,6 +69,26 @@ def _load_helpers():
     ast.fix_missing_locations(mod)
     ns = {"os": os, "pendulum": _FakePendulumModule(), "ZoneInfo": ZoneInfo, "datetime": datetime}
     exec(compile(mod, "<broker_mock_helpers>", "exec"), ns)
+    return SimpleNamespace(**ns)
+
+
+def _load_stage_helpers():
+    repo_root = Path(__file__).resolve().parents[2]
+    src = (repo_root / "dags" / "broker_mock_trading_dag.py").read_text(encoding="utf-8")
+    tree = ast.parse(src)
+    selected = []
+    for node in tree.body:
+        if isinstance(node, ast.FunctionDef) and node.name in {
+            "_broker_staged_sell_path",
+            "_load_broker_staged_sell",
+            "_save_broker_staged_sell",
+            "_clear_broker_staged_sell",
+        }:
+            selected.append(node)
+    mod = ast.Module(body=selected, type_ignores=[])
+    ast.fix_missing_locations(mod)
+    ns = {"json": json, "Path": Path, "Any": object, "Dict": dict}
+    exec(compile(mod, "<broker_mock_stage_helpers>", "exec"), ns)
     return SimpleNamespace(**ns)
 
 
@@ -200,3 +222,71 @@ def test_broker_mock_payload_uses_broker_fills_and_exposure_action() -> None:
     assert 'load_decision_partition(\n            data_root / "paper" / "broker_fills"' in text
     assert 'action = str(broker_meta.get("action", "HOLD")).upper()' in text
     assert 'next_invested_ratio=float(broker_meta.get("next_invested_ratio", next_ratio))' in text
+
+
+def test_broker_mock_weekday_rules_are_present() -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+    text = (repo_root / "dags" / "broker_mock_trading_dag.py").read_text(encoding="utf-8")
+    assert 'weekday = today_et.weekday()' in text
+    assert 'if weekday == 0:' in text
+    assert '["월요일: 신호 평가만 수행, 주문 없음"]' in text
+    assert 'if weekday not in {1, 4}:' in text
+    assert '["수/목: 실행 요일 아님"]' in text
+
+
+def test_broker_mock_tuesday_increase_uses_buy_only_and_schd_floor() -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+    text = (repo_root / "dags" / "broker_mock_trading_dag.py").read_text(encoding="utf-8")
+    assert 'if weekday == 1 and guardrail_paused and action == "INCREASE":' in text
+    assert "allow_sell=False" in text
+    assert "lock_sell_symbols=[]" in text
+    assert "schd_min_weight=0.20" in text
+    assert '_clear_broker_staged_sell(paper_root)' in text
+
+
+def test_broker_mock_level2_guardrail_blocks_tuesday_increase() -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+    text = (repo_root / "dags" / "broker_mock_trading_dag.py").read_text(encoding="utf-8")
+    assert "nav_tc_ratio < 0.85 or peak_dd < -0.20" in text
+    assert "🚨 Level 2 가드레일 발동" in text
+    assert 'if weekday == 1 and guardrail_paused and action == "INCREASE":' in text
+
+
+def test_broker_mock_friday_staged_sell_flow_present() -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+    text = (repo_root / "dags" / "broker_mock_trading_dag.py").read_text(encoding="utf-8")
+    assert "_load_broker_staged_sell(paper_root)" in text
+    assert '"tranche_idx": 0' in text
+    assert '"tranches": [0.50, 0.30, 0.20]' in text
+    assert 'staged_sell["tranche_idx"] = tranche_idx + 1' in text
+    assert "schd_min_weight=0.20" in text
+
+
+def test_broker_mock_auto_schedule_env_flag_present() -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+    text = (repo_root / "dags" / "broker_mock_trading_dag.py").read_text(encoding="utf-8")
+    assert 'os.getenv("BROKER_MOCK_AUTO_SCHEDULE_ENABLED", "0")' in text
+    assert '"40 9 * * 1-5"' in text
+    assert "allow_sell=True" in text
+
+
+def test_staged_sell_helpers_roundtrip_and_clear() -> None:
+    module = _load_stage_helpers()
+    with TemporaryDirectory() as tmpdir:
+        root = Path(tmpdir)
+        state = {"tranche_idx": 0, "tranches": [0.5, 0.3, 0.2]}
+        module._save_broker_staged_sell(root, state)
+        loaded = module._load_broker_staged_sell(root)
+        assert loaded == state
+        module._clear_broker_staged_sell(root)
+        assert module._load_broker_staged_sell(root) is None
+
+
+def test_staged_sell_helper_fail_open_on_invalid_json() -> None:
+    module = _load_stage_helpers()
+    with TemporaryDirectory() as tmpdir:
+        root = Path(tmpdir)
+        path = module._broker_staged_sell_path(root)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("{invalid", encoding="utf-8")
+        assert module._load_broker_staged_sell(root) is None
