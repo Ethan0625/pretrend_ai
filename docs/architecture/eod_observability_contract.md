@@ -10,7 +10,7 @@
 투자 추천 목록이 아니라 관측 센서 집합이다.
 
 ### asset_group / asset_name / asset_subtype
-- `asset_group`: 관측 축(대분류) ENUM (`INDEX`, `COUNTRY`, `COMMODITY`, `BOND`, `SECTOR`)
+- `asset_group`: 관측 축(대분류) ENUM (`INDEX`, `COUNTRY`, `COMMODITY`, `BOND`, `SECTOR`, `VOLATILITY_INDEX`)
 - `asset_name`: 사람이 읽을 수 있는 canonical 이름
 - `asset_subtype`: 선택적 2차 분류(세부 해석용)
 
@@ -47,7 +47,10 @@
 ### SECTOR
 미국 섹터 ETF를 통해 섹터 상대강도와 rotation(방어↔경기민감) 흐름을 관측한다.
 
-## 5. Base EOD Observability Set v1 (표) — 39 ETFs
+### VOLATILITY_INDEX
+매매 대상이 아닌 변동성 센서 지수다. Short Engine의 PANIC/RELIEF 보조 신호 계산에만 사용한다.
+
+## 5. Base EOD Observability Set v1 (표) — 39 ETFs + 1 Volatility Index
 
 | symbol | asset_group | asset_name | asset_subtype(옵션) | rationale(한줄) |
 | --- | --- | --- | --- | --- |
@@ -90,6 +93,7 @@
 | XLRE | SECTOR | REAL_ESTATE | RATE_SENSITIVE | 부동산 섹터 축 관측 |
 | XLU | SECTOR | UTILITIES | DEFENSIVE | 유틸리티 섹터 축 관측 |
 | XLI | SECTOR | INDUSTRIALS | CYCLICAL | 산업재 섹터 축 관측 |
+| ^VIX | VOLATILITY_INDEX | CBOE_VOLATILITY_INDEX | IMPLIED_VOL | 매매 대상 제외, PANIC 신호 계산 전용 |
 
 ## 6. 데이터 계약 (Data Contract)
 ### 6.1 레이어별 라벨 전파 규칙
@@ -99,7 +103,7 @@
 - 규칙: 분류는 Bronze에서 1회 확정, 하위 레이어에서 수정 금지
 
 ### 6.2 필수 컬럼/타입/허용값
-- `asset_group`: TEXT NOT NULL, 허용값 ENUM = `INDEX`, `COUNTRY`, `COMMODITY`, `BOND`, `SECTOR`
+- `asset_group`: TEXT NOT NULL, 허용값 ENUM = `INDEX`, `COUNTRY`, `COMMODITY`, `BOND`, `SECTOR`, `VOLATILITY_INDEX`
 - `asset_name`: TEXT NOT NULL
 - `asset_subtype`: TEXT NULLABLE (옵션)
 
@@ -109,6 +113,7 @@
 - 원자재 → `COMMODITY`
 - 채권 → `BOND`
 - 섹터별 → `SECTOR`
+- 변동성 지수 → `VOLATILITY_INDEX`
 
 ## 7. 파티션/경로 정책 (문서로만 기술)
 - 파티션은 안정적으로 유지하고, 분류는 컬럼으로 관리한다.

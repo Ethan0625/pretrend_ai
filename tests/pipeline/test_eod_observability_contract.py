@@ -66,9 +66,9 @@ class TestOL1SotCoverage:
     """OL1: Observability SOT 커버리지 및 중복 없음."""
 
     def test_ol1_sot_coverage_and_no_duplicates(self):
-        """OBSERVABILITY_SET_V1에 39개 ETF가 중복 없이 존재한다."""
-        # 39개 ETF (Gate E 2026-02-26: BOND 풀 HYG/LQD/SHY/TIP 추가 + DVY/VIG/XLI 계약 정합화)
-        assert len(OBSERVABILITY_SET_V1) == 39
+        """OBSERVABILITY_SET_V1에 39개 ETF + 1개 변동성 지수가 중복 없이 존재한다."""
+        # 39개 ETF + 1개 변동성 지수(^VIX)
+        assert len(OBSERVABILITY_SET_V1) == 40
 
         # symbol 중복 금지
         symbols = [entry["symbol"] for entry in OBSERVABILITY_SET_V1]
@@ -112,6 +112,13 @@ class TestOL1SotCoverage:
             f"BOND 전술 풀 불일치: missing={required_bond - bond_symbols}"
         )
         assert len(bond_symbols) == 5, f"BOND ETF 수 기대=5, 실제={len(bond_symbols)}"
+
+    def test_ol1_volatility_index_included_and_non_tactical(self):
+        """^VIX는 VOLATILITY_INDEX로 등록된 관측 센서다."""
+        vix = LABEL_BY_SYMBOL_V1["^VIX"]
+        assert vix["asset_group"] == "VOLATILITY_INDEX"
+        assert vix["asset_name"] == "CBOE_VOLATILITY_INDEX"
+        assert vix["asset_subtype"] == "IMPLIED_VOL"
 
 
 # ── OL2: Bronze has labels and ENUM valid ────────────────
