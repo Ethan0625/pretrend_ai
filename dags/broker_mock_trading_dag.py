@@ -447,6 +447,19 @@ def broker_mock_trading_pipeline():
             probe_df = pd.DataFrame(probe_rows)
 
             broker_nav_usd = float(balance.total_value) / float(balance.fx_usdkrw or 1300.0)
+            invested_usd = 0.0
+            for _pos in broker_positions:
+                try:
+                    mv = getattr(_pos, "market_value", None)
+                    if mv is not None:
+                        invested_usd += float(mv)
+                    else:
+                        qty = float(getattr(_pos, "quantity", 0.0))
+                        mp = getattr(_pos, "market_price", None) or live_prices.get(str(getattr(_pos, "symbol", "")).upper())
+                        if mp is not None:
+                            invested_usd += float(mp) * qty
+                except Exception:
+                    pass
             current_invested_ratio = 0.0
             if broker_nav_usd > 0:
                 current_invested_ratio = max(0.0, min(1.0, invested_usd / broker_nav_usd))
