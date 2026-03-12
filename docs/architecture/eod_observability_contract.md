@@ -50,7 +50,7 @@
 ### VOLATILITY_INDEX
 매매 대상이 아닌 변동성 센서 지수다. Short Engine의 PANIC/RELIEF 보조 신호 계산에만 사용한다.
 
-## 5. Base EOD Observability Set v1 (표) — 39 ETFs + 1 Volatility Index
+## 5. Base EOD Observability Set v1 (표) — 39 ETFs + 2 Volatility Indices
 
 | symbol | asset_group | asset_name | asset_subtype(옵션) | rationale(한줄) |
 | --- | --- | --- | --- | --- |
@@ -94,6 +94,7 @@
 | XLU | SECTOR | UTILITIES | DEFENSIVE | 유틸리티 섹터 축 관측 |
 | XLI | SECTOR | INDUSTRIALS | CYCLICAL | 산업재 섹터 축 관측 |
 | ^VIX | VOLATILITY_INDEX | CBOE_VOLATILITY_INDEX | IMPLIED_VOL | 매매 대상 제외, PANIC 신호 계산 전용 |
+| ^SKEW | VOLATILITY_INDEX | CBOE_SKEW_INDEX | SKEW | 매매 대상 제외, 꼬리위험/OTM put 수요 센서 |
 
 ## 6. 데이터 계약 (Data Contract)
 ### 6.1 레이어별 라벨 전파 규칙

@@ -27,9 +27,9 @@ class ObservabilityEntry(TypedDict):
     asset_subtype: str
 
 
-# ── Observability Set v1 (39 ETFs + 1 volatility index) ─────────────
+# ── Observability Set v1 (39 ETFs + 2 volatility indices) ─────────────
 
-OBSERVABILITY_SET_V1: List[ObservabilityEntry] = [  # 40 instruments total
+OBSERVABILITY_SET_V1: List[ObservabilityEntry] = [  # 41 instruments total
     # INDEX (8)
     {"symbol": "SPY",  "asset_group": "INDEX", "asset_name": "SP500",                    "asset_subtype": "BROAD_MARKET"},
     {"symbol": "VOO",  "asset_group": "INDEX", "asset_name": "SP500",                    "asset_subtype": "BROAD_MARKET"},
@@ -74,8 +74,9 @@ OBSERVABILITY_SET_V1: List[ObservabilityEntry] = [  # 40 instruments total
     {"symbol": "XLRE", "asset_group": "SECTOR", "asset_name": "REAL_ESTATE",              "asset_subtype": "RATE_SENSITIVE"},
     {"symbol": "XLU",  "asset_group": "SECTOR", "asset_name": "UTILITIES",                "asset_subtype": "DEFENSIVE"},
     {"symbol": "XLI",  "asset_group": "SECTOR", "asset_name": "INDUSTRIALS",              "asset_subtype": "CYCLICAL"},
-    # VOLATILITY_INDEX (1) — 매매 대상 제외, PANIC 신호 계산 전용
+    # VOLATILITY_INDEX (2) — 매매 대상 제외, PANIC 신호 계산 전용
     {"symbol": "^VIX", "asset_group": "VOLATILITY_INDEX", "asset_name": "CBOE_VOLATILITY_INDEX", "asset_subtype": "IMPLIED_VOL"},
+    {"symbol": "^SKEW", "asset_group": "VOLATILITY_INDEX", "asset_name": "CBOE_SKEW_INDEX", "asset_subtype": "SKEW"},
 ]
 
 # ── Derived lookups ─────────────────────────────────────

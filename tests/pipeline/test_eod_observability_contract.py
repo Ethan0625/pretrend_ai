@@ -66,9 +66,9 @@ class TestOL1SotCoverage:
     """OL1: Observability SOT 커버리지 및 중복 없음."""
 
     def test_ol1_sot_coverage_and_no_duplicates(self):
-        """OBSERVABILITY_SET_V1에 39개 ETF + 1개 변동성 지수가 중복 없이 존재한다."""
-        # 39개 ETF + 1개 변동성 지수(^VIX)
-        assert len(OBSERVABILITY_SET_V1) == 40
+        """OBSERVABILITY_SET_V1에 39개 ETF + 2개 변동성 지수가 중복 없이 존재한다."""
+        # 39개 ETF + 2개 변동성 지수(^VIX, ^SKEW)
+        assert len(OBSERVABILITY_SET_V1) == 41
 
         # symbol 중복 금지
         symbols = [entry["symbol"] for entry in OBSERVABILITY_SET_V1]
@@ -114,11 +114,15 @@ class TestOL1SotCoverage:
         assert len(bond_symbols) == 5, f"BOND ETF 수 기대=5, 실제={len(bond_symbols)}"
 
     def test_ol1_volatility_index_included_and_non_tactical(self):
-        """^VIX는 VOLATILITY_INDEX로 등록된 관측 센서다."""
+        """^VIX와 ^SKEW는 VOLATILITY_INDEX로 등록된 관측 센서다."""
         vix = LABEL_BY_SYMBOL_V1["^VIX"]
         assert vix["asset_group"] == "VOLATILITY_INDEX"
         assert vix["asset_name"] == "CBOE_VOLATILITY_INDEX"
         assert vix["asset_subtype"] == "IMPLIED_VOL"
+        skew = LABEL_BY_SYMBOL_V1["^SKEW"]
+        assert skew["asset_group"] == "VOLATILITY_INDEX"
+        assert skew["asset_name"] == "CBOE_SKEW_INDEX"
+        assert skew["asset_subtype"] == "SKEW"
 
 
 # ── OL2: Bronze has labels and ENUM valid ────────────────
