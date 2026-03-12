@@ -545,6 +545,7 @@ def test_generate_llm_analysis_fail_open_on_error(monkeypatch) -> None:
         raise RuntimeError("ollama down")
 
     monkeypatch.setenv("REPORT_LLM_ENABLED", "1")
+    monkeypatch.setenv("REPORT_LLM_PROVIDER", "ollama")
     monkeypatch.setattr(
         "pretrend.pipeline.strategy_engine.report_context._get_report_ollama_client",
         _boom,
@@ -559,9 +560,6 @@ def test_generate_llm_analysis_fail_open_on_error(monkeypatch) -> None:
 
 
 def test_generate_llm_analysis_returns_string_on_success(monkeypatch) -> None:
-    class _MockResponse:
-        pass
-
     class _MockClient:
         def __init__(self, host=None):
             pass
@@ -570,6 +568,7 @@ def test_generate_llm_analysis_returns_string_on_success(monkeypatch) -> None:
             return {"message": {"content": "1. 시장 국면: 테스트 해석문입니다."}}
 
     monkeypatch.setenv("REPORT_LLM_ENABLED", "1")
+    monkeypatch.setenv("REPORT_LLM_PROVIDER", "ollama")
     monkeypatch.setattr(
         "pretrend.pipeline.strategy_engine.report_context._get_report_ollama_client",
         lambda base_url: _MockClient(host=base_url),
@@ -582,6 +581,58 @@ def test_generate_llm_analysis_returns_string_on_success(monkeypatch) -> None:
     )
     assert isinstance(result, str)
     assert "시장 국면" in result
+
+
+def test_generate_llm_analysis_gemini_success(monkeypatch) -> None:
+    monkeypatch.setenv("REPORT_LLM_ENABLED", "1")
+    monkeypatch.setenv("REPORT_LLM_PROVIDER", "gemini")
+    monkeypatch.setenv("REPORT_LLM_RETRY", "1")
+    monkeypatch.setattr(
+        "pretrend.pipeline.strategy_engine.report_context._call_gemini",
+        lambda *args, **kwargs: "1. 시장 국면: Gemini 해석문입니다.",
+    )
+    result = _generate_llm_analysis(
+        _build_llm_analysis_payload(**_make_payload_kwargs()),
+        model="gemini-2.5-flash",
+        base_url="http://localhost:11434",
+        timeout=5,
+    )
+    assert isinstance(result, str)
+    assert "Gemini" in result
+
+
+def test_generate_llm_analysis_gemini_fallback_to_ollama(monkeypatch) -> None:
+    class _MockClient:
+        def __init__(self, host=None):
+            pass
+
+        def chat(self, **kwargs):
+            return {"message": {"content": "1. 시장 국면: Ollama fallback 해석문."}}
+
+    monkeypatch.setenv("REPORT_LLM_ENABLED", "1")
+    monkeypatch.setenv("REPORT_LLM_PROVIDER", "gemini")
+    monkeypatch.setenv("REPORT_LLM_RETRY", "1")
+    monkeypatch.setenv("REPORT_LLM_FALLBACK_ENABLED", "1")
+
+    def _gemini_fail(*args, **kwargs):
+        raise RuntimeError("gemini API error")
+
+    monkeypatch.setattr(
+        "pretrend.pipeline.strategy_engine.report_context._call_gemini",
+        _gemini_fail,
+    )
+    monkeypatch.setattr(
+        "pretrend.pipeline.strategy_engine.report_context._get_report_ollama_client",
+        lambda base_url: _MockClient(host=base_url),
+    )
+    result = _generate_llm_analysis(
+        _build_llm_analysis_payload(**_make_payload_kwargs()),
+        model="gemini-2.5-flash",
+        base_url="http://localhost:11434",
+        timeout=5,
+    )
+    assert isinstance(result, str)
+    assert "fallback" in result
 
 
 # ── 신규: compact LLM input builder ──

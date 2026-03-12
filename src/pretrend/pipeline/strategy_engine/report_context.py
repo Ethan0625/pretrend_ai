@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from typing import Any, Dict, List, Optional
 
 _TOPIC_LABELS = {
@@ -712,6 +713,32 @@ def _get_report_ollama_client(base_url: str):
     return ollama.Client(host=base_url)
 
 
+def _call_gemini(
+    model: str,
+    system_prompt: str,
+    user_content: str,
+    temperature: float,
+    max_tokens: int,
+) -> str:
+    from google import genai  # type: ignore
+    from google.genai import types as genai_types  # type: ignore
+
+    api_key = os.getenv("GEMINI_API_KEY", "")
+    if not api_key:
+        raise ValueError("GEMINI_API_KEY not set")
+    client = genai.Client(api_key=api_key)
+    response = client.models.generate_content(
+        model=model,
+        contents=user_content,
+        config=genai_types.GenerateContentConfig(
+            system_instruction=system_prompt,
+            temperature=temperature,
+            max_output_tokens=max_tokens,
+        ),
+    )
+    return response.text.strip()
+
+
 def _report_llm_enabled() -> bool:
     return os.getenv("REPORT_LLM_ENABLED", "1").strip().lower() not in {"0", "false", "no"}
 
@@ -947,29 +974,62 @@ def generate_llm_analysis(
 ) -> Optional[str]:
     """전체 signal 데이터를 읽고 통합 한국어 해석문을 생성한다.
 
-    Returns:
-        한국어 내러티브 문자열. 실패 또는 비활성 시 None (fail-open).
+    REPORT_LLM_PROVIDER=gemini(기본값): Gemini API 시도 → 실패 시 Ollama fallback.
+    REPORT_LLM_PROVIDER=ollama: Ollama 직접 사용.
+    항상 fail-open (예외 시 None 반환).
     """
     if not _report_llm_enabled():
         return None
 
+    provider = os.getenv("REPORT_LLM_PROVIDER", "gemini").strip().lower()
+    temperature = float(os.getenv("REPORT_LLM_TEMPERATURE", "0.4"))
+    num_predict = int(os.getenv("REPORT_LLM_NUM_PREDICT", "2048"))
+    retries = int(os.getenv("REPORT_LLM_RETRY", "3"))
+    compact = _build_compact_llm_input(payload)
+    user_content = json.dumps(compact, ensure_ascii=False, default=str)
+
+    if provider == "gemini":
+        for attempt in range(retries):
+            try:
+                raw = _call_gemini(model, _ANALYSIS_SYSTEM_PROMPT, user_content, temperature, num_predict)
+                if raw:
+                    return raw
+            except Exception:
+                if attempt < retries - 1:
+                    time.sleep(2 ** attempt)
+
+        # Gemini 전체 실패 → Ollama fallback
+        if os.getenv("REPORT_LLM_FALLBACK_ENABLED", "1").strip().lower() not in {"0", "false", "no"}:
+            try:
+                fallback_model = os.getenv("OLLAMA_MODEL", "llama3.1:latest")
+                client = _get_report_ollama_client(base_url)
+                response = client.chat(
+                    model=fallback_model,
+                    messages=[
+                        {"role": "system", "content": _ANALYSIS_SYSTEM_PROMPT},
+                        {"role": "user", "content": user_content},
+                    ],
+                    options={"temperature": temperature, "num_predict": num_predict},
+                )
+                raw = str(response["message"]["content"]).strip()
+                return raw if raw else None
+            except Exception:
+                return None
+        return None
+
+    # provider == "ollama" (기존 동작)
     try:
         client = _get_report_ollama_client(base_url)
-        temperature = float(os.getenv("REPORT_LLM_TEMPERATURE", "0.4"))
-        num_predict = int(os.getenv("REPORT_LLM_NUM_PREDICT", "2048"))
-        compact = _build_compact_llm_input(payload)
         response = client.chat(
             model=model,
             messages=[
                 {"role": "system", "content": _ANALYSIS_SYSTEM_PROMPT},
-                {"role": "user", "content": json.dumps(compact, ensure_ascii=False, default=str)},
+                {"role": "user", "content": user_content},
             ],
             options={"temperature": temperature, "num_predict": num_predict},
         )
         raw = str(response["message"]["content"]).strip()
-        if not raw:
-            return None
-        return raw
+        return raw if raw else None
     except Exception:
         return None
 
