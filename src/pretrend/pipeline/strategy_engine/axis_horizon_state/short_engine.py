@@ -7,17 +7,18 @@ OPTIONAL axis: (없음)
 Contract: docs/architecture/market_structure_short_v1_contract.md
 SOT: docs/strategy_engine_design.md §A3
 
-v1 라벨 로직:
+v1.2 라벨 로직:
   Primary: SPY ret_1d + vol_20d → PANIC / RELIEF / STABLE (v0 조건 유지)
-  Secondary PANIC: 약한 원신호 + 보조 신호 2개 이상 (4신호 중 2개)
+  Secondary PANIC: 약한 원신호 + 보조 신호 2개 이상 (5신호 중 2개)
     - vol_spike      : volume_zscore_20d > 2.0
     - wide_intraday  : spy_intraday_range > 0.020
     - flight_to_safety: tlt_ret_1d > 0.003 AND iau_ret_1d > 0.003
     - smallcap_stress: iwm_spy_vol_spread > 0.005 (IWM vol > SPY vol +0.5%p)  ← v1.1 신규
+    - vix_extreme    : vix_close > 35.0  ← v1.2 신규
   Secondary RELIEF: 약한 원신호 + risk_on_confirm
     - risk_on_confirm: tlt_ret_1d < -0.002 AND iau_ret_1d < -0.002
   결측 시 UNKNOWN (fail-open)
-  VIX 입력 없이 동작 (v0 제약)
+  VIX 입력 없이도 동작 (vix_close=None → vix_extreme=False)
 """
 from __future__ import annotations
 
@@ -50,6 +51,9 @@ _RISK_ON_CONFIRM_THRESHOLD = -0.002
 # v1.1 임계값 (smallcap_stress)
 _IWM_SPY_VOL_SPREAD_THRESHOLD = 0.005  # IWM vol_20d - SPY vol_20d > 0.5%p → 소형주 스트레스
 
+# v1.2 임계값 (vix_extreme)
+_VIX_EXTREME_THRESHOLD = 35.0
+
 
 def _is_valid(val: Optional[float]) -> bool:
     """값이 None이 아니고 NaN도 아닌지 확인."""
@@ -69,8 +73,9 @@ def _classify_short_signal(
     tlt_ret_1d: Optional[float] = None,
     iau_ret_1d: Optional[float] = None,
     iwm_spy_vol_spread: Optional[float] = None,
+    vix_close: Optional[float] = None,
 ) -> str:
-    """단일 trade_date에 대한 short signal 판정 (v1.1 규칙).
+    """단일 trade_date에 대한 short signal 판정 (v1.2 규칙).
 
     Parameters
     ----------
@@ -84,6 +89,8 @@ def _classify_short_signal(
         sentiment — flight_to_safety / risk_on_confirm 보조 신호.
     iwm_spy_vol_spread : float, optional
         sentiment.iwm_spy_vol_spread (IWM vol_20d - SPY vol_20d) — smallcap_stress 보조 신호.
+    vix_close : float, optional
+        ^VIX close — vix_extreme 보조 신호.
     """
     if spy_ret_1d is None or pd.isna(spy_ret_1d):
         return "UNKNOWN"
@@ -106,16 +113,17 @@ def _classify_short_signal(
         _is_valid(iwm_spy_vol_spread)
         and iwm_spy_vol_spread > _IWM_SPY_VOL_SPREAD_THRESHOLD
     )
+    vix_extreme = _is_valid(vix_close) and vix_close > _VIX_EXTREME_THRESHOLD
 
     # ── Primary PANIC (v0 조건 — 유지) ────────────────────
     if spy_ret_1d < _PANIC_RET and spy_vol_20d > _PANIC_VOL:
         return "PANIC"
 
-    # ── Secondary PANIC: 약한 원신호 + 4신호 중 2개 이상 ──
+    # ── Secondary PANIC: 약한 원신호 + 5신호 중 2개 이상 ──
     if spy_ret_1d < _SECONDARY_PANIC_RET and spy_vol_20d > _SECONDARY_PANIC_VOL:
         confirmations = (
             int(vol_spike) + int(wide_intraday)
-            + int(flight_to_safety) + int(smallcap_stress)
+            + int(flight_to_safety) + int(smallcap_stress) + int(vix_extreme)
         )
         if confirmations >= 2:
             return "PANIC"
@@ -139,6 +147,7 @@ def _evaluate_short_signal(
     tlt_ret_1d: Optional[float] = None,
     iau_ret_1d: Optional[float] = None,
     iwm_spy_vol_spread: Optional[float] = None,
+    vix_close: Optional[float] = None,
 ) -> Tuple[str, Dict[str, Any]]:
     if spy_ret_1d is None or pd.isna(spy_ret_1d) or spy_vol_20d is None or pd.isna(spy_vol_20d):
         detail = {
@@ -150,6 +159,8 @@ def _evaluate_short_signal(
             "secondary_confirmations": [],
             "risk_on_confirm": False,
             "smallcap_stress": False,
+            "vix_extreme": False,
+            "vix_close": vix_close,
             "used_unknown_fallback": True,
         }
         return "UNKNOWN", detail
@@ -168,11 +179,13 @@ def _evaluate_short_signal(
         _is_valid(iwm_spy_vol_spread)
         and iwm_spy_vol_spread > _IWM_SPY_VOL_SPREAD_THRESHOLD
     )
+    vix_extreme = _is_valid(vix_close) and vix_close > _VIX_EXTREME_THRESHOLD
     confirmation_flags = {
         "vol_spike": bool(vol_spike),
         "wide_intraday": bool(wide_intraday),
         "flight_to_safety": bool(flight_to_safety),
         "smallcap_stress": bool(smallcap_stress),
+        "vix_extreme": bool(vix_extreme),
     }
     confirmations = [k for k, v in confirmation_flags.items() if v]
     confirm_count = len(confirmations)
@@ -207,6 +220,8 @@ def _evaluate_short_signal(
         "secondary_confirmations": confirmations,
         "risk_on_confirm": bool(risk_on_confirm),
         "smallcap_stress": bool(smallcap_stress),
+        "vix_extreme": bool(vix_extreme),
+        "vix_close": None if not _is_valid(vix_close) else float(vix_close),
         "used_unknown_fallback": False,
     }
     return signal, detail
@@ -270,10 +285,11 @@ def build_short_signal(
             avg_vol_zscore=("volume_zscore_20d", "mean"),
         ).reset_index()
 
-    # sentiment에서 tlt_ret_1d, iau_ret_1d, iwm_spy_vol_spread 추출 (trade_date grain)
+    # sentiment에서 tlt_ret_1d, iau_ret_1d, iwm_spy_vol_spread, vix_close 추출 (trade_date grain)
     sent_tlt: dict = {}
     sent_iau: dict = {}
     sent_iwm_vol_spread: dict = {}
+    sent_vix_close: dict = {}
     if not sentiment.empty:
         for _, srow in sentiment.iterrows():
             td = srow["trade_date"]
@@ -282,6 +298,7 @@ def build_short_signal(
             sent_iwm_vol_spread[td] = (
                 srow.get("iwm_spy_vol_spread") if "iwm_spy_vol_spread" in srow.index else None
             )
+            sent_vix_close[td] = srow.get("vix_close") if "vix_close" in srow.index else None
 
     # 전체 trade_date 집합
     all_dates = set()
@@ -301,10 +318,11 @@ def build_short_signal(
         flow_row = flow_agg[flow_agg["trade_date"] == td] if not flow_agg.empty else pd.DataFrame()
         vol_zscore = flow_row.iloc[0].get("avg_vol_zscore") if not flow_row.empty else None
 
-        # sentiment: tlt/iau/iwm_vol_spread
+        # sentiment: tlt/iau/iwm_vol_spread/vix
         tlt_ret = sent_tlt.get(td)
         iau_ret = sent_iau.get(td)
         iwm_vol_spread = sent_iwm_vol_spread.get(td)
+        vix_close = sent_vix_close.get(td)
 
         signal, detail = _evaluate_short_signal(
             spy_ret_1d, spy_vol_20d,
@@ -313,6 +331,7 @@ def build_short_signal(
             tlt_ret_1d=tlt_ret,
             iau_ret_1d=iau_ret,
             iwm_spy_vol_spread=iwm_vol_spread,
+            vix_close=vix_close,
         )
         assert signal in SHORT_SIGNAL_ENUM, f"Invalid signal: {signal}"
 

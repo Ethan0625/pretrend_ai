@@ -54,11 +54,11 @@ def sentiment_sample() -> pd.DataFrame:
     return pd.DataFrame([
         {"trade_date": date(2024, 6, 3),
          "spy_ret_1d": -0.025, "tlt_ret_1d": 0.01, "iau_ret_1d": 0.005,
-         "spy_vol_20d": 0.025, "iwm_spy_relative_strength": 0.8,
+         "vix_close": None, "spy_vol_20d": 0.025, "iwm_spy_relative_strength": 0.8,
          "iwm_spy_vol_spread": 0.005, "spy_intraday_range": 0.03},
         {"trade_date": date(2024, 6, 4),
          "spy_ret_1d": 0.01, "tlt_ret_1d": -0.003, "iau_ret_1d": 0.001,
-         "spy_vol_20d": 0.008, "iwm_spy_relative_strength": 1.1,
+         "vix_close": None, "spy_vol_20d": 0.008, "iwm_spy_relative_strength": 1.1,
          "iwm_spy_vol_spread": -0.002, "spy_intraday_range": 0.01},
     ])
 
@@ -317,3 +317,89 @@ class TestShortSignalDetail:
         assert "secondary_confirm_count" in detail
         assert "secondary_confirmations" in detail
         assert "smallcap_stress" in detail
+        assert "vix_extreme" in detail
+        assert "vix_close" in detail
+
+
+class TestShortSignalVIXV12:
+    """v1.2: vix_extreme 5번째 secondary PANIC 보조 신호."""
+
+    def test_vix_none_preserves_v11_behavior(self):
+        pv = pd.DataFrame([{
+            "symbol": "SPY", "trade_date": date(2024, 6, 3),
+            "ret_1d": -0.007, "vol_20d": 0.016, "intraday_range": 0.012,
+        }])
+        flow = pd.DataFrame([{
+            "symbol": "SPY", "trade_date": date(2024, 6, 3),
+            "volume": 5_000_000, "volume_zscore_20d": 2.5, "asset_group": "INDEX",
+        }])
+        sentiment = pd.DataFrame([{
+            "trade_date": date(2024, 6, 3),
+            "spy_ret_1d": -0.007, "tlt_ret_1d": 0.001, "iau_ret_1d": 0.001,
+            "vix_close": None,
+            "spy_vol_20d": 0.016, "iwm_spy_relative_strength": 0.9,
+            "iwm_spy_vol_spread": 0.003, "spy_intraday_range": 0.012,
+        }])
+        result = build_short_signal(pv, flow, sentiment)
+        assert result.iloc[0]["short_signal"] == "STABLE"
+
+    def test_vix_extreme_plus_vol_spike_triggers_secondary_panic(self):
+        pv = pd.DataFrame([{
+            "symbol": "SPY", "trade_date": date(2024, 6, 3),
+            "ret_1d": -0.007, "vol_20d": 0.016, "intraday_range": 0.012,
+        }])
+        flow = pd.DataFrame([{
+            "symbol": "SPY", "trade_date": date(2024, 6, 3),
+            "volume": 5_000_000, "volume_zscore_20d": 2.5, "asset_group": "INDEX",
+        }])
+        sentiment = pd.DataFrame([{
+            "trade_date": date(2024, 6, 3),
+            "spy_ret_1d": -0.007, "tlt_ret_1d": 0.001, "iau_ret_1d": 0.001,
+            "vix_close": 36.0,
+            "spy_vol_20d": 0.016, "iwm_spy_relative_strength": 0.9,
+            "iwm_spy_vol_spread": 0.003, "spy_intraday_range": 0.012,
+        }])
+        result = build_short_signal(pv, flow, sentiment)
+        assert result.iloc[0]["short_signal"] == "PANIC"
+        detail = json.loads(result.iloc[0]["short_detail_json"])
+        assert detail["vix_extreme"] is True
+        assert detail["secondary_confirm_count"] == 2
+
+    def test_vix_extreme_alone_is_insufficient(self):
+        pv = pd.DataFrame([{
+            "symbol": "SPY", "trade_date": date(2024, 6, 3),
+            "ret_1d": -0.007, "vol_20d": 0.016, "intraday_range": 0.012,
+        }])
+        flow = pd.DataFrame([{
+            "symbol": "SPY", "trade_date": date(2024, 6, 3),
+            "volume": 1_000_000, "volume_zscore_20d": 0.5, "asset_group": "INDEX",
+        }])
+        sentiment = pd.DataFrame([{
+            "trade_date": date(2024, 6, 3),
+            "spy_ret_1d": -0.007, "tlt_ret_1d": 0.001, "iau_ret_1d": 0.001,
+            "vix_close": 36.0,
+            "spy_vol_20d": 0.016, "iwm_spy_relative_strength": 0.9,
+            "iwm_spy_vol_spread": 0.003, "spy_intraday_range": 0.012,
+        }])
+        result = build_short_signal(pv, flow, sentiment)
+        assert result.iloc[0]["short_signal"] == "STABLE"
+
+    def test_vix_threshold_boundary(self):
+        pv = pd.DataFrame([{
+            "symbol": "SPY", "trade_date": date(2024, 6, 3),
+            "ret_1d": -0.007, "vol_20d": 0.016, "intraday_range": 0.012,
+        }])
+        flow = pd.DataFrame([{
+            "symbol": "SPY", "trade_date": date(2024, 6, 3),
+            "volume": 5_000_000, "volume_zscore_20d": 2.5, "asset_group": "INDEX",
+        }])
+        sentiment = pd.DataFrame([{
+            "trade_date": date(2024, 6, 3),
+            "spy_ret_1d": -0.007, "tlt_ret_1d": 0.001, "iau_ret_1d": 0.001,
+            "vix_close": 35.0,
+            "spy_vol_20d": 0.016, "iwm_spy_relative_strength": 0.9,
+            "iwm_spy_vol_spread": 0.003, "spy_intraday_range": 0.012,
+        }])
+        result = build_short_signal(pv, flow, sentiment)
+        detail = json.loads(result.iloc[0]["short_detail_json"])
+        assert detail["vix_extreme"] is False

@@ -22,6 +22,7 @@ def build_sentiment_proxy_axis(df_gold_eod: pd.DataFrame) -> pd.DataFrame:
 
     Cross-symbol 파생:
     - spy_ret_1d, tlt_ret_1d, iau_ret_1d: 개별 심볼 1일 수익률
+    - vix_close: ^VIX implied volatility level (optional, v1.2 short engine 입력)
     - spy_vol_20d, spy_intraday_range: SPY 변동성 proxy
     - iwm_spy_relative_strength: IWM ret_20d / SPY ret_20d
     - iwm_spy_vol_spread: IWM vol_20d - SPY vol_20d
@@ -42,8 +43,11 @@ def build_sentiment_proxy_axis(df_gold_eod: pd.DataFrame) -> pd.DataFrame:
 
     # 심볼별 피벗
     pivots = {}
-    for sym in ("SPY", "TLT", "IAU", "IWM"):
-        sub = df.loc[df["symbol"] == sym, ["trade_date", "ret_1d", "ret_20d", "vol_20d", "intraday_range"]]
+    for sym in ("SPY", "TLT", "IAU", "IWM", "^VIX"):
+        cols = ["trade_date", "ret_1d", "ret_20d", "vol_20d", "intraday_range"]
+        if "adj_close" in df.columns:
+            cols.append("adj_close")
+        sub = df.loc[df["symbol"] == sym, cols]
         if not sub.empty:
             pivots[sym] = sub.set_index("trade_date")
 
@@ -56,6 +60,7 @@ def build_sentiment_proxy_axis(df_gold_eod: pd.DataFrame) -> pd.DataFrame:
             row[col_name] = _get_val(pivots, sym, td, "ret_1d")
 
         # Volatility proxy
+        row["vix_close"] = _get_val(pivots, "^VIX", td, "adj_close")
         row["spy_vol_20d"] = _get_val(pivots, "SPY", td, "vol_20d")
         row["spy_intraday_range"] = _get_val(pivots, "SPY", td, "intraday_range")
 

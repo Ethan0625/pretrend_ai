@@ -84,6 +84,7 @@ SENTIMENT_OPTIONAL_COLUMNS: List[str] = [
     "spy_ret_1d",
     "tlt_ret_1d",
     "iau_ret_1d",
+    "vix_close",
     "spy_vol_20d",
     "spy_intraday_range",
     "iwm_spy_relative_strength",

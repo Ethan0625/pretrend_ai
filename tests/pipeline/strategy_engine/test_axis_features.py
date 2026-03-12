@@ -266,10 +266,11 @@ class TestSentimentAxis:
         assert result["iwm_spy_relative_strength"].notna().any()
         assert result["iwm_spy_vol_spread"].notna().any()
 
-    def test_no_vix_dependency(self, sample_gold_eod):
-        """v0에서 VIX 의존성 없음 확인."""
+    def test_vix_is_optional_column(self, sample_gold_eod):
+        """v1.2에서 VIX는 optional 컬럼이지만 없어도 axis는 동작한다."""
         result = build_sentiment_proxy_axis(sample_gold_eod)
-        assert "vix_close" not in result.columns
+        assert "vix_close" in result.columns
+        assert result["vix_close"].isna().all()
 
 
 # ── AxisFeatureBundle 테스트 ──────────────────────────────

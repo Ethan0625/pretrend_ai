@@ -69,7 +69,7 @@
 | Flow Proxy | volume_zscore_20d | FLOAT | N | 거래량 이상치 |
 | Flow Proxy | obv_slope | FLOAT | N | OBV 기울기 |
 | Flow Proxy | turnover_spike_flag | BOOLEAN | N | turnover 스파이크 |
-| Sentiment(VIX, optional) | vix_close | FLOAT | N | v1+ 편입 후보 |
+| Sentiment(VIX, optional) | vix_close | FLOAT | N | v1.2 secondary PANIC 보조 신호 입력 |
 
 결측 처리:
 - Risk Spread/Volatility 핵심 입력 누락 시 `short_signal=UNKNOWN`으로 출력한다.
@@ -112,7 +112,7 @@
 - 입력 read-only
 - 결측 입력은 `UNKNOWN`으로 표준화
 - 점수/가중치 계산 없이 상태 전이 로직만 허용
-- secondary PANIC 확인 신호는 4개(`vol_spike`, `wide_intraday`, `flight_to_safety`, `smallcap_stress`) 중 2개 이상 충족 규칙을 따른다.
+- secondary PANIC 확인 신호는 5개(`vol_spike`, `wide_intraday`, `flight_to_safety`, `smallcap_stress`, `vix_extreme`) 중 2개 이상 충족 규칙을 따른다.
 - `smallcap_stress`는 `iwm_spy_vol_spread > 0.005` 조건으로 판정한다.
 
 ## 7. DoD
