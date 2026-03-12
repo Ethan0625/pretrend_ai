@@ -7,6 +7,248 @@
 
 > 참고: changelog 과거 섹션은 작성 시점 원문을 보존한다.
 
+## v2026.03.12d — Report LLM: Ollama → Gemini 2.5 Flash 전환
+
+### feat(strategy): Report LLM provider Gemini 전환
+- `src/pretrend/pipeline/strategy_engine/report_context.py`
+  - `_call_gemini()` 추가 (`google-genai` SDK v1.66.0 사용)
+  - `generate_llm_analysis()` 재작성:
+    - `REPORT_LLM_PROVIDER=gemini`(기본): Gemini 시도 → retry 3회(backoff 1s/2s/4s) → Ollama fallback
+    - `REPORT_LLM_PROVIDER=ollama`: 기존 동작 유지
+  - fail-open 유지 (모든 경로 실패 시 None 반환)
+
+### env
+- `.env` 추가:
+  - `REPORT_LLM_PROVIDER=gemini`
+  - `REPORT_LLM_MODEL=gemini-2.5-flash`
+  - `REPORT_LLM_FALLBACK_ENABLED=1`
+  - `REPORT_LLM_RETRY=3`
+
+### deps
+- `google-genai` 설치 완료 (pytest-pretrend / airflow-pretrend / pretrend-dev)
+- `google-generativeai` (deprecated) 대신 `google.genai` 신규 SDK 사용
+
+### test
+- `test_generate_llm_analysis_fail_open_on_error` — `REPORT_LLM_PROVIDER=ollama` 명시
+- `test_generate_llm_analysis_returns_string_on_success` — `REPORT_LLM_PROVIDER=ollama` 명시
+- `test_generate_llm_analysis_gemini_success` 신규
+- `test_generate_llm_analysis_gemini_fallback_to_ollama` 신규
+- 검증: `44 passed` / 전체 `685 passed, 6 skipped`
+
+---
+
+## v2026.03.12c — P5-2d 완료: SKEW Gold feature 구현
+
+### feat(data): `skew_gold` macro feature 추가
+- `src/pretrend/pipeline/features/skew_gold.py`
+  - 입력: `data/gold/eod/eod_features/symbol=^SKEW/`
+  - 출력:
+    - `trade_date`
+    - `skew_close`
+    - `skew_zscore_252`
+    - `skew_extreme_flag`
+    - `run_id`
+    - `ingestion_ts`
+
+### storage
+- 저장 경로:
+  - `data/gold/macro/skew/put_call/date=YYYY-MM-DD/skew_YYYYMMDD.parquet`
+- 저장 정책:
+  - 날짜 파티션 overwrite
+  - stale `_tmp_run=*` 디렉터리 정리 후 재실행
+
+### quality
+- 전체 구간 생성 결과:
+  - `5519 rows`
+  - `2004-01-02 ~ 2026-03-11`
+  - `skew_extreme_flag non-zero: 5.00%`
+
+### test
+- `tests/pipeline/features/test_skew_gold.py` 신규
+- 검증 결과:
+  - `conda run -n pytest-pretrend pytest tests/pipeline/features/test_skew_gold.py -v` → `4 passed`
+  - `conda run -n pytest-pretrend pytest --tb=no -q` → `689 passed, 6 skipped, 11 warnings`
+
+## v2026.03.12b — P5-2c 완료: ^SKEW EOD observability 편입 + backfill
+
+### feat(data): `^SKEW` observability 편입
+- `src/pretrend/pipeline/config/eod_observability.py`
+  - `OBSERVABILITY_SET_V1`에 `^SKEW` 추가
+  - 분류:
+    - `asset_group=VOLATILITY_INDEX`
+    - `asset_name=CBOE_SKEW_INDEX`
+    - `asset_subtype=SKEW`
+- 총 관측 수:
+  - `39 ETFs + 2 volatility indices` (`^VIX`, `^SKEW`)
+
+### docs(contract): observability contract에 `^SKEW` 반영
+- `docs/architecture/eod_observability_contract.md`
+  - Base EOD Observability Set 표에 `^SKEW` 추가
+  - rationale: `꼬리위험/OTM put 수요 센서`
+
+### test
+- `tests/pipeline/test_eod_observability_contract.py`
+  - 총 개수 `41` 검증
+  - `^SKEW` 라벨/그룹 검증 추가
+- 검증 결과:
+  - `conda run -n pytest-pretrend pytest tests/pipeline/test_eod_observability_contract.py -v` → `11 passed`
+
+### backfill
+- 실행:
+  - `conda run -n pytest-pretrend python -m pretrend.pipeline.eod_job --start 2004-01-02 --end 2026-03-12 --symbols "^SKEW"`
+- 결과:
+  - `data/gold/eod/eod_features/symbol=^SKEW/` 생성
+  - `267 parquet files`
+  - `5519 rows`
+  - `2004-01-02 ~ 2026-03-11`
+
+### note
+- `^SKEW`는 `P5-2d`에서 `skew_extreme_flag` macro feature의 입력으로 사용된다.
+
+## v2026.03.12b — P5-2 방향 전환: CBOE Put/Call → SKEW
+
+### decision: CBOE Put/Call 수집 중단 및 ^SKEW 전환
+
+**배경**
+- P5-2a/2b에서 CBOE Put/Call Bronze→Silver→Gold 파이프라인을 구축 완료
+- P5-2c backfill 실행 시 CBOE CDN(`cdn.cboe.com`) CloudFront IP 수준 403 Forbidden 차단 확인
+- User-Agent/Referer 헤더 추가 및 `curl` 직접 요청도 동일하게 차단됨
+- 유료 대안(Polygon, Tradier, ORATS) 비용 과다($29~$300+/월) → 채택 불가
+
+**결정**
+- CBOE Put/Call 수집 포기, ^SKEW(CBOE Skew Index, Yahoo Finance)로 전환
+- ^SKEW는 OTM put 수요(꼬리 위험 헤지) 측정 목적이 P/C ratio와 동일하며 무료
+- EOD 파이프라인 재사용 가능 (^VIX 편입 패턴 동일)
+
+**변경 내용**
+- 삭제: `src/pretrend/pipeline/ingest/cboe.py`
+- 삭제: `src/pretrend/pipeline/features/cboe_silver.py`
+- 삭제: `src/pretrend/pipeline/features/cboe_gold.py`
+- 삭제: `tests/pipeline/ingest/test_cboe.py`
+- 삭제: `tests/pipeline/features/test_cboe_silver_gold.py`
+- 수정: `dags/macro_pipeline_dag.py` — cboe import 및 `cboe_ingest_task` 제거
+- 수정: `docs/architecture/macro_pipeline_scope.md` — CBOE 내용 제거, SKEW→EOD 파이프라인 명시
+- 아카이브: `.agent/task/archive/P5-2/` — CBOE 관련 task 문서 전량 이동
+
+**후속 작업**
+- P5-2c: ^SKEW EOD 편입 + backfill
+- P5-2d: skew_gold feature 구현 (skew_extreme_flag)
+- P5-2e: Short Engine v1.3 SKEW 통합
+
+### test
+- 검증 결과: `conda run -n pytest-pretrend pytest --tb=no -q` → `683 passed, 6 skipped`
+
+---
+
+## v2026.03.12a — P5-2b 완료: CBOE Put/Call Silver/Gold feature 추가
+
+### feat(data): Put/Call Silver feature 추가
+- `src/pretrend/pipeline/features/cboe_silver.py`
+  - Bronze raw를 SPY 거래일 기준으로 left join
+  - `equity_pc_ratio` outlier(` < 0.1` 또는 `> 3.0`)는 `NaN` 처리
+  - Silver year partition 저장:
+    - `data/silver/macro/cboe/put_call/year=YYYY/cboe_put_call_YYYY.parquet`
+
+### feat(data): Put/Call Gold feature 추가
+- `src/pretrend/pipeline/features/cboe_gold.py`
+  - forward-fill된 `equity_pc_ratio`, `total_pc_ratio`
+  - `equity_pc_ma5`, `equity_pc_ma20`
+  - `equity_pc_zscore_20d`, `total_pc_zscore_20d`
+  - `equity_pc_extreme_high`, `equity_pc_extreme_low`, `put_call_extreme_flag`
+  - Gold year partition 저장:
+    - `data/gold/macro/cboe/put_call/year=YYYY/cboe_put_call_gold_YYYY.parquet`
+
+### feat(pipeline): Bronze → Silver → Gold 독립 runner 연결
+- `run_cboe_put_call_pipeline()` 추가
+- 기존 `macro_job`/FRED path는 수정하지 않고, Put/Call feature 경로를 별도 독립 runner로 연결
+
+### test
+- `tests/pipeline/features/test_cboe_silver_gold.py` 신규
+  - Silver 날짜 정합
+  - 이상치 NaN 처리
+  - Gold forward-fill
+  - zscore 정확성
+  - extreme flag 경계값
+  - temp 경로 pipeline write 검증
+- 검증 결과:
+  - `conda run -n pytest-pretrend pytest tests/pipeline/features/test_cboe_silver_gold.py -v` → `7 passed`
+  - `conda run -n pytest-pretrend pytest --tb=no -q` → `693 passed, 6 skipped`
+
+## v2026.03.11g — P5-2a 완료: CBOE Put/Call Bronze ingest + macro pipeline 편입
+
+### feat(data): CBOE Put/Call Bronze ingest 모듈 추가
+- `src/pretrend/pipeline/ingest/cboe.py`
+  - CBOE 연도별 CSV(`options_stats_{YYYY}.csv`) 다운로드
+  - 표준 컬럼 정규화:
+    - `date`
+    - `equity_pc_ratio`
+    - `total_pc_ratio`
+    - `index_pc_ratio`
+  - Bronze 파티션 저장:
+    - `data/bronze/macro/cboe/put_call/date=YYYY-MM-DD/cboe_put_call_YYYYMMDD.parquet`
+
+### feat(dag): `macro_pipeline_dag`에 `cboe_ingest_task` 병렬 추가
+- `dags/macro_pipeline_dag.py`
+  - 기존 `run_macro_job_task`는 그대로 유지
+  - 신규 `cboe_ingest_task`는 FRED task와 순서 의존성 없이 병렬 실행
+  - CBOE 수집 실패 시 warning dict 반환으로 fail-open 유지
+
+### docs: `macro_pipeline_scope.md` 신규 작성
+- `docs/architecture/macro_pipeline_scope.md`
+  - FRED 경제/정책 신호와 CBOE Put/Call 시장심리 신호를 동일 DAG에 편입한 이유 명시
+  - `macro_pipeline_dag` 범위 확장임을 문서화
+
+### test
+- `tests/pipeline/ingest/test_cboe.py` 신규
+  - CSV 파싱
+  - Bronze 파티션 쓰기
+  - 날짜 범위 필터
+- 검증 결과:
+  - `conda run -n pytest-pretrend pytest tests/pipeline/ingest/test_cboe.py -v` → `3 passed`
+  - `conda run -n airflow-pretrend python -c "from dags.macro_pipeline_dag import macro_pipeline_dag; print('OK')"` → `OK`
+  - `conda run -n pytest-pretrend pytest --tb=no -q` → `686 passed, 6 skipped`
+
+## v2026.03.11f — P5-1 완료: VIX 수집 → Short Engine v1.2 → Backtest 검증
+
+### feat(data): ^VIX EOD 수집 + 전체 구간 backfill (P5-1a)
+- `eod_observability.py`에 `^VIX` 추가 (`VOLATILITY_INDEX` / `CBOE_VOLATILITY_INDEX` / `IMPLIED_VOL`)
+- `data/gold/eod/eod_features/symbol=^VIX/` 생성 (2004-01-02 ~ 2026-03-10, 5,581 rows)
+
+### research: VIX step 분석 리포트 생성 (P5-1b)
+- 6개 VIX step(LOW/NORMAL/ELEVATED/HIGH/STRESS/EXTREME) × 시장 반응 분석
+- 기존 Short Engine PANIC 신호와의 교차 확인: PANIC 발생 시 평균 VIX = 43.45 (EXTREME 구간)
+- GFC(49.68), COVID(76.45), Rate Hike 2022(34.02) 이벤트 교차 확인
+- PANIC 임계값 결정: **VIX > 35 (EXTREME 구간)**, RELIEF 조건 추가 유보
+- 산출물: `result/research/vix_step_analysis_20260311.md`
+
+### feat(strategy): Short Engine v1.2 — vix_extreme 5번째 신호 추가 (P5-1c)
+- `src/pretrend/pipeline/strategy_engine/axis_horizon_state/short_engine.py`
+  - `_VIX_EXTREME_THRESHOLD = 35.0` 상수 추가
+  - `compute_short_state(..., vix_close=None)` 파라미터 확장
+  - Secondary PANIC 보조 신호 4개 → 5개 (`vix_extreme` 추가), `>= 2` 조건 유지
+  - `vix_close=None` fallback: `vix_extreme=False` (fail-open, 기존 v1.1 동작 유지)
+  - 진단 필드에 `vix_extreme`, `vix_close` 추가
+- `src/pretrend/pipeline/strategy_engine/axis_horizon_state/builder.py`
+  - Gold EOD `^VIX` `adj_close` → `vix_close`로 전달
+
+### verify(backtest): Short Engine v1.1 vs v1.2 전체 지표 비교 (P5-1d)
+- 비교 구간: 2006-01-03 ~ 2024-06-03, v2 preset
+- 결과:
+  | 지표 | v1.1 | v1.2 (VIX) | delta |
+  |---|---|---|---|
+  | XIRR | +7.25% | +7.42% | +0.18%p ↑ |
+  | DCA Return | +105.84% | +109.72% | +3.88%p ↑ |
+  | MDD | -15.65% | -16.21% | -0.56%p ↓ |
+  | Sharpe | 1.68 | 1.68 | 동일 |
+  | Calmar | 1.96 | 1.90 | -0.06 ↓ |
+- 이벤트 선행성: Rate Hike 2022에서 PANIC 58일 선행 감지 (2022-05-05 → 2022-03-08)
+- GFC/COVID: 첫 PANIC 날짜 변화 없음 (기존 신호가 이미 충분히 감지)
+- 채택 결론: **조건부 채택** — XIRR·DCA 개선, Rate Hike 선행 효과. MDD 소폭 악화는 Put/Call 수집 후 재평가(P5-2e) 예정
+- 산출물: `result/backtest_compare/vix_engine_v11_vs_v12_20260311.md`
+
+### test
+- 전체 pytest: `683 passed, 6 skipped`
+
 ## v2026.03.11b — P4-8 SCHD floor 정책을 SIM/Mock 실행 경로로 확장
 
 ### feat(paper): SIM 실행 경로에 `schd_min_weight=0.20` 적용
@@ -2410,3 +2652,9 @@ print_phase_distribution(policy_df, group_by="year")
 ### ^VIX 전체 구간 Backfill 완료
 - `eod_job --start 2004-01-02 --end 2026-03-10 --symbols "^VIX"` 실행으로 Bronze/Silver/Gold 전체 구간 백필을 완료했다.
 - Gold 산출물은 `data/gold/eod/eod_features/symbol=^VIX/`에 저장되며, `adj_close`, `ret_1d`, `vol_20d`, `ma_20` 등 P5-1b step 연구용 컬럼을 포함한다.
+## 2026-03-11
+
+### Strategy Engine
+- Short Engine v1.2: `vix_extreme(vix_close > 35)`를 secondary PANIC의 5번째 확인 신호로 추가했다.
+- VIX 데이터 결측 시 `vix_extreme=False`로 fail-open 처리해 기존 v1.1 동작과의 backward compatibility를 유지했다.
+- RELIEF 조건에는 VIX를 추가하지 않았다.
