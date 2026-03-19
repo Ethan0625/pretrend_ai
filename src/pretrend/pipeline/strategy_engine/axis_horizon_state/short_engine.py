@@ -7,23 +7,26 @@ OPTIONAL axis: (없음)
 Contract: docs/architecture/market_structure_short_v1_contract.md
 SOT: docs/strategy_engine_design.md §A3
 
-v1.2 라벨 로직:
+v1.3 라벨 로직:
   Primary: SPY ret_1d + vol_20d → PANIC / RELIEF / STABLE (v0 조건 유지)
-  Secondary PANIC: 약한 원신호 + 보조 신호 2개 이상 (5신호 중 2개)
+  Secondary PANIC: 약한 원신호 + 보조 신호 3개 이상 (6신호 중 3개)
     - vol_spike      : volume_zscore_20d > 2.0
     - wide_intraday  : spy_intraday_range > 0.020
     - flight_to_safety: tlt_ret_1d > 0.003 AND iau_ret_1d > 0.003
     - smallcap_stress: iwm_spy_vol_spread > 0.005 (IWM vol > SPY vol +0.5%p)  ← v1.1 신규
     - vix_extreme    : vix_close > 35.0  ← v1.2 신규
+    - skew_extreme   : skew_extreme_flag == 1  ← v1.3 신규
   Secondary RELIEF: 약한 원신호 + risk_on_confirm
     - risk_on_confirm: tlt_ret_1d < -0.002 AND iau_ret_1d < -0.002
   결측 시 UNKNOWN (fail-open)
-  VIX 입력 없이도 동작 (vix_close=None → vix_extreme=False)
+  VIX/SKEW 입력 없이도 동작 (vix_close=None → vix_extreme=False, skew load 실패 → 0)
 """
 from __future__ import annotations
 
 import json
 import logging
+from functools import lru_cache
+from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
 import pandas as pd
@@ -53,6 +56,27 @@ _IWM_SPY_VOL_SPREAD_THRESHOLD = 0.005  # IWM vol_20d - SPY vol_20d > 0.5%p → �
 
 # v1.2 임계값 (vix_extreme)
 _VIX_EXTREME_THRESHOLD = 35.0
+_SKEW_GOLD_ROOT = Path("data/gold/macro/skew/put_call")
+
+
+@lru_cache(maxsize=8192)
+def _load_skew_extreme(signal_date) -> int:
+    """skew_extreme_flag Gold feature 로드. 실패 시 0 반환 (fail-open)."""
+    try:
+        date_token = pd.Timestamp(signal_date).date().isoformat()
+        skew_dir = _SKEW_GOLD_ROOT / f"date={date_token}"
+        files = sorted(skew_dir.glob("*.parquet"))
+        if not files:
+            return 0
+        df = pd.read_parquet(files[0], columns=["skew_extreme_flag"])
+        if df.empty:
+            return 0
+        value = df["skew_extreme_flag"].iloc[0]
+        if pd.isna(value):
+            return 0
+        return int(value)
+    except Exception:
+        return 0
 
 
 def _is_valid(val: Optional[float]) -> bool:
@@ -74,8 +98,9 @@ def _classify_short_signal(
     iau_ret_1d: Optional[float] = None,
     iwm_spy_vol_spread: Optional[float] = None,
     vix_close: Optional[float] = None,
+    skew_extreme: Optional[bool] = None,
 ) -> str:
-    """단일 trade_date에 대한 short signal 판정 (v1.2 규칙).
+    """단일 trade_date에 대한 short signal 판정 (v1.3 규칙).
 
     Parameters
     ----------
@@ -91,6 +116,8 @@ def _classify_short_signal(
         sentiment.iwm_spy_vol_spread (IWM vol_20d - SPY vol_20d) — smallcap_stress 보조 신호.
     vix_close : float, optional
         ^VIX close — vix_extreme 보조 신호.
+    skew_extreme : bool, optional
+        skew_extreme_flag — skew tail-risk 보조 신호.
     """
     if spy_ret_1d is None or pd.isna(spy_ret_1d):
         return "UNKNOWN"
@@ -119,13 +146,14 @@ def _classify_short_signal(
     if spy_ret_1d < _PANIC_RET and spy_vol_20d > _PANIC_VOL:
         return "PANIC"
 
-    # ── Secondary PANIC: 약한 원신호 + 5신호 중 2개 이상 ──
+    # ── Secondary PANIC: 약한 원신호 + 6신호 중 3개 이상 ──
     if spy_ret_1d < _SECONDARY_PANIC_RET and spy_vol_20d > _SECONDARY_PANIC_VOL:
         confirmations = (
             int(vol_spike) + int(wide_intraday)
             + int(flight_to_safety) + int(smallcap_stress) + int(vix_extreme)
+            + int(bool(skew_extreme))
         )
-        if confirmations >= 2:
+        if confirmations >= 3:
             return "PANIC"
 
     # ── Primary RELIEF (v0 조건 — 유지) ───────────────────
@@ -148,6 +176,7 @@ def _evaluate_short_signal(
     iau_ret_1d: Optional[float] = None,
     iwm_spy_vol_spread: Optional[float] = None,
     vix_close: Optional[float] = None,
+    skew_extreme: Optional[bool] = None,
 ) -> Tuple[str, Dict[str, Any]]:
     if spy_ret_1d is None or pd.isna(spy_ret_1d) or spy_vol_20d is None or pd.isna(spy_vol_20d):
         detail = {
@@ -160,6 +189,7 @@ def _evaluate_short_signal(
             "risk_on_confirm": False,
             "smallcap_stress": False,
             "vix_extreme": False,
+            "skew_extreme": False,
             "vix_close": vix_close,
             "used_unknown_fallback": True,
         }
@@ -186,6 +216,7 @@ def _evaluate_short_signal(
         "flight_to_safety": bool(flight_to_safety),
         "smallcap_stress": bool(smallcap_stress),
         "vix_extreme": bool(vix_extreme),
+        "skew_extreme": bool(skew_extreme),
     }
     confirmations = [k for k, v in confirmation_flags.items() if v]
     confirm_count = len(confirmations)
@@ -202,7 +233,7 @@ def _evaluate_short_signal(
     signal = "STABLE"
     if primary_panic:
         signal = "PANIC"
-    elif secondary_panic_candidate and confirm_count >= 2:
+    elif secondary_panic_candidate and confirm_count >= 3:
         signal = "PANIC"
     elif primary_relief:
         signal = "RELIEF"
@@ -221,6 +252,7 @@ def _evaluate_short_signal(
         "risk_on_confirm": bool(risk_on_confirm),
         "smallcap_stress": bool(smallcap_stress),
         "vix_extreme": bool(vix_extreme),
+        "skew_extreme": bool(skew_extreme),
         "vix_close": None if not _is_valid(vix_close) else float(vix_close),
         "used_unknown_fallback": False,
     }
@@ -318,11 +350,12 @@ def build_short_signal(
         flow_row = flow_agg[flow_agg["trade_date"] == td] if not flow_agg.empty else pd.DataFrame()
         vol_zscore = flow_row.iloc[0].get("avg_vol_zscore") if not flow_row.empty else None
 
-        # sentiment: tlt/iau/iwm_vol_spread/vix
+        # sentiment: tlt/iau/iwm_vol_spread/vix + skew gold
         tlt_ret = sent_tlt.get(td)
         iau_ret = sent_iau.get(td)
         iwm_vol_spread = sent_iwm_vol_spread.get(td)
         vix_close = sent_vix_close.get(td)
+        skew_extreme = bool(_load_skew_extreme(td))
 
         signal, detail = _evaluate_short_signal(
             spy_ret_1d, spy_vol_20d,
@@ -332,6 +365,7 @@ def build_short_signal(
             iau_ret_1d=iau_ret,
             iwm_spy_vol_spread=iwm_vol_spread,
             vix_close=vix_close,
+            skew_extreme=skew_extreme,
         )
         assert signal in SHORT_SIGNAL_ENUM, f"Invalid signal: {signal}"
 

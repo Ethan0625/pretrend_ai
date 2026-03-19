@@ -18,6 +18,7 @@ from pretrend.pipeline.strategy_engine.axis_horizon_state.schema import (
     SHORT_OUTPUT_COLUMNS,
 )
 from pretrend.pipeline.strategy_engine.axis_horizon_state.short_engine import (
+    _load_skew_extreme,
     build_short_signal,
 )
 
@@ -137,12 +138,12 @@ class TestShortSignalMSH5:
     """MSH5: sentiment 통합 — secondary PANIC/RELIEF."""
 
     def test_flight_to_safety_triggers_secondary_panic(self):
-        """ret_1d=-0.008 + vol=0.017(primary 미달) + TLT/IAU 랠리 + vol_spike → Secondary PANIC."""
-        # Secondary PANIC 조건: ret_1d < -0.005 ✓ + vol > 0.015 ✓ + confirmations >= 2
-        # confirmations: vol_spike(2.5>2.0) + flight_to_safety(tlt=0.005, iau=0.004 모두 >0.003)
+        """ret_1d=-0.008 + vol=0.017(primary 미달) + 3확인 신호 → Secondary PANIC."""
+        # Secondary PANIC 조건: ret_1d < -0.005 ✓ + vol > 0.015 ✓ + confirmations >= 3
+        # confirmations: vol_spike + flight_to_safety + wide_intraday
         pv = pd.DataFrame([
             {"symbol": "SPY", "trade_date": date(2024, 6, 3),
-             "ret_1d": -0.008, "vol_20d": 0.017, "intraday_range": 0.015},
+             "ret_1d": -0.008, "vol_20d": 0.017, "intraday_range": 0.022},
         ])
         flow = pd.DataFrame([
             {"symbol": "SPY", "trade_date": date(2024, 6, 3),
@@ -152,7 +153,7 @@ class TestShortSignalMSH5:
             {"trade_date": date(2024, 6, 3),
              "spy_ret_1d": -0.008, "tlt_ret_1d": 0.005, "iau_ret_1d": 0.004,
              "spy_vol_20d": 0.017, "iwm_spy_relative_strength": 0.8,
-             "iwm_spy_vol_spread": 0.003, "spy_intraday_range": 0.015},
+             "iwm_spy_vol_spread": 0.003, "spy_intraday_range": 0.022},
         ])
         result = build_short_signal(pv, flow, sentiment)
         assert result.iloc[0]["short_signal"] == "PANIC"
@@ -213,9 +214,9 @@ class TestShortSignalMSH6:
         assert result.iloc[0]["short_signal"] == "STABLE"
 
     def test_volume_spike_plus_wide_intraday_triggers_secondary_panic(self):
-        """vol_spike + wide_intraday(confirmations=2) → Secondary PANIC."""
+        """vol_spike + wide_intraday + vix_extreme(confirmations=3) → Secondary PANIC."""
         # Secondary 조건: ret=-0.007 < -0.005, vol=0.016 > 0.015
-        # vol_spike=True(1), wide_intraday=True(intraday=0.022 > 0.020)(2) → total=2 → PANIC
+        # vol_spike + wide_intraday + vix_extreme → total=3 → PANIC
         pv = pd.DataFrame([
             {"symbol": "SPY", "trade_date": date(2024, 6, 3),
              "ret_1d": -0.007, "vol_20d": 0.016, "intraday_range": 0.022},
@@ -227,6 +228,7 @@ class TestShortSignalMSH6:
         sentiment = pd.DataFrame([
             {"trade_date": date(2024, 6, 3),
              "spy_ret_1d": -0.007, "tlt_ret_1d": 0.001, "iau_ret_1d": 0.001,
+             "vix_close": 36.0,
              "spy_vol_20d": 0.016, "iwm_spy_relative_strength": 0.9,
              "iwm_spy_vol_spread": 0.001, "spy_intraday_range": 0.022},
         ])
@@ -261,7 +263,7 @@ class TestShortSignalMSH7:
     """
 
     def test_smallcap_stress_plus_vol_spike_triggers_secondary_panic(self):
-        """vol_spike(True) + smallcap_stress(True) → confirmations=2 → Secondary PANIC.
+        """vol_spike + smallcap_stress + vix_extreme → Secondary PANIC.
 
         flight_to_safety=False(tlt/iau 모두 임계 미달), wide_intraday=False.
         """
@@ -276,6 +278,7 @@ class TestShortSignalMSH7:
         sentiment = pd.DataFrame([{
             "trade_date": date(2024, 6, 3),
             "spy_ret_1d": -0.007, "tlt_ret_1d": 0.001, "iau_ret_1d": 0.001,
+            "vix_close": 36.0,
             "spy_vol_20d": 0.016, "iwm_spy_relative_strength": 0.9,
             "iwm_spy_vol_spread": 0.008,   # > 0.005 → smallcap_stress=True
             "spy_intraday_range": 0.012,
@@ -283,7 +286,7 @@ class TestShortSignalMSH7:
         result = build_short_signal(pv, flow, sentiment)
         # ret=-0.007<-0.005, vol=0.016>0.015 → secondary 진입
         # vol_spike(2.5>2.0)=1, wide_intraday(0.012<0.020)=0
-        # flight_to_safety(tlt=0.001<0.003)=0, smallcap_stress(0.008>0.005)=1 → total=2 → PANIC
+        # flight_to_safety(tlt=0.001<0.003)=0, smallcap_stress(0.008>0.005)=1, vix_extreme=1 → total=3 → PANIC
         assert result.iloc[0]["short_signal"] == "PANIC"
 
     def test_smallcap_stress_below_threshold_stays_stable(self):
@@ -318,6 +321,7 @@ class TestShortSignalDetail:
         assert "secondary_confirmations" in detail
         assert "smallcap_stress" in detail
         assert "vix_extreme" in detail
+        assert "skew_extreme" in detail
         assert "vix_close" in detail
 
 
@@ -343,7 +347,7 @@ class TestShortSignalVIXV12:
         result = build_short_signal(pv, flow, sentiment)
         assert result.iloc[0]["short_signal"] == "STABLE"
 
-    def test_vix_extreme_plus_vol_spike_triggers_secondary_panic(self):
+    def test_vix_extreme_plus_vol_spike_and_flight_to_safety_triggers_secondary_panic(self):
         pv = pd.DataFrame([{
             "symbol": "SPY", "trade_date": date(2024, 6, 3),
             "ret_1d": -0.007, "vol_20d": 0.016, "intraday_range": 0.012,
@@ -354,7 +358,7 @@ class TestShortSignalVIXV12:
         }])
         sentiment = pd.DataFrame([{
             "trade_date": date(2024, 6, 3),
-            "spy_ret_1d": -0.007, "tlt_ret_1d": 0.001, "iau_ret_1d": 0.001,
+            "spy_ret_1d": -0.007, "tlt_ret_1d": 0.004, "iau_ret_1d": 0.004,
             "vix_close": 36.0,
             "spy_vol_20d": 0.016, "iwm_spy_relative_strength": 0.9,
             "iwm_spy_vol_spread": 0.003, "spy_intraday_range": 0.012,
@@ -363,7 +367,7 @@ class TestShortSignalVIXV12:
         assert result.iloc[0]["short_signal"] == "PANIC"
         detail = json.loads(result.iloc[0]["short_detail_json"])
         assert detail["vix_extreme"] is True
-        assert detail["secondary_confirm_count"] == 2
+        assert detail["secondary_confirm_count"] == 3
 
     def test_vix_extreme_alone_is_insufficient(self):
         pv = pd.DataFrame([{
@@ -403,3 +407,77 @@ class TestShortSignalVIXV12:
         result = build_short_signal(pv, flow, sentiment)
         detail = json.loads(result.iloc[0]["short_detail_json"])
         assert detail["vix_extreme"] is False
+
+
+class TestShortSignalSkewV13:
+    """v1.3: skew_extreme 추가 및 6신호 중 3개 이상 threshold."""
+
+    def test_skew_fail_open_returns_zero(self):
+        assert _load_skew_extreme(date(1900, 1, 1)) == 0
+
+    def test_skew_extreme_third_confirmation_triggers_secondary_panic(self, tmp_path, monkeypatch):
+        pv = pd.DataFrame([{
+            "symbol": "SPY", "trade_date": date(2024, 6, 3),
+            "ret_1d": -0.007, "vol_20d": 0.016, "intraday_range": 0.012,
+        }])
+        flow = pd.DataFrame([{
+            "symbol": "SPY", "trade_date": date(2024, 6, 3),
+            "volume": 5_000_000, "volume_zscore_20d": 2.5, "asset_group": "INDEX",
+        }])
+        sentiment = pd.DataFrame([{
+            "trade_date": date(2024, 6, 3),
+            "spy_ret_1d": -0.007, "tlt_ret_1d": 0.004, "iau_ret_1d": 0.004,
+            "vix_close": None,
+            "spy_vol_20d": 0.016, "iwm_spy_relative_strength": 0.9,
+            "iwm_spy_vol_spread": 0.003, "spy_intraday_range": 0.012,
+        }])
+
+        result = build_short_signal(pv, flow, sentiment)
+        assert result.iloc[0]["short_signal"] == "STABLE"
+
+        skew_root = tmp_path / "skew"
+        monkeypatch.setattr(
+            "pretrend.pipeline.strategy_engine.axis_horizon_state.short_engine._SKEW_GOLD_ROOT",
+            skew_root,
+        )
+        skew_path = skew_root / "date=2024-06-03"
+        skew_path.mkdir(parents=True, exist_ok=True)
+        pd.DataFrame([{
+            "trade_date": date(2024, 6, 3),
+            "skew_close": 150.0,
+            "skew_zscore_252": 2.5,
+            "skew_extreme_flag": 1,
+            "run_id": "test",
+            "ingestion_ts": pd.Timestamp("2026-03-12T00:00:00Z"),
+        }]).to_parquet(skew_path / "skew_20240603.parquet", index=False)
+        _load_skew_extreme.cache_clear()
+
+        result = build_short_signal(pv, flow, sentiment)
+        assert result.iloc[0]["short_signal"] == "PANIC"
+        detail = json.loads(result.iloc[0]["short_detail_json"])
+        assert detail["secondary_confirm_count"] == 3
+        assert detail["skew_extreme"] is True
+
+    def test_vix_and_vol_spike_only_stays_stable_under_v13_threshold(self, tmp_path, monkeypatch):
+        pv = pd.DataFrame([{
+            "symbol": "SPY", "trade_date": date(2024, 6, 4),
+            "ret_1d": -0.007, "vol_20d": 0.016, "intraday_range": 0.012,
+        }])
+        flow = pd.DataFrame([{
+            "symbol": "SPY", "trade_date": date(2024, 6, 4),
+            "volume": 5_000_000, "volume_zscore_20d": 2.5, "asset_group": "INDEX",
+        }])
+        sentiment = pd.DataFrame([{
+            "trade_date": date(2024, 6, 4),
+            "spy_ret_1d": -0.007, "tlt_ret_1d": 0.001, "iau_ret_1d": 0.001,
+            "vix_close": 36.0,
+            "spy_vol_20d": 0.016, "iwm_spy_relative_strength": 0.9,
+            "iwm_spy_vol_spread": 0.003, "spy_intraday_range": 0.012,
+        }])
+        monkeypatch.setattr(
+            "pretrend.pipeline.strategy_engine.axis_horizon_state.short_engine._SKEW_GOLD_ROOT",
+            tmp_path / "missing_skew",
+        )
+        _load_skew_extreme.cache_clear()
+        result = build_short_signal(pv, flow, sentiment)
+        assert result.iloc[0]["short_signal"] == "STABLE"

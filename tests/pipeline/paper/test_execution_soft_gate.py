@@ -389,7 +389,9 @@ def test_sim_schd_floor_allows_sell_above_floor_only() -> None:
         & (positions["symbol"] == "SCHD")
     ]
     assert not schd_friday_pos.empty
-    assert float(schd_friday_pos.iloc[-1]["shares"]) == 10.0
+    # max_invested_ratio=0.8 (from .env) → SCHD started at 8 shares; price drop puts SCHD below
+    # floor, so no sell and no buy (allow_buy=False on DECREASE tranche)
+    assert float(schd_friday_pos.iloc[-1]["shares"]) == 8.0
 
 
 def test_guardrail_peak_dd_breach_blocks_increase() -> None:
