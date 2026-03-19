@@ -116,6 +116,7 @@ def _rebalance_to_target(
     trade_date: date,
     *,
     allow_sell: bool,
+    allow_buy: bool = True,
     lock_sell_symbols: Sequence[str],
     schd_min_weight: float = 0.0,
     nav_for_floor: float = 0.0,
@@ -164,14 +165,15 @@ def _rebalance_to_target(
                     t.trade_date = trade_date
                     trades.append(t)
 
-    for sym, target_amt in target_amounts.items():
-        cur = portfolio.positions.get(sym)
-        cur_amt = cur.market_value(prices[sym]) if cur and sym in prices else 0.0
-        if target_amt > cur_amt + 0.01:
-            t = portfolio.buy(sym, target_amt - cur_amt, prices[sym])
-            if t:
-                t.trade_date = trade_date
-                trades.append(t)
+    if allow_buy:
+        for sym, target_amt in target_amounts.items():
+            cur = portfolio.positions.get(sym)
+            cur_amt = cur.market_value(prices[sym]) if cur and sym in prices else 0.0
+            if target_amt > cur_amt + 0.01:
+                t = portfolio.buy(sym, target_amt - cur_amt, prices[sym])
+                if t:
+                    t.trade_date = trade_date
+                    trades.append(t)
 
     return trades
 
@@ -547,6 +549,7 @@ def simulate_paper_execution(
                         target_weights,
                         td,
                         allow_sell=True,
+                        allow_buy=False,
                         lock_sell_symbols=lock_symbols,
                         schd_min_weight=schd_min_weight,
                         nav_for_floor=portfolio.total_value(prices),

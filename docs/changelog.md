@@ -2658,3 +2658,19 @@ print_phase_distribution(policy_df, group_by="year")
 - Short Engine v1.2: `vix_extreme(vix_close > 35)`를 secondary PANIC의 5번째 확인 신호로 추가했다.
 - VIX 데이터 결측 시 `vix_extreme=False`로 fail-open 처리해 기존 v1.1 동작과의 backward compatibility를 유지했다.
 - RELIEF 조건에는 VIX를 추가하지 않았다.
+
+## 2026-03-12
+
+### Strategy Engine
+- Short Engine v1.3: `skew_extreme_flag`를 secondary PANIC의 추가 확인 신호로 통합했다.
+- 현재 구현 기준 secondary PANIC은 `vol_spike`, `wide_intraday`, `flight_to_safety`, `smallcap_stress`, `vix_extreme`, `skew_extreme`의 6개 신호 중 3개 이상일 때만 발동한다.
+- `skew_extreme_flag` 로드 실패는 `0`으로 fail-open 처리한다.
+
+### Backtest Validation
+- 장기 `v2` 비교(`2006-01-03 ~ 2024-06-03`)에서 `v1.2`와 `v1.3`의 성과 지표는 사실상 동일했다.
+  - `v1.2`: XIRR `+7.42%`, MDD `-16.21%`, Sharpe `1.68`, PANIC `172`
+  - `v1.3`: XIRR `+7.42%`, MDD `-16.21%`, Sharpe `1.68`, PANIC `152`
+- 해석:
+  - `v1.3`는 PANIC 횟수를 줄였지만(`-20`), `GFC`와 `2022` 첫 PANIC은 늦어졌다.
+  - 장기 `v2` 기준으로는 `false positive` 억제 효과만 확인됐고, 성과 개선 근거는 아직 부족하다.
+  - 비교 산출물: `result/backtest_compare/skew_engine_v12_vs_v13_20260312.md`

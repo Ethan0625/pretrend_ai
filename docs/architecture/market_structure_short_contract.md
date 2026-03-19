@@ -70,6 +70,7 @@
 | Flow Proxy | obv_slope | FLOAT | N | OBV 기울기 |
 | Flow Proxy | turnover_spike_flag | BOOLEAN | N | turnover 스파이크 |
 | Sentiment(VIX, optional) | vix_close | FLOAT | N | v1.2 secondary PANIC 보조 신호 입력 |
+| Macro Tail-Risk(optional) | skew_extreme_flag | INT | N | v1.3 secondary PANIC tail-risk 보조 신호 입력 |
 
 결측 처리:
 - Risk Spread/Volatility 핵심 입력 누락 시 `short_signal=UNKNOWN`으로 출력한다.
@@ -112,8 +113,9 @@
 - 입력 read-only
 - 결측 입력은 `UNKNOWN`으로 표준화
 - 점수/가중치 계산 없이 상태 전이 로직만 허용
-- secondary PANIC 확인 신호는 5개(`vol_spike`, `wide_intraday`, `flight_to_safety`, `smallcap_stress`, `vix_extreme`) 중 2개 이상 충족 규칙을 따른다.
+- secondary PANIC 확인 신호는 6개(`vol_spike`, `wide_intraday`, `flight_to_safety`, `smallcap_stress`, `vix_extreme`, `skew_extreme`) 중 3개 이상 충족 규칙을 따른다.
 - `smallcap_stress`는 `iwm_spy_vol_spread > 0.005` 조건으로 판정한다.
+- `skew_extreme` 로드 실패는 `0`으로 fail-open 처리한다.
 
 ## 7. DoD
 ### 책임
@@ -133,5 +135,6 @@
 ## Change History
 | Date | Summary | References |
 | --- | --- | --- |
+| 2026-03-12 | Short Engine v1.3: `skew_extreme_flag` 입력 추가 및 secondary PANIC을 6신호 중 3개 이상 규칙으로 강화 | docs/changelog.md |
 | 2026-02-22 | Short Engine 보강: secondary PANIC 4신호 체계 및 `smallcap_stress(iwm_spy_vol_spread > 0.005)` 기준 반영 | docs/changelog.md |
 | 2026-02-13 | 파일명 버전 제거 및 문서 표준 블록(Document Status/Capability Matrix) 적용 | docs/changelog.md |
