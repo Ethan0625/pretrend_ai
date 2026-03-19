@@ -1,6 +1,6 @@
 # 📄 ETL — Data Source Ingest Layer
 
-### Universe(U0~U3)와 EOD 파이프라인을 위한 기초 데이터 Ingest 구조
+### Universe-Stock(U0~U3)와 EOD 파이프라인을 위한 기초 데이터 Ingest 구조
 
 **Version:** 2025.12\
 **Milestone:** M1 – Data Source Ingest Layer 구축\
@@ -13,7 +13,7 @@
 본 문서는 Pre-Trend Value 기반 자동매매 시스템의
 **데이터 소스 인입 레이어(Data Source Ingest Layer)** 설계를 정의한다.
 
-이 레이어는 Universe(U0~U3) 생성 및 EOD 파이프라인의 기반이 되는
+이 레이어는 Universe-Stock(U0~U3) 생성 및 EOD 파이프라인의 기반이 되는
 다음 세 가지 핵심 데이터군을 수집·정규화·저장하는 역할을 수행한다:
 
 * **Macro 데이터** (금리, CPI, PMI, 뉴스 헤드라인 등)
@@ -254,9 +254,60 @@ tests/pipeline/
 
 ---
 
-# 9. 향후 확장
+# 9. 텍스트 데이터 소스 (Text Ingest)
+
+## 9.1 개요
+텍스트 데이터는 Strategy Engine의 **보조 feature** 생성 목적으로 수집된다.
+텍스트 결측 시에도 Strategy Engine 핵심 로직은 계속 동작한다 (fail-open 원칙).
+
+운영 원칙: `$0 시작`, `T+1 일봉 배치`
+
+## 9.2 수집 소스 우선순위
+
+### (1) SEC EDGAR — 기업 공시 텍스트 ✅ 활성
+- 목적: 기업 이벤트 신호 (`filing_risk_burst`)
+- API: `data.sec.gov` REST API
+- 대상: Observability SOT 섹터 ETF 주요 편입 대형주 ~100종목 (초기 hardcode)
+- 수집 형식: 8-K, 10-Q, 10-K
+- 제약: 10 req/sec 상한, `User-Agent: macosc0625@gmail.com` 필수
+- 멱등키: `(source="sec_edgar", source_doc_id=accession_number)`
+- 백필 가능: ✅ (EDGAR는 역사 공시 모두 공개)
+
+### (2) Fed / FOMC / Treasury — 정책 텍스트 ✅ 활성
+- 목적: 거시 국면 보조 신호 (`macro_hawkish_score`)
+- RSS: `https://www.federalreserve.gov/feeds/press_all.xml` (접근 확인 완료)
+- 수집 범위: 성명서, 의사록, 연설문/보도자료
+- 제약: HTML 파서 안정화 필요 (다양한 문서 포맷)
+- 멱등키: `(source="fed_fomc", source_doc_id=rss_link)`
+
+### (3) FMP News — 보조 뉴스 ⚠️ 보류
+- 현황: 무료 플랜(250 req/day)에서 뉴스 엔드포인트 미지원
+- 활성화 조건: Starter 플랜 이상($22/월) 또는 대체 소스 확정 시
+- 대체 후보: NewsAPI.org (100 req/day, 비상업적), Marketaux (100 articles/day)
+
+## 9.3 Gold Feature 초기 목록
+
+| feature_name | 소스 | 계산 방식 |
+| --- | --- | --- |
+| `macro_hawkish_score` | fed_fomc | FOMC 문서 내 hawkish 키워드 비율 |
+| `filing_risk_burst` | sec_edgar | 일별 8-K 건수 rolling z-score (20일) |
+| `policy_uncertainty_idx` | sec + fed | SEC burst + Fed burst 가중합 |
+
+## 9.4 저장 구조
+
+```
+data/
+└── bronze/text/{source}/ingest_date=YYYY-MM-DD/*.parquet
+└── silver/text/text_enriched/event_date=YYYY-MM-DD/*.parquet
+└── gold/text/text_daily_features/year=YYYY/month=MM/*.parquet
+```
+
+---
+
+# 10. 향후 확장
 
 * ingest Writer를 Airflow Sensor + Operator 기반 배치로 변환 (M3)
 * Bronze → Silver 정규화 파이프라인 추가 (M4)
-* Universe(U0~U3) 생성 모듈에서 ingest 데이터 활용 (M2~M5)
-
+* Universe-Stock(U0~U3) 생성 모듈에서 ingest 데이터 활용 (M2~M5)
+* Observability ETF 데이터는 Universe-ETF(Execution Universe) 입력으로도 보조 활용
+* 텍스트 소스: FMP News 유료 전환 또는 대체 소스 추가 (2주 KPI 관측 후)

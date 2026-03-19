@@ -1,9 +1,32 @@
 from __future__ import annotations
 
-from datetime import timedelta, date, datetime
+from datetime import datetime, timedelta, date
 from typing import Any, Dict
 
-from airflow.decorators import dag, task
+try:
+    import pendulum
+except ModuleNotFoundError:  # pragma: no cover - pytest env smoke import fallback
+    pendulum = None
+
+try:
+    from airflow.decorators import dag, task
+except ModuleNotFoundError:  # pragma: no cover - pytest env smoke import fallback
+    def dag(*args, **kwargs):
+        def _decorator(fn):
+            return fn
+
+        return _decorator
+
+    def task(*args, **kwargs):
+        def _decorator(fn):
+            def _task(*_args, **_kwargs):
+                return None
+
+            _task.__name__ = fn.__name__
+            _task.__doc__ = fn.__doc__
+            return _task
+
+        return _decorator
 
 # pretrend_ai는 pyproject + pip install -e . 로 설치되어 있다고 가정
 from pretrend.pipeline.macro_job import MacroJobConfig, MacroJobRunner
@@ -18,12 +41,17 @@ DEFAULT_ARGS: Dict[str, Any] = {
 }
 
 
+def _macro_start_date():
+    if pendulum is not None:
+        return pendulum.datetime(2010, 1, 1, tz="Asia/Seoul")
+    return datetime(2010, 1, 1)
+
+
 @dag(
     dag_id="macro_pipeline_dag",
     description="FRED Macro Bronze→Silver E2E 파이프라인 (매일, 누락 대비 롤링 재수집)",
     default_args=DEFAULT_ARGS,
-    # 매월 1일 06:00 Asia/Seoul
-    start_date=datetime(2010, 1, 1),
+    start_date=_macro_start_date(),
     schedule_interval="0 9 * * *",  # 매일 09:00 KST
     catchup=False,          # 과거 월들도 필요하면 backfill 가능
     max_active_runs=1,     # 한 번에 하나만 실행
@@ -39,8 +67,8 @@ def macro_pipeline():
     기준일(anchor_date):
       - Airflow의 data_interval_start.date()를 사용(매일 스케줄에서 '실행 논리일').
 
-    처리 구간(예시: 월 기반 + 버퍼):
-      - start_date: anchor_date가 속한 월의 1일에서 1개월을 더 뺀 날짜(= 직전월 1일)
+    처리 구간:
+      - start_date: anchor_date - 1일(= 어제) 기준 최근 35일
       - end_date:   anchor_date - 1일(= 어제)
     """
 
@@ -56,11 +84,8 @@ def macro_pipeline():
         anchor_date: date = data_interval_start.date()
         end_dt: date = anchor_date - timedelta(days=1)
 
-        # 직전월 1일 ~ 어제 (월 단위로 넓게 재수집)
-        first_of_this_month = end_dt.replace(day=1)
-        # 직전월 1일: 이번달 1일에서 1일 빼고(day=1)
-        prev_month_last_day = first_of_this_month - timedelta(days=1)
-        start_dt: date = prev_month_last_day.replace(day=1)
+        # 최근 35일 롤링 재수집
+        start_dt: date = end_dt - timedelta(days=35)
 
         config = MacroJobConfig.from_env()
         runner = MacroJobRunner(config=config)

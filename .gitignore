@@ -104,3 +104,11 @@ src/pretrend/**/debug_*.py
 # --- airflow ---
 scripts
 airflow_pretrend*
+
+# --- agent ---
+.agent
+CLAUDE.md
+AGENTS.md
+
+# --- 백테스트 결과 (로컬 전용, 대용량) ---
+result/

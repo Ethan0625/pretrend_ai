@@ -439,7 +439,10 @@ def write_silver_macro_features(df: pd.DataFrame, ctx: MacroFeatureRunContext) -
         # 파티션 단위 overwrite
         if final_file.exists():
             final_file.unlink()
-        tmp_file.replace(final_file)
+        try:
+            tmp_file.replace(final_file)
+        except OSError:
+            shutil.move(str(tmp_file), str(final_file))
 
         print(f"[SilverMacro] Saved: {final_file}")
 

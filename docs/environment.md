@@ -150,7 +150,7 @@ uvicorn app.main:app --host 0.0.0.0 --port {YOUR_PORT}
 ## 7.1 역할 및 범위
 - 담당 역할:
   - Macro 파이프라인 실행 (`macro_pipeline_dag`)
-  - EOD 파이프라인 실행 (향후 추가)
+  - EOD 파이프라인 실행 (`eod_pipeline_dag`)
   - 실행 누락 대비 롤링 재처리 트리거
 - 담당하지 않는 영역:
   - 전략 로직 실행
@@ -166,7 +166,7 @@ uvicorn app.main:app --host 0.0.0.0 --port {YOUR_PORT}
 | DAG ID | 설명 |
 |------|----|
 | `macro_pipeline_dag` | Macro Bronze → Silver 파이프라인 (매일 트리거 + 롤링 재처리) |
-| `(향후)` `eod_pipeline_dag` | EOD Bronze → Silver 파이프라인 |
+| `eod_pipeline_dag` | EOD Bronze → Silver → Gold 파이프라인 |
 
 ### Macro DAG 운영 정책 요약
 - 스케줄: 매일 09:00 KST
@@ -198,6 +198,13 @@ airflow standalone
 ## 7.4 데이터 볼륨 및 경로 기준
 - 현재 구현 단계에서는 파일 시스템 기반 스토리지를 사용한다.
     - 데이터 루트: data/
+
+---
+
+## Agent-assisted development (Codex)
+- 모든 작업은 `AGENTS.md` 운영 규칙을 따른다: 작은 diff, 멱등성 보존, 공개 API 변경 지양, 검증 명령 제시.
+- 브랜치는 `codex/*` 형태로 분리해 수행하고, 한 PR에는 하나의 작업만 담는다.
+- 변경 전 짧은 계획을 작성하고, 변경 후에는 실행 가능한 검증 명령(예: `pytest -q`)을 함께 제공한다.
     - 주요 볼륨:
         - data/bronze/ : Raw / 정규화 데이터
         - data/silver/ : Feature 데이터

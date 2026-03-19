@@ -18,6 +18,10 @@ from pretrend.pipeline.ingest.base import (
     BaseNormalizer,
     BaseWriter,
 )
+from pretrend.pipeline.config.eod_observability import (
+    LABEL_BY_SYMBOL_V1,
+    OBSERVABILITY_SYMBOLS_V1,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +37,7 @@ class EodIngestConfig:
     EOD Bronze ingest 설정.
 
     - data_root: data/ 이하 루트
-    - default_symbols: 초기 테스트용 기본 심볼 (SPY, QQQ, VOO)
+    - default_symbols: Observability SOT 기반 기본 심볼 (32개 ETF)
     """
 
     data_root: Path = Path(os.getenv("PRETREND_DATA_ROOT", "data"))
@@ -41,8 +45,7 @@ class EodIngestConfig:
 
     def __post_init__(self) -> None:
         if self.default_symbols is None:
-            # 초기 PoC용: 3개 ETF 고정
-            self.default_symbols = ["SPY", "QQQ", "VOO"]
+            self.default_symbols = list(OBSERVABILITY_SYMBOLS_V1)
 
     @property
     def bronze_root(self) -> Path:
@@ -228,6 +231,9 @@ class EodNormalizer(BaseNormalizer):
                     "adj_close",
                     "volume",
                     "currency",
+                    "asset_group",
+                    "asset_name",
+                    "asset_subtype",
                     "run_id",
                     "ingestion_ts",
                 ]
@@ -253,6 +259,24 @@ class EodNormalizer(BaseNormalizer):
                     .astype("int64")
                 )
 
+        # Observability 라벨 부여 (Bronze에서 1회 확정)
+        unregistered = set(df["symbol"].unique()) - set(LABEL_BY_SYMBOL_V1.keys())
+        if unregistered:
+            raise ValueError(
+                f"[EodNormalizer] unregistered symbol(s): {sorted(unregistered)}. "
+                f"All symbols must be in OBSERVABILITY_SET_V1."
+            )
+
+        df["asset_group"] = df["symbol"].map(
+            lambda s: LABEL_BY_SYMBOL_V1[s]["asset_group"]
+        )
+        df["asset_name"] = df["symbol"].map(
+            lambda s: LABEL_BY_SYMBOL_V1[s]["asset_name"]
+        )
+        df["asset_subtype"] = df["symbol"].map(
+            lambda s: LABEL_BY_SYMBOL_V1[s]["asset_subtype"]
+        )
+
         # 공통 메타 정보 (MacroNormalizer와 동일 패턴)
         df["run_id"] = context.run_id
         df["ingestion_ts"] = context.ingestion_ts
@@ -270,6 +294,9 @@ class EodNormalizer(BaseNormalizer):
                 "adj_close",
                 "volume",
                 "currency",
+                "asset_group",
+                "asset_name",
+                "asset_subtype",
                 "run_id",
                 "ingestion_ts",
             ]
@@ -370,8 +397,7 @@ def run_eod_bronze_ingest(
     cfg: Optional[EodIngestConfig] = None,
 ) -> EodIngestResult:
     """
-    3개 ETF(SPY, QQQ, VOO)를 기본으로 사용하는
-    EOD Bronze ingest 실행 함수.
+    Observability SOT 기반 EOD Bronze ingest 실행 함수.
     """
     cfg = cfg or EodIngestConfig()
     if symbols is None:
@@ -448,13 +474,13 @@ def run_eod_bronze_ingest(
 
 def _parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="EOD Bronze ingest for SPY/QQQ/VOO (yfinance 기반)",
+        description="EOD Bronze ingest (Observability SOT, yfinance 기반)",
     )
     parser.add_argument(
         "--symbols",
         type=str,
         default="",
-        help="테스트용 티커 목록 (콤마 구분). 비우면 SPY,QQQ,VOO 사용",
+        help="티커 목록 (콤마 구분). 비우면 Observability SOT 전체 사용",
     )
     parser.add_argument(
         "--start",

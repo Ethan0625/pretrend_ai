@@ -260,7 +260,12 @@ def build_eod_features(df: pd.DataFrame, ctx: EodFeatureRunContext) -> pd.DataFr
         g = _add_quality_flags(g)
         return g
 
-    df = df.groupby("symbol", group_keys=False).apply(_per_symbol)
+    # Pandas 3.0+: groupby.apply() drops group key column.
+    # Use explicit loop to preserve 'symbol'.
+    parts = []
+    for _sym, grp in df.groupby("symbol", sort=False):
+        parts.append(_per_symbol(grp))
+    df = pd.concat(parts, ignore_index=True)
 
     # Silver meta
     df["run_id_silver"] = ctx.run_id
@@ -314,6 +319,10 @@ def build_eod_features(df: pd.DataFrame, ctx: EodFeatureRunContext) -> pd.DataFr
         "is_missing_imputed",
         "is_outlier",
         "is_partial_day",
+        # Observability labels (Bronze pass-through)
+        "asset_group",
+        "asset_name",
+        "asset_subtype",
         # Silver meta
         "run_id_silver",
         "ingestion_ts_silver",
@@ -386,7 +395,10 @@ def write_silver_eod_features(df: pd.DataFrame, ctx: EodFeatureRunContext) -> No
         # 파티션 단위 overwrite
         if final_file.exists():
             final_file.unlink()
-        tmp_file.replace(final_file)
+        try:
+            tmp_file.replace(final_file)
+        except OSError:
+            shutil.move(str(tmp_file), str(final_file))
 
         print(f"[SilverEOD] Saved: {final_file}")
 
@@ -474,7 +486,7 @@ def parse_args() -> argparse.Namespace:
         "--symbols",
         type=str,
         default=None,
-        help="Comma separated symbols (e.g. SPY,QQQ,VOO). If omitted, use cfg.target_symbols or all.",
+        help="Comma separated symbols (e.g. SPY,QQQ). If omitted, use cfg.target_symbols or all.",
     )
     return parser.parse_args()
 

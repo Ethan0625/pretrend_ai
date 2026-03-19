@@ -1,0 +1,633 @@
+"""
+Strategy Engine DAG — 매일 10:00 KST 실행.
+
+의존성:
+  - macro_pipeline_dag  (09:00 KST, ~09:10 완료)
+  - eod_pipeline_dag    (08:00 KST, ~08:20 완료)
+  → 고정 시간(10:00 KST)으로 의존성 감지 없이 순차 실행 보장.
+
+태스크:
+  1. run_strategy_engine  — StrategyJobRunner 실행, XCom 반환
+  2. send_telegram_report — 결과 요약 → Telegram Bot 발송
+
+환경변수:
+  PRETREND_DATA_ROOT    — 데이터 루트 (기본: 'data')
+  TELEGRAM_BOT_TOKEN    — Telegram Bot API 토큰
+  TELEGRAM_CHAT_ID      — 메시지 수신 chat_id
+"""
+from __future__ import annotations
+
+import os
+from datetime import date, timedelta
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+import pendulum
+from airflow.decorators import dag, task
+from pretrend.pipeline.notify.telegram_sender import send_telegram_fail_open
+from pretrend.pipeline.strategy_engine.io import load_gold_text
+from pretrend.pipeline.strategy_engine.report_context import (
+    build_llm_analysis_payload as _build_llm_analysis_payload,
+    build_risk_summary_struct as _build_risk_summary_struct,
+    build_signal_confidence_struct as _build_signal_confidence_struct,
+    build_trading_guidance_struct as _build_trading_guidance_struct,
+    build_context_lines as _build_context_lines,
+    build_diagnostic_lines as _build_diagnostic_lines,
+    build_evidence_lines as _build_evidence_lines,
+    build_text_window_lines as _build_text_window_lines,
+    generate_llm_analysis as _generate_llm_analysis,
+    format_next_step_hazard_lines as _format_next_step_hazard_lines,
+    format_bias_state_line as _format_bias_state_line,
+    format_group_transition_lines as _format_group_transition_lines,
+    build_switch_lines as _build_switch_lines,
+    format_risk_summary_lines as _format_risk_summary_lines,
+    format_signal_confidence_lines as _format_signal_confidence_lines,
+    format_trading_guidance_lines as _format_trading_guidance_lines,
+    safe_json_dict as _safe_json_dict,
+)
+from pretrend.pipeline.strategy_engine.text_features.aggregator import (
+    aggregate_text_features,
+    prepare_text_feature_groups,
+)
+from pretrend.pipeline.text.config import TextPipelineConfig
+
+
+DEFAULT_ARGS: Dict[str, Any] = {
+    "owner": "pretrend",
+    "retries": 2,
+    "retry_delay": timedelta(minutes=10),
+    "depends_on_past": False,
+}
+
+
+# ── 헬퍼: 마지막 거래일 계산 ──────────────────────────────
+
+def _last_us_trading_date(anchor: pendulum.DateTime) -> date:
+    """anchor 기준 직전 완전한 미국 거래일 (주말 롤백, 공휴일 미반영)."""
+    candidate = (anchor - timedelta(days=1)).date()
+    while candidate.weekday() >= 5:
+        candidate -= timedelta(days=1)
+    return candidate
+
+
+# ── 헬퍼: 최신 exposure 스냅샷에서 invested_ratio 로드 ───
+
+def _load_last_invested_ratio(strategy_root: Path, *, decision_date: date | None = None) -> float:
+    """직전 exposure 파티션의 next_invested_ratio를 반환.
+
+    - 기본은 가장 최근 파티션을 사용한다.
+    - decision_date를 주면, decision_date 미만(<) 파티션만 사용한다.
+      (같은 decision_date 재실행 시 current/next 비중이 같아지는 오염 방지)
+    - 파일이 없으면 0.0 (콜드스타트) 반환.
+    """
+    exposure_root = strategy_root / "exposure"
+    if not exposure_root.exists():
+        return 0.0
+
+    partitions = sorted(exposure_root.glob("decision_date=*"), reverse=True)
+    if decision_date is not None:
+        filtered: List[Path] = []
+        for p in partitions:
+            try:
+                p_date = date.fromisoformat(str(p.name).split("decision_date=")[1])
+                if p_date < decision_date:
+                    filtered.append(p)
+            except Exception:
+                continue
+        partitions = filtered
+
+    for partition in partitions:
+        files = list(partition.glob("*.parquet"))
+        if not files:
+            continue
+        try:
+            import pandas as pd
+            df = pd.read_parquet(files[0])
+            if "next_invested_ratio" in df.columns and not df.empty:
+                return float(df["next_invested_ratio"].iloc[-1])
+        except Exception:
+            continue
+    return 0.0
+
+
+# ── 헬퍼: 스냅샷 로드 ────────────────────────────────────
+
+def _load_snapshot(strategy_root: Path, stage: str, decision_date: date) -> "pd.DataFrame":
+    import pandas as pd
+    date_str = decision_date.isoformat()
+    partition = strategy_root / stage / f"decision_date={date_str}"
+    files = list(partition.glob("*.parquet"))
+    if not files:
+        return pd.DataFrame()
+    return pd.read_parquet(files[0])
+
+
+# ── Telegram 메시지 구성 상수 ────────────────────────────
+
+# v2 목표 비율 룩업 (allocation_mode="v2" 기준, SE allocation/engine.py 와 동기화)
+_V2_TARGET_MAP: dict = {
+    ("EXPANSION",  "RISK_ON"):  0.80, ("EXPANSION",  "NEUTRAL"): 0.70,
+    ("EXPANSION",  "RISK_OFF"): 0.55, ("EXPANSION",  "UNKNOWN"): 0.65,
+    ("LATE_CYCLE", "RISK_ON"):  0.60, ("LATE_CYCLE", "NEUTRAL"): 0.45,
+    ("LATE_CYCLE", "RISK_OFF"): 0.30, ("LATE_CYCLE", "UNKNOWN"): 0.45,
+    ("SLOWDOWN",   "RISK_ON"):  0.35, ("SLOWDOWN",   "NEUTRAL"): 0.25,
+    ("SLOWDOWN",   "RISK_OFF"): 0.15, ("SLOWDOWN",   "UNKNOWN"): 0.25,
+    ("RECOVERY",   "RISK_ON"):  0.70, ("RECOVERY",   "NEUTRAL"): 0.60,
+    ("RECOVERY",   "RISK_OFF"): 0.45, ("RECOVERY",   "UNKNOWN"): 0.60,
+    ("RECESSION",  "RISK_ON"):  0.20, ("RECESSION",  "NEUTRAL"): 0.10,
+    ("RECESSION",  "RISK_OFF"): 0.05, ("RECESSION",  "UNKNOWN"): 0.10,
+    ("UNKNOWN",    "RISK_ON"):  0.50, ("UNKNOWN",    "NEUTRAL"): 0.40,
+    ("UNKNOWN",    "RISK_OFF"): 0.30, ("UNKNOWN",    "UNKNOWN"): 0.40,
+}
+
+_CORE_HOLD: frozenset = frozenset({"SPY", "SCHD", "IAU"})  # 항상 보유 — 매일 표시 생략
+_WEEKDAY_KO = ["월", "화", "수", "목", "금", "토", "일"]
+
+# asset_group 한국어 라벨 + 이모지
+_GROUP_LABEL: Dict[str, str] = {
+    "COUNTRY": "🌍 개별국가",
+    "COMMODITY": "⛽️ 원자재",
+    "BOND": "🏦 채권",
+    "SECTOR": "🏭 섹터",
+}
+
+# asset_name → 한국어 (eod_observability.py SOT 기준)
+_ASSET_NAME_KO: Dict[str, str] = {
+    # COUNTRY
+    "SOUTH_KOREA": "한국", "CHINA": "중국", "JAPAN": "일본", "INDIA": "인도",
+    # COMMODITY
+    "GOLD": "금", "GOLD_MINERS": "금광", "SILVER": "은", "CRUDE_OIL": "원유",
+    "OIL_PRODUCERS": "석유생산", "NATURAL_GAS": "천연가스", "AGRICULTURE": "농산물",
+    # BOND
+    "US_TREASURY_20Y": "미국채20Y", "HIGH_YIELD": "하이일드", "IG_CORPORATE": "투자등급",
+    "SHORT_TERM": "단기채", "TIPS": "물가연동",
+    # SECTOR
+    "HEALTH_CARE": "헬스케어", "ENERGY": "에너지", "SEMICONDUCTOR": "반도체",
+    "FINANCIALS": "금융", "REGIONAL_BANKS": "지방은행", "NUCLEAR": "원자력",
+    "INFORMATION_TECH": "IT", "MATERIALS": "소재", "CONSUMER_DISCRETIONARY": "경기소비재",
+    "CONSUMER_STAPLES": "필수소비재", "COMMUNICATION_SERVICES": "커뮤니케이션",
+    "REAL_ESTATE": "부동산", "UTILITIES": "유틸리티", "INDUSTRIALS": "산업재",
+}
+
+
+# ── DAG ──────────────────────────────────────────────────
+
+@dag(
+    dag_id="strategy_engine_dag",
+    description="Strategy Engine 7단계 파이프라인 + Telegram 리포트 (매일 10:00 KST)",
+    default_args=DEFAULT_ARGS,
+    start_date=pendulum.datetime(2026, 1, 1, tz="Asia/Seoul"),
+    schedule_interval="0 10 * * *",  # EOD(08:00 KST) + Macro(09:00 KST) 완료 후
+    catchup=False,
+    max_active_runs=1,
+    tags=["pretrend", "strategy", "telegram"],
+)
+def strategy_engine_pipeline():
+    """
+    Strategy Engine E2E + Telegram 리포트.
+
+    - EOD/Macro DAG 완료를 고정 스케줄(10:00 KST)로 암묵적 보장.
+    - current_invested_ratio: 최신 exposure 스냅샷에서 자동 로드.
+    - Telegram 환경변수 미설정 시 알림 스킵 (파이프라인 성공 유지).
+    """
+
+    @task(task_id="run_strategy_engine")
+    def run_strategy_engine_task(**context: Any) -> Dict[str, Any]:
+        from pretrend.pipeline.strategy_engine.config import StrategyEngineConfig
+        from pretrend.pipeline.strategy_engine.strategy_job import StrategyJobRunner
+
+        data_interval_start = context["data_interval_start"]
+        decision_date = _last_us_trading_date(data_interval_start)
+
+        data_root = Path(os.getenv("PRETREND_DATA_ROOT", "data"))
+        config = StrategyEngineConfig(data_root=data_root)
+
+        current_ratio = _load_last_invested_ratio(
+            config.strategy_output_root,
+            decision_date=decision_date,
+        )
+
+        runner = StrategyJobRunner(
+            config=config,
+            policy_profile_id="RC_V0_DEFAULT",
+            current_invested_ratio=current_ratio,
+            allocation_mode="v2",  # f(long_phase, mid_regime) 2D lookup — Backtest v2 기준
+        )
+        result = runner.run(decision_date=decision_date)
+
+        return {
+            "decision_date": decision_date.isoformat(),
+            "run_id": result.run_id,
+            "current_invested_ratio": current_ratio,
+            "ahs_rows": result.axis_horizon_state.row_count,
+            "universe_rows": result.universe.row_count,
+            "allocation_rows": result.allocation.row_count,
+            "sell_advice_rows": result.sell_advice.row_count,
+        }
+
+    @task(task_id="send_telegram_report")
+    def send_telegram_report_task(strategy_summary: Dict[str, Any]) -> None:
+        import logging
+        import pandas as pd
+
+        logger = logging.getLogger(__name__)
+        token = os.getenv("TELEGRAM_BOT_TOKEN", "")
+        chat_id = os.getenv("TELEGRAM_CHAT_ID", "")
+
+        decision_date = date.fromisoformat(strategy_summary["decision_date"])
+        simulation_date = pendulum.now("Asia/Seoul").date().isoformat()
+        data_root = Path(os.getenv("PRETREND_DATA_ROOT", "data"))
+        strategy_root = data_root / "strategy"
+
+        # 스냅샷 로드
+        df_ahs = _load_snapshot(strategy_root, "axis_horizon_state", decision_date)
+        df_mp = _load_snapshot(strategy_root, "market_position", decision_date)
+        df_alloc = _load_snapshot(strategy_root, "exposure", decision_date)
+        df_univ = _load_snapshot(strategy_root, "what_to_hold", decision_date)
+        df_sell = _load_snapshot(strategy_root, "sell_advice", decision_date)
+        df_next = _load_snapshot(strategy_root, "next_step_signal", decision_date)
+        df_group = _load_snapshot(strategy_root, "group_transition_signal", decision_date)
+        df_text = _load_snapshot(strategy_root, "text_overlay_signal", decision_date)
+        df_gold_text = load_gold_text(data_root, end_date=decision_date)
+
+        text_windows: Dict[str, Dict[str, Any]] = {}
+        if not df_gold_text.empty:
+            try:
+                normalized_text, grouped_text, grouped_dates = prepare_text_feature_groups(df_gold_text)
+                text_windows = {
+                    "short": aggregate_text_features(
+                        normalized_text,
+                        decision_date,
+                        lookback=5,
+                        all_trade_dates=grouped_dates,
+                        grouped_by_trade_date=grouped_text,
+                    ).to_dict(),
+                    "mid": aggregate_text_features(
+                        normalized_text,
+                        decision_date,
+                        lookback=20,
+                        all_trade_dates=grouped_dates,
+                        grouped_by_trade_date=grouped_text,
+                    ).to_dict(),
+                    "long": aggregate_text_features(
+                        normalized_text,
+                        decision_date,
+                        lookback=60,
+                        all_trade_dates=grouped_dates,
+                        grouped_by_trade_date=grouped_text,
+                    ).to_dict(),
+                }
+            except Exception as exc:
+                logger.warning("[SIGNAL] text window aggregation failed: %s", exc)
+                text_windows = {}
+
+        # ── Market Position ──
+        long_phase = mid_regime = short_signal = "UNKNOWN"
+        run_universe = risk_gate = False
+        if not df_mp.empty:
+            row = df_mp.iloc[-1]
+            long_phase = row.get("long_phase", "UNKNOWN")
+            mid_regime = row.get("mid_regime", "UNKNOWN")
+            short_signal = row.get("short_signal", "UNKNOWN")
+            run_universe = bool(row.get("run_universe", False))
+            risk_gate = bool(row.get("risk_gate", False))
+        long_detail: Dict[str, Any] = {}
+        mid_detail: Dict[str, Any] = {}
+        short_detail: Dict[str, Any] = {}
+        if not df_ahs.empty:
+            row = df_ahs.iloc[-1]
+            long_detail = _safe_json_dict(row.get("long_detail_json"))
+            mid_detail = _safe_json_dict(row.get("mid_detail_json"))
+            short_detail = _safe_json_dict(row.get("short_detail_json"))
+
+        # ── Allocation ──
+        action = "HOLD"
+        next_ratio = strategy_summary["current_invested_ratio"]
+        delta = 0.0
+        if not df_alloc.empty:
+            row = df_alloc.iloc[-1]
+            action = row.get("action", "HOLD")
+            next_ratio = float(row.get("next_invested_ratio", next_ratio))
+            delta = float(row.get("delta_ratio", 0.0))
+
+        # ── Universe — 전술 ETF (asset_group별 그룹핑 + RS) ────
+        from pretrend.pipeline.config.eod_observability import LABEL_BY_SYMBOL_V1
+
+        # {asset_group: [(한국어이름, symbol, RS), ...]} — RS 내림차순
+        tactical_by_group: Dict[str, List[tuple]] = {}
+        if not df_univ.empty:
+            if "rebalance_date" in df_univ.columns:
+                latest = df_univ["rebalance_date"].max()
+                df_univ = df_univ[df_univ["rebalance_date"] == latest]
+            if "is_candidate" in df_univ.columns:
+                df_univ = df_univ[df_univ["is_candidate"] == True]
+            if "symbol" in df_univ.columns:
+                df_tac = df_univ[~df_univ["symbol"].isin(_CORE_HOLD)]
+                if "relative_strength" in df_tac.columns:
+                    df_tac = df_tac.sort_values("relative_strength", ascending=False)
+                for _, r in df_tac.iterrows():
+                    sym = r["symbol"]
+                    rs = r.get("relative_strength", None)
+                    group = r.get("asset_group", "UNKNOWN")
+                    meta = LABEL_BY_SYMBOL_V1.get(sym, {})
+                    asset_name = meta.get("asset_name", sym)
+                    name_ko = _ASSET_NAME_KO.get(asset_name, asset_name)
+                    tactical_by_group.setdefault(group, []).append((name_ko, sym, rs))
+
+        # ── Sell ─────────────────────────────────────────────
+        sell_budget = 0.0
+        sell_list: List[str] = []
+        if not df_sell.empty:
+            row = df_sell.iloc[-1]
+            sell_budget = float(row.get("sell_budget_ratio", 0.0))
+            raw = row.get("sell_priority_list", None)
+            sell_list = list(raw) if raw is not None else []
+
+        # ── V2 목표 비율 ──────────────────────────────────────
+        v2_target = _V2_TARGET_MAP.get(
+            (long_phase, mid_regime),
+            _V2_TARGET_MAP.get((long_phase, "UNKNOWN"),
+            _V2_TARGET_MAP.get(("UNKNOWN", "UNKNOWN"), 0.40)),
+        )
+
+        # ── 표시 텍스트 ───────────────────────────────────────
+        _ACTION_KO = {"INCREASE": "비중확대", "DECREASE": "비중축소", "HOLD": "유지"}
+
+        weekday = _WEEKDAY_KO[decision_date.weekday()]
+        action_emoji = {"INCREASE": "📈", "DECREASE": "📉", "HOLD": "⏸"}.get(action, "❓")
+        is_panic = (short_signal == "PANIC")
+        cur_pct = strategy_summary["current_invested_ratio"]
+
+        # ── 메시지 조립 ───────────────────────────────────────
+        lines = [
+            f"📊 <b>Pretrend</b> · {decision_date.isoformat()} ({weekday})",
+            "<code>message_type=SIGNAL | source_job=strategy_engine_dag</code>",
+            f"<code>decision_date={decision_date.isoformat()} | simulation_date={simulation_date}</code>",
+            "",
+            (
+                f"{action_emoji} <b>{_ACTION_KO.get(action, action)}</b>  "
+                f"{cur_pct:.0%} → {next_ratio:.0%}  |  목표 {v2_target:.0%}"
+            ),
+        ]
+
+        if is_panic:
+            lines += ["", "⚠️ 단기 공황 — 매도 동결"]
+
+        # ── 시장 컨텍스트 (3줄 + 설명) ──
+        # Telegram report는 저장된 signal snapshot과 text snapshot을 함께 읽어
+        # 상위 해석문(interpretation_summary)을 표시할 수 있다.
+        # 이는 text-only `llm_summary` 필드와 다른 레이어다.
+        lines += [
+            "",
+            "── 시장 컨텍스트 ──",
+        ]
+        context_lines = _build_context_lines(
+            long_phase,
+            mid_regime,
+            short_signal,
+            long_detail=long_detail,
+            mid_detail=mid_detail,
+            short_detail=short_detail,
+            text_windows=text_windows or None,
+        )
+        evidence_lines = _build_evidence_lines(long_detail, mid_detail, short_detail)
+        if df_next.empty:
+            logger.warning(
+                "[SIGNAL] next_step_signal snapshot missing for decision_date=%s; using UNKNOWN/N/A fail-open rendering",
+                decision_date.isoformat(),
+            )
+            nrow: Dict[str, Any] = {}
+        else:
+            nrow = df_next.iloc[-1]
+        if df_group.empty:
+            group_lines = _format_group_transition_lines(None)
+            grows = []
+        else:
+            if "trade_date" in df_group.columns:
+                gtmp = df_group.copy()
+                gtmp["trade_date"] = pd.to_datetime(gtmp["trade_date"]).dt.date
+                gtmp = gtmp[gtmp["trade_date"] <= decision_date]
+                if not gtmp.empty:
+                    latest_gd = gtmp["trade_date"].max()
+                    gtmp = gtmp[gtmp["trade_date"] == latest_gd]
+                # asset_group별 최신 1행만 사용 (히스토리 전체 출력 방지)
+                if "asset_group" in gtmp.columns and not gtmp.empty:
+                    gtmp = gtmp.sort_values(["asset_group", "trade_date"])
+                    gtmp = gtmp.drop_duplicates(subset=["asset_group"], keep="last")
+            else:
+                gtmp = df_group
+
+            grows = []
+            for _, r in gtmp.iterrows():
+                grows.append(
+                    {
+                        "asset_group": r.get("asset_group"),
+                        "group_state_now": r.get("group_state_now"),
+                        "group_expected_5d": r.get("group_expected_5d"),
+                        "group_expected_10d": r.get("group_expected_10d"),
+                        "group_transition_hazard_5d": r.get("group_transition_hazard_5d"),
+                        "group_transition_hazard_10d": r.get("group_transition_hazard_10d"),
+                    }
+                )
+            group_lines = _format_group_transition_lines(grows)
+
+        next_step_lines = _format_next_step_hazard_lines(nrow if isinstance(nrow, dict) else dict(nrow))
+        next_step_lines += [_format_bias_state_line(nrow if isinstance(nrow, dict) else dict(nrow))]
+        text_section_lines = _build_text_window_lines(text_windows)
+        nrow_dict = nrow if isinstance(nrow, dict) else dict(nrow)
+        guidance_struct = _build_trading_guidance_struct(
+            mid_regime=mid_regime,
+            short_signal=short_signal,
+            run_universe=run_universe,
+            risk_gate=risk_gate,
+            hazard_10d=nrow_dict.get("transition_hazard_10d"),
+        )
+        confidence_struct = _build_signal_confidence_struct(
+            hazard_10d=nrow_dict.get("transition_hazard_10d"),
+            diversity_count=nrow_dict.get("horizon_bias_diversity_count"),
+            evidence_unknown_ratio=nrow_dict.get("evidence_unknown_ratio"),
+        )
+        risk_struct = _build_risk_summary_struct(
+            run_universe=run_universe,
+            short_signal=short_signal,
+            hazard_10d=nrow_dict.get("transition_hazard_10d"),
+            group_rows=grows,
+        )
+        guidance_lines = _format_trading_guidance_lines(guidance_struct)
+        risk_lines = _format_risk_summary_lines(risk_struct)
+        confidence_lines = _format_signal_confidence_lines(confidence_struct)
+
+        lines += context_lines
+        lines += _build_switch_lines(risk_gate=risk_gate, run_universe=run_universe)
+        lines += [""] + guidance_lines
+        lines += [""] + risk_lines
+        lines += [""] + confidence_lines
+
+        # ── 다음 스텝 가설 (5/10/20/60/120D bias+hazard+expected) ──
+        lines += [
+            "",
+            "── 다음 스텝 가설 ──",
+        ]
+        lines += next_step_lines
+
+        # ── 시장 근거 (4축) ──
+        lines += [
+            "",
+            "── 시장 근거 ──",
+        ]
+        lines += evidence_lines
+        if text_section_lines:
+            lines += text_section_lines
+
+        # ── 진단 요약 (12셀 품질) ──
+        lines += [
+            "",
+            "── 진단 요약 ──",
+        ]
+        if not df_next.empty:
+            nrow = df_next.iloc[-1]
+            lines += [
+                f"🧪 12셀 품질: {str(nrow.get('diag_12slot_quality', '경고'))}",
+                (
+                    "→ coverage="
+                    f"{float(nrow.get('diag_12slot_coverage', 0.0)):.1%}, "
+                    f"unknown={float(nrow.get('evidence_unknown_ratio', 1.0)):.1%}"
+                ),
+            ]
+        else:
+            lines += _build_diagnostic_lines(long_detail, mid_detail, short_detail)
+
+        # ── 전술 그룹 다음 스텝 ──
+        lines += [
+            "",
+            "── 전술 그룹 다음 스텝 ──",
+        ]
+        lines += group_lines
+
+        # ── 전술 ETF (asset_group별 그룹핑) ──
+        if tactical_by_group:
+            lines += ["", "── 전술 ETF (SPY 대비 20일 상대강도) ──"]
+            # 표시 순서: COUNTRY → COMMODITY → BOND → SECTOR
+            first_group = True
+            for group in ["COUNTRY", "COMMODITY", "BOND", "SECTOR"]:
+                entries = tactical_by_group.get(group)
+                if not entries:
+                    continue
+                group_label = _GROUP_LABEL.get(group, group)
+                items = []
+                for name_ko, sym, rs in entries:
+                    if rs is not None:
+                        items.append(f"{name_ko} {sym} {float(rs):+.1%}")
+                    else:
+                        items.append(f"{name_ko} {sym}")
+                if not first_group:
+                    lines.append("")
+                lines.append(f"{group_label}")
+                lines.append(f"→ {' · '.join(items)}")
+                first_group = False
+
+        if sell_budget > 0:
+            sell_order = " → ".join(sell_list) if sell_list else "—"
+            lines += ["", f"🚨 <b>매도 예산</b> {sell_budget:.0%}  순서: {sell_order}"]
+
+        lines += ["", f"<code>─ {strategy_summary['run_id']}</code>"]
+
+        # ── Message 1: Signal Report (결정론) ──
+        send_telegram_fail_open(
+            token=token,
+            chat_id=chat_id,
+            text="\n".join(lines),
+            source_job="strategy_engine_dag",
+            logger=logger,
+        )
+
+        # ── Message 2: AI Interpretation (통합 해석) ──
+        report_cfg = TextPipelineConfig.default()
+        analysis_payload = _build_llm_analysis_payload(
+            decision_date=decision_date.isoformat(),
+            long_phase=long_phase,
+            mid_regime=mid_regime,
+            short_signal=short_signal,
+            long_detail=long_detail,
+            mid_detail=mid_detail,
+            short_detail=short_detail,
+            action=action,
+            current_ratio=cur_pct,
+            next_ratio=next_ratio,
+            v2_target=v2_target,
+            risk_gate=risk_gate,
+            run_universe=run_universe,
+            tactical_by_group=tactical_by_group,
+            sell_budget=sell_budget,
+            sell_list=sell_list,
+            next_step_row=nrow_dict,
+            group_rows=grows,
+            text_windows=text_windows or None,
+            guidance_struct=guidance_struct,
+            risk_struct=risk_struct,
+            confidence_struct=confidence_struct,
+        )
+        analysis_text = _generate_llm_analysis(
+            analysis_payload,
+            model=os.getenv("REPORT_LLM_MODEL", report_cfg.ollama_model),
+            base_url=os.getenv("REPORT_LLM_BASE_URL", report_cfg.ollama_base_url),
+            timeout=int(os.getenv("REPORT_LLM_TIMEOUT", str(report_cfg.ollama_timeout))),
+        )
+        if analysis_text:
+            msg2_lines = [
+                f"🤖 <b>Pretrend AI 해석</b> · {decision_date.isoformat()} ({weekday})",
+                "",
+                analysis_text,
+            ]
+            send_telegram_fail_open(
+                token=token,
+                chat_id=chat_id,
+                text="\n".join(msg2_lines),
+                source_job="strategy_engine_dag",
+                logger=logger,
+            )
+        else:
+            logger.info("[SIGNAL] LLM analysis skipped (disabled or failed)")
+
+    @task(task_id="build_next_step_history_incremental")
+    def build_next_step_history_incremental_task(strategy_summary: Dict[str, Any]) -> Dict[str, Any]:
+        import logging
+        import pandas as pd
+        from pretrend.pipeline.strategy_engine.next_step.history_io import (
+            save_next_step_history_incremental,
+        )
+
+        logger = logging.getLogger(__name__)
+        data_root = Path(os.getenv("PRETREND_DATA_ROOT", "data"))
+        strategy_root = data_root / "strategy"
+        dd = date.fromisoformat(strategy_summary["decision_date"])
+        run_id = strategy_summary.get("run_id", "unknown")
+
+        try:
+            df_next = _load_snapshot(strategy_root, "next_step_signal", dd)
+            if df_next.empty:
+                logger.warning("[next_step_history] next_step snapshot empty: %s", dd)
+                strategy_summary["next_step_history_rows"] = 0
+                return strategy_summary
+            df_next = df_next.copy()
+            if "trade_date" in df_next.columns:
+                df_next["trade_date"] = pd.to_datetime(df_next["trade_date"]).dt.date
+            saved = save_next_step_history_incremental(
+                df_next,
+                strategy_root,
+                decision_date_ref=dd,
+                run_id=run_id,
+            )
+            strategy_summary["next_step_history_rows"] = int(saved)
+        except Exception as exc:
+            # fail-open: report 전송 유지
+            logger.warning("[next_step_history] fail-open: %s", exc)
+            strategy_summary["next_step_history_rows"] = 0
+        return strategy_summary
+
+    strategy_summary = run_strategy_engine_task()
+    strategy_summary = build_next_step_history_incremental_task(strategy_summary)
+    send_telegram_report_task(strategy_summary)
+
+
+strategy_engine_dag = strategy_engine_pipeline()

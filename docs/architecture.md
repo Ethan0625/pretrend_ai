@@ -1,11 +1,11 @@
 # Pretrend AI 아키텍처 문서 (architecture.md)
 **Project:** Pre-Trend Value 기반 자동매매 AI 시스템\
 **Document:** architecture\
-**Version:** 2026.01.14\
+**Version:** 2026.02.14\
 
 본 문서는 **Pre-Trend Value 기반 주식 자동매매 시스템**의 기술 아키텍처를 정의한다.  
-특히, 현재 구현된 **거시지표 Macro 파이프라인 (Bronze/Silver Layer)**을 중심으로 설명하고,  
-향후 확장 대상(EOD/뉴스/전략/LLM 등)을 상위 레벨에서 제시한다.
+특히, 현재 구현된 **Macro/EOD/Calendar 파이프라인 및 Gold Feature Mart(Macro/EOD)**를 중심으로 설명하고,  
+향후 확장 대상(뉴스/전략/LLM 등)을 상위 레벨에서 제시한다.
 
 ---
 
@@ -18,8 +18,11 @@
 | 레이어       | 컴포넌트                         | 설명 |
 |-------------|-----------------------------------|------|
 | 데이터       | Bronze / Silver / Meta           | 외부 데이터 수집, 정규화, Feature 생성 |
-| 파이프라인   | `pretrend.pipeline.*`            | Ingest, Feature 변환, (향후) Label/Train |
-| 전략/신호    | `pretrend.signals.*`             | Pre-Trend Value 기반 전략, 매매 시그널 생성 |
+| 파이프라인   | `pretrend.pipeline.*`            | Ingest, Feature 변환, Calendar 증거 파이프라인, (향후) Label/Train |
+| 전략 상태판단 | Market Structure (Long/Mid/Short + Composer) | 4축 상태 해석 및 실행 게이트 생성 |
+| 전략 실행엔진 | Strategy Engine v0 | WHAT/EXPOSURE/SELL 경계 출력 생성 |
+| 시뮬레이션 | Backtest Engine (v0/v1/v2 preset) | Strategy Engine 출력 기반 주간 실행 시뮬레이션(DCA + staged sell) |
+| 실행 제어    | Universe-ETF + Allocation Engine  | 후보 선별 및 총 투자 비율 조절(`invested_ratio`) |
 | API         | `backend_api/` (FastAPI)         | 전략/데이터/LLM 인터페이스 제공 |
 | LLM         | vLLM 서버 (Qwen/Llama 계열)      | 리서치 요약, 질의응답, RAG 기반 분석 |
 | 오케스트레이션 | Airflow DAG | Macro/EOD 등 ETL 파이프라인 스케줄링 및 재처리 |
@@ -42,13 +45,18 @@ flowchart LR
     subgraph DataLayer[데이터 레이어]
         BZ[Bronze\n(Raw 정규화)]
         SV[Silver\n(Feature 변환)]
-        GD[Gold / Mart\n(전략별 View, 향후)]
+        BC[Bronze Calendar\n(release evidence)]
+        SC[Silver Calendar\n(PIT evidence)]
+        GD[Gold / Mart\n(Macro/EOD v1 구현)]
     end
 
     subgraph Pipeline[파이프라인 코드]
         INGEST[pretrend.pipeline.ingest.*]
         FEAT[pretrend.pipeline.features.*]
-        SIG[pretrend.signals.*\n(전략/시그널, 향후)]
+        MS[Market Structure\nlong/mid/short + composer]
+        UNI[Universe-ETF]
+        ALLOC[Allocation Engine v0]
+        BT[Backtest Engine]
     end
 
     subgraph App[애플리케이션 레이어]
@@ -64,8 +72,10 @@ flowchart LR
 
     External --> INGEST --> BZ
     BZ --> FEAT --> SV
-    SV --> SIG
-    SIG --> API
+    INGEST --> BC --> SC --> GD
+    GD --> MS --> UNI --> ALLOC --> API
+    ALLOC --> BT
+    UNI --> BT
     LLM --> API
 
     AF --> INGEST
@@ -74,6 +84,49 @@ flowchart LR
     LLM --> DC
     CI --> DC
 ````
+
+Calendar Pipeline(v1) 설명:
+- `pretrend.pipeline.calendar.*`는 Gold PIT-safe 조인을 위한 release evidence 레이어를 제공한다.
+- 구현 모듈: `config.py`, `econ_events.py`, `fred_vintages.py`, `runner.py`
+- 저장 흐름: `data/bronze/calendar/*` → `data/silver/calendar/*`
+
+EOD Observability Set(v1) 설명:
+- EOD 관측용 ETF 세트는 시장 상태를 읽기 위한 Always-on 센서 입력으로 유지한다.
+- Universe-ETF/Universe-Stock(U0~U3) 대상과 분리하여 고정 수집/고정 라벨 정책을 적용한다.
+- 분류 라벨(`asset_group`, `asset_name`, `asset_subtype`)은 Bronze에서 확정하고 Silver/Gold로 전파한다.
+- 상세 계약 문서: `docs/architecture/eod_observability_contract.md`
+
+EOD Gold Feature v1 설명:
+- `pretrend.pipeline.features.gold_eod_features`가 Silver EOD를 Gold Fact Mart로 변환한다.
+- `pretrend.pipeline.eod_job`은 Bronze → Silver → Gold를 1회 실행으로 동기화한다.
+- `eod_pipeline_dag`는 `run_eod_bronze_ingest` → `run_eod_silver_features` → `run_eod_gold_features` 체인으로 동작한다.
+
+Risk-Control 전략 구조(v0) 설명:
+- 전략 흐름은 `Layer -> Market Structure(4축) -> Composer -> Universe-ETF -> Allocation Engine -> Weekly Report`를 따른다.
+- Allocation Engine v0는 총 투자 비율(`invested_ratio`)만 조절하며, Universe-ETF 내부 가중치 조절은 수행하지 않는다.
+- Strategy Engine v0는 Gold snapshot 입력을 기준으로 WHAT/EXPOSURE/SELL 경계 출력을 생성한다.
+- 관련 문서:
+  - `docs/strategy_architecture.md`
+  - `docs/strategy_engine_design.md`
+  - `docs/architecture/market_structure_long_contract.md`
+  - `docs/architecture/market_structure_mid_contract.md`
+  - `docs/architecture/market_structure_short_contract.md`
+  - `docs/architecture/market_structure_composer_contract.md`
+  - `docs/architecture/universe_contract.md`
+  - `docs/architecture/allocation_engine_contract.md`
+  - `docs/market_structure_data_inventory.md`
+
+Backtest Engine(v0/v1/v2) 설명:
+- `pretrend.pipeline.backtest.*`는 Strategy Engine 출력과 Gold snapshot을 입력으로 포트폴리오 시뮬레이션을 수행한다.
+- Preset 기반 동작:
+  - v0: range-maintenance
+  - v1: target-seeking
+  - v2: 2D target-seeking(`long_phase × mid_regime`)
+- 실행 규칙:
+  - 월 첫 거래일 DCA 자금 투입(`monthly_addition`)
+  - 월요일(T-1 신호 평가) → 화요일(INCREASE 실행) → 금요일(DECREASE 단계 매도)
+  - `risk_gate=false(PANIC)` 시 DECREASE 생성/진행을 동결하고 INCREASE는 허용
+- 구현 모듈: `config.py`, `portfolio.py`, `rebalancer.py`, `runner.py`, `metrics.py`, `report.py`
 
 ---
 
@@ -87,12 +140,22 @@ flowchart LR
 pretrend_ai/
 ├─ data/
 │  ├─ bronze/
-│  │  └─ macro/
+│  │  ├─ macro/
 │  │      └─ econ_indicators/
 │  │          └─ year=YYYY/month=MM/*.parquet
+│  │  └─ calendar/
+│  │      ├─ econ_events/
+│  │      │   └─ year=YYYY/month=MM/*.parquet
+│  │      └─ fred_vintages/
+│  │          └─ year=YYYY/month=MM/*.parquet
 │  ├─ silver/
-│  │  └─ macro/
+│  │  ├─ macro/
 │  │      └─ macro_features/
+│  │          └─ year=YYYY/month=MM/*.parquet
+│  │  └─ calendar/
+│  │      ├─ econ_events/
+│  │      │   └─ year=YYYY/month=MM/*.parquet
+│  │      └─ fred_vintages/
 │  │          └─ year=YYYY/month=MM/*.parquet
 │  └─ meta/
 │
@@ -101,9 +164,30 @@ pretrend_ai/
 │      ├─ pipeline/
 │      │   ├─ ingest/
 │      │   │   ├─ base.py        # IngestContext / BaseFetcher / BaseNormalizer / BaseWriter
-│      │   │   └─ macro.py       # FRED Macro Bronze Ingest
-│      │   └─ features/
-│      │       └─ macro_features.py  # Macro Silver Feature 변환
+│      │   │   └─ macro.py       # FRED Macro Bronze Ingest (+ Calendar Bronze ingest)
+│      │   ├─ features/
+│      │       ├─ macro_features.py  # Macro Silver Feature 변환
+│      │       ├─ eod_features.py  # EOD Silver Feature 변환
+│      │       ├─ gold_macro_features.py  # Gold Macro Feature v1 변환
+│      │       └─ gold_eod_features.py  # Gold EOD Feature v1 변환
+│      │   └─ calendar/
+│      │       ├─ config.py          # CalendarConfig / schema constants / mappings
+│      │       ├─ econ_events.py     # Calendar econ_events Silver 변환
+│      │       ├─ fred_vintages.py   # Calendar fred_vintages Silver 변환
+│      │       └─ runner.py          # Calendar Silver runner CLI
+│      │   └─ eod_job.py             # EOD Bronze→Silver→Gold E2E runner
+│      │   └─ strategy_engine/       # Strategy Engine v0 (Axis/Horizon→Policy→Universe-ETF→Allocation→Sell)
+│      │       ├─ strategy_job.py    # Strategy Engine runner CLI
+│      │       ├─ config.py          # Strategy policy/profile config
+│      │       ├─ io.py              # snapshot load/write
+│      │       └─ ...                # axis_features / horizon_state / composer / universe / allocation / sell
+│      │   └─ backtest/              # Backtest Engine (v0/v1/v2 preset, DCA/weekly execution)
+│      │       ├─ config.py          # BacktestPreset / PRESET_REGISTRY / from_preset
+│      │       ├─ portfolio.py       # Position/Trade/Portfolio
+│      │       ├─ rebalancer.py      # target weights / rebalance day / tactical rotation
+│      │       ├─ runner.py          # BacktestRunner CLI
+│      │       ├─ metrics.py         # CAGR/MDD/Sharpe/Sortino/Calmar
+│      │       └─ report.py          # 구간별 리포트 출력
 │      ├─ signals/               # 전략/신호 모듈 (향후)
 │      ├─ llm/                   # LLM/RAG 모듈 (향후)
 │      ├─ config/                # 설정/스키마 (향후)
@@ -123,14 +207,17 @@ pretrend_ai/
 | ------ | ------------------------------ | -------------------------------- | -------------------- |
 | Bronze | 외부 데이터 수집 후 *표준 스키마*로 정규화된 Raw | FRED Macro, EOD, 뉴스 Raw          | `data/bronze/...`    |
 | Silver | 전략/모델 입력용 Feature 세트           | Macro Feature (YoY/MoM/Regime 등) | `data/silver/...`    |
-| Gold   | 특정 전략/리포트에 최적화된 Mart           | 전략별 시그널, 백테스트 결과                 | `data/gold/...` (향후) |
+| Gold   | 특정 전략/리포트에 최적화된 Mart           | Macro Gold Feature v1 (구현), 전략별 시그널/백테스트(확장) | `data/gold/...` |
 | Meta   | Job 실행 메타데이터, Lineage          | run_id, ingestion_ts, 로그 등       | `data/meta/...`      |
 
 현재 구현 상태:
 
 * ✅ Bronze: Macro (FRED 기반 econ_indicators)
 * ✅ Silver: Macro Features (macro_features)
-* ⏳ Gold: 전략별 뷰, 시그널 Mart (향후)
+* ✅ Bronze/Silver: Calendar release evidence (`econ_events`, `fred_vintages`)
+* ✅ Gold: Macro Feature v1 (Silver Macro + Calendar 기반)
+* ✅ Gold: EOD Feature v1 Fact Mart (Silver EOD 기반)
+* ⏳ Gold 확장: 전략별 Mart
 
 ---
 

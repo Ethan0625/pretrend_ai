@@ -17,6 +17,11 @@ from pretrend.pipeline.features.eod_features import (
     EodFeatureConfig,
     run_eod_silver_features,
 )
+from pretrend.pipeline.features.gold_eod_features import (
+    build_gold_eod_features,
+    load_silver_eod_features,
+    write_gold_eod_features,
+)
 
 
 # ---------------------------
@@ -64,28 +69,29 @@ DEFAULT_ARGS: Dict[str, Any] = {
 
 @dag(
     dag_id="eod_pipeline_dag",
-    description="미국장 기준 마지막 완전 거래일 EOD Bronze→Silver E2E 파이프라인",
+    description="미국장 기준 마지막 완전 거래일 EOD Bronze→Silver→Gold E2E 파이프라인",
     default_args=DEFAULT_ARGS,
     # 매일 한 번 돌리되, 실제 대상 날짜는 get_last_us_trading_date()로 결정
-    start_date=pendulum.datetime(2010, 1, 1, tz="UTC"),
-    schedule_interval="0 8 * * *",  # 매일 08:00 (Airflow 타임존 기준)
+    start_date=pendulum.datetime(2010, 1, 1, tz="Asia/Seoul"),
+    schedule_interval="0 8 * * *",  # 매일 08:00 KST (미국 장 마감 후 2시간+)
     catchup=False,
     max_active_runs=1,
-    tags=["pretrend", "eod", "bronze", "silver"],
+    tags=["pretrend", "eod", "bronze", "silver", "gold"],
 )
 def eod_pipeline():
     """
-    EOD Bronze→Silver 전체를 한 번에 수행하는 Airflow DAG.
+    EOD Bronze→Silver→Gold 전체를 한 번에 수행하는 Airflow DAG.
 
-    - execution_date / data_interval은 참고만 하고,
-      실제 EOD 대상 날짜는 US/Eastern 현재 시각 기준 '마지막 완전 거래일'로 계산.
-    - Bronze ingest(SPY/QQQ/VOO 등) 후, 동일 날짜 구간에 대해 Silver Feature 생성.
+    - data_interval_start를 US/Eastern으로 변환하여 대상 거래일을 결정.
+      backfill/scheduled run 모두 논리 실행일 기준으로 처리.
+    - Bronze ingest(Observability SOT 32개 ETF) → Silver Feature → Gold fact mart 순차 실행.
     """
 
     @task(task_id="run_eod_bronze_ingest")
     def run_eod_bronze_ingest_task(**context: Any) -> Dict[str, Any]:
-        # 1) 미국 시간(US/Eastern) 기준 현재 시각
-        now_et = pendulum.now("US/Eastern")
+        # 1) Airflow data_interval_start → US/Eastern 변환 (backfill 호환)
+        data_interval_start = context["data_interval_start"]
+        now_et = data_interval_start.in_tz("US/Eastern")
 
         # 2) 마지막 완전한 거래일 계산
         target_date: date = get_last_us_trading_date(now_et)
@@ -98,7 +104,7 @@ def eod_pipeline():
         data_root = Path(os.getenv("PRETREND_DATA_ROOT", "data"))
         cfg = EodIngestConfig(data_root=data_root)
 
-        # 5) EOD Bronze ingest 실행 (기본 심볼: cfg.default_symbols → SPY/QQQ/VOO)
+        # 5) EOD Bronze ingest 실행 (기본 심볼: cfg.default_symbols → Observability SOT)
         result = run_eod_bronze_ingest(
             start_date=start_dt,
             end_date=end_dt,
@@ -112,7 +118,7 @@ def eod_pipeline():
             "row_count": result.row_count,
             "symbols": ",".join(result.symbols),
             "target_date": str(target_date),
-            "now_et": now_et.to_iso8601_string(),
+            "data_interval_et": now_et.to_iso8601_string(),
         }
         return summary
 
@@ -146,8 +152,50 @@ def eod_pipeline():
         }
         return summary
 
+    @task(task_id="run_eod_gold_features")
+    def run_eod_gold_features_task(silver_summary: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Silver 요약(XCom) 정보를 받아 동일 날짜/심볼에 대해 Gold Feature 생성.
+        """
+        import pandas as pd
+
+        start_dt = date.fromisoformat(silver_summary["start_date"])
+        end_dt = date.fromisoformat(silver_summary["end_date"])
+        symbols_str = silver_summary["symbols"]
+        symbols = [s.strip() for s in symbols_str.split(",") if s.strip()]
+
+        data_root = Path(os.getenv("PRETREND_DATA_ROOT", "data"))
+        silver_root = data_root / "silver" / "eod" / "eod_features"
+        gold_root = data_root / "gold" / "eod" / "eod_features"
+        run_id = pd.Timestamp.now("UTC").strftime("gold_eod_%Y%m%d%H%M%S")
+
+        df_silver = load_silver_eod_features(
+            silver_root, start_date=start_dt, end_date=end_dt, symbols=symbols,
+        )
+        if df_silver.empty:
+            return {
+                "gold_run_id": run_id,
+                "start_date": str(start_dt),
+                "end_date": str(end_dt),
+                "row_count": 0,
+                "symbols": "",
+            }
+
+        gold_df = build_gold_eod_features(df_silver, run_id=run_id)
+        write_gold_eod_features(gold_df, gold_root, run_id)
+
+        summary: Dict[str, Any] = {
+            "gold_run_id": run_id,
+            "start_date": str(start_dt),
+            "end_date": str(end_dt),
+            "row_count": int(len(gold_df)),
+            "symbols": ",".join(sorted(gold_df["symbol"].unique().tolist())),
+        }
+        return summary
+
     bronze_summary = run_eod_bronze_ingest_task()
-    run_eod_silver_features_task(bronze_summary)
+    silver_summary = run_eod_silver_features_task(bronze_summary)
+    run_eod_gold_features_task(silver_summary)
 
 
 eod_pipeline_dag = eod_pipeline()

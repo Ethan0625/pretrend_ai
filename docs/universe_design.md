@@ -1,214 +1,161 @@
-# 📄 Universe Design Document
+# 📄 Universe-ETF Design Document
 
-**Project:** Pre-Trend Value 기반 자동매매 AI 시스템\
-**Document:** Universe Design\
-**Version:** 2026.01.14\
-**Purpose:** 거시→테마→종목 추론 기반 Universe 생성 파이프라인 정의
-
----
-
-# 1. Overview
-
-본 문서는 자동매매 AI 시스템에서 활용되는 Universe 생성 구조(U0 → U1 → U2 → U3)를 정의한다.\
-수집 가능한 전체 종목(Universe)을 대상으로 하지 않고,
-**거시경제 신호(Macro Signal) → 테마 영향 분석 → 종목 필터링 → 성장성·수급 기반 최종 선별**의
-탑다운 방식으로 효율적 Universe를 구성한다.
-
-해당 Universe는 이후 단계(EOD 수집, Silver/Gold 레이어 분석, 전략 생성)의 핵심 입력이 된다.
+**Project:** Pre-Trend Value 기반 자동매매 AI 시스템  
+**Document:** Universe-ETF Design  
+**Version:** 2026.02.12  
+**Purpose:** Risk-Control 전략 구조에서 Universe-ETF(v1)의 역할/입력/출력 정의
 
 ---
 
-# 2. Universe Pipeline Structure
+## 1. Overview
+
+본 문서는 Universe-ETF(v1)의 설계 목적과 동작 경계를 정의한다.
+Universe-ETF는 독립 전략 엔진이 아니라,
+`Market Structure Composer` 결과를 입력으로 받아
+Observability ETF 집합 내 후보를 선별하는 **read-only 소비 모듈**이다.
+
+참고:
+- `Universe-Stock(U0~U3)`는 별도 로드맵 파이프라인이며 본 문서 범위 밖이다.
+- 관련 로드맵: `docs/milestones.md`
+
+참조 문서:
+- `docs/strategy_architecture.md`
+- `docs/architecture/market_structure_composer_contract.md`
+- `docs/architecture/universe_contract.md`
+- `docs/architecture/eod_observability_contract.md`
+- `docs/architecture/allocation_engine_contract.md`
+
+---
+
+## 2. Universe-ETF Pipeline Structure (v1)
 
 ```mermaid
 flowchart TD
-    U0[U0: Macro Signal Detector<br/>거시 신호 감지 · 영향력 수치화] --> 
-    U1[U1: Theme Prioritization<br/>각광받을 테마 선별] -->
-    U2[U2: Theme Universe Builder<br/>테마 기반 주요 종목 1차 필터링] -->
-    U3[U3: Growth & Flow Candidates<br/>성장성 + 수급 기반 최종 후보]
+    GD[Gold Data<br/>Macro/EOD] --> MSC[Market Structure Composer]
+    MSC --> UNI[Universe-ETF v1]
+    UNI --> ALLOC[Allocation Engine v0]
+```
+
+핵심 원칙:
+- Universe-ETF는 Composer 출력만 의존한다.
+- Universe-ETF는 Observability 라벨을 변경하지 않는다.
+- Allocation은 Universe-ETF 결과를 소비하되, v0에서 총 투자비율만 조절한다.
+
+---
+
+## 3. Scope & Non-Goals
+
+### 3.1 Scope
+- 대상 자산: Observability ETF 세트
+- 입력: Composer 상태 벡터 + Gold EOD Feature
+- 출력: 후보 리스트(`is_candidate`)와 상대 강도 지표
+
+### 3.2 Non-Goals
+- 개별 종목(싱글네임) 선별
+- 점수 가중치/컷오프 수치 최적화
+- Universe-ETF 내부 종목 비중 조절(v0 범위 밖)
+
+---
+
+## 4. Inputs
+
+### 4.1 Composer 입력 (필수)
+
+| 컬럼 | 타입 | 필수 | 설명 |
+| --- | --- | --- | --- |
+| trade_date | DATE | Y | 기준일 |
+| long_phase | TEXT | Y | 장기 상태 |
+| mid_regime | TEXT | Y | 중기 상태 |
+| short_signal | TEXT | Y | 단기 상태 |
+| run_universe | BOOLEAN | Y | Universe-ETF 실행 여부 |
+| risk_gate | BOOLEAN | Y | Allocation 증가 허용 신호 |
+
+### 4.2 Gold EOD 입력 (필수)
+
+| 컬럼 | 타입 | 필수 | 설명 |
+| --- | --- | --- | --- |
+| symbol | TEXT | Y | ETF 심볼 |
+| trade_date | DATE | Y | 기준일 |
+| asset_group | TEXT | Y | Observability 그룹 |
+| asset_name | TEXT | Y | canonical 라벨 |
+| asset_subtype | TEXT | N | 세부 라벨 |
+| eod feature columns | FLOAT/TEXT | Y | 상대 비교에 필요한 EOD 파생값 |
+
+---
+
+## 5. Processing (개념 설계)
+
+1. Composer 게이트 확인
+- `run_universe=false`이면 빈 결과를 반환한다.
+
+2. 입력 정합성 확인
+- 동일 `trade_date` 기준 데이터만 사용한다.
+- Observability 라벨 컬럼 누락 시 해당 레코드는 제외 또는 오류 처리한다(구현 계약에 따름).
+
+3. 후보 계산
+- asset_group/asset_name 기준 그룹 내 상대 비교를 수행한다.
+- 출력은 `is_candidate` 중심으로 제공한다.
+
+4. Allocation 연계
+- Universe-ETF는 후보 집합만 제공한다.
+- 투자 비율 조절은 Allocation Engine v0가 수행한다.
+
+---
+
+## 6. Outputs
+
+### 6.1 출력 스키마
+
+| 컬럼 | 타입 | 필수 | 설명 |
+| --- | --- | --- | --- |
+| rebalance_date | DATE | Y | 리밸런스 기준일 |
+| symbol | TEXT | Y | ETF 심볼 |
+| asset_group | TEXT | Y | 그룹 라벨 |
+| relative_strength | FLOAT | Y | 상대 강도(정의는 계약 문서 기준) |
+| is_candidate | BOOLEAN | Y | 후보 여부 |
+
+### 6.2 출력 예시
+
+```yaml
+rebalance_date: 2026-02-28
+candidates:
+  - symbol: XLK
+    asset_group: SECTOR
+    relative_strength: 0.71
+    is_candidate: true
+  - symbol: TLT
+    asset_group: BOND
+    relative_strength: 0.42
+    is_candidate: false
 ```
 
 ---
 
-# 3. U0 — Macro Signal Detector
+## 7. Invariants
 
-**목적:** 시장 전체에 영향을 끼치는 거시 신호(Macro Event)를 감지하고,
-신호의 영향력을 정량화하여 테마 평가의 초기 단서를 제공.
-
-## 3.1 입력
-
-* Macro Silver Feature:
-  - 금리 / CPI / 실업률 기반 Feature (yoy, level, delta, regime)
-  - Silver Macro Layer에서 생성된 일 단위 스냅샷
-* 정책/정부 발표: 부양책, 규제완화, 세제혜택
-* 글로벌 이슈: AI 투자, 지정학적 리스크
-* 뉴스 키워드: LLM/RAG 기반 문서 요약 + 키워드 추출
-
-## 3.2 처리
-
-* 이벤트 분류: RATE_CUT, RATE_HIKE, STIMULUS, SUPPLY_SHOCK 등
-* 영향력 산출: Rule 기반 + 모델 기반 scoring
-* 불확실성 평가: confidence score 계산
-* U0 단계에서 사용되는 Macro Feature는 EOD trade_date 기준 가장 최근 시점의 Silver Macro Feature를 as-of join 방식으로 스냅샷화하여 사용한다.
-
-## 3.3 출력 예시
-
-```json
-{
-  "macro_signal": "RATE_CUT",
-  "impact_score": 0.82,
-  "macro_snapshot_date": "2025-01-13",
-  "theme_candidates": ["AI", "Semiconductor", "REITs"],
-  "confidence": 0.73
-}
-```
+- Observability 라벨(`asset_group`, `asset_name`, `asset_subtype`)은 read-only다.
+- `run_universe=false`이면 결과는 비어야 한다.
+- Universe-ETF는 Composer 하위 모듈(long/mid/short)을 직접 참조하지 않는다.
+- v0에서 Universe-ETF는 비중 배분을 결정하지 않는다.
 
 ---
 
-# 4. U1 — Theme Prioritization
+## 8. Integration with Layer / Allocation
 
-**목적:** U0의 신호를 기반으로 **향후 각광받을 테마(Theme Universe)**를 선별.
-
-## 4.1 입력
-
-* U0 macro signal outputs
-* 테마별 ETF 성과(최근 1~3개월)
-* ETF 자금 유입(Flow)
-* 뉴스/키워드 등장 빈도
-* 테마-거시 상관도 매핑
-
-## 4.2 처리
-
-* 테마 스코어링:
-
-  * macro_score (U0)
-  * news_score
-  * etf_flow_score
-  * relative_strength_score
-* 테마별 종합 점수 산출
-
-## 4.3 출력
-
-```json
-{
-  "selected_themes": [
-    {"theme": "Semiconductor", "score": 0.88},
-    {"theme": "AI", "score": 0.75},
-    {"theme": "REITs", "score": 0.72}
-  ]
-}
-```
+- Layer:
+  - Gold Macro/Gold EOD가 Universe-ETF 입력의 상위 데이터 소스다.
+- Allocation Engine v0:
+  - Universe-ETF 후보 리스트를 소비한다.
+  - `risk_gate=false`일 때는 증가 차단 규칙을 적용한다.
+  - 총 투자비율 조절만 수행하며, Universe-ETF 내부 비중은 조절하지 않는다.
 
 ---
 
-# 5. U2 — Theme Universe Builder
+## 9. Roadmap (Universe-ETF 관점)
 
-**목적:** U1의 테마별로 **대표 종목/ETF 기반의 1차 종목 후보군**을 구축.
+- v0: 후보 집합 산출 + Allocation 분리
+- v1: 변동성 인지형 후보 안정화 로직(계약 문서 확정 후)
+- v2: 레짐 연계 강화(Composer 상태 벡터 활용 확대)
+- v3: 그룹별 동적 가중치(Allocation 확장 범위)
 
-## 5.1 입력
-
-* 선택된 테마 리스트
-* ETF 구성 종목 (예: SOXX, SMH, AIQ)
-* 산업 분류(GICS)
-* 시총/거래대금 상위 기업
-* 정책/산업 구조 상 대표 기업
-
-## 5.2 처리
-
-* 테마별 대표주 선정
-* ETF 구성 가중치 기반 상위 종목 추출
-* 산업 구조 기반 대표 기업 매핑
-
-## 5.3 출력 예시
-
-```json
-{
-  "theme": "Semiconductor",
-  "core_stocks": [
-    "TSMC", "ASML", "NVDA", "AMD", "Applied Materials", "SK Hynix"
-  ]
-}
-```
-
----
-
-# 6. U3 — Growth & Flow Candidates
-
-**목적:** U2 후보 종목에서 **성장성 + 수급(Flow) + 테마 모멘텀 + 가격 흐름** 기반으로
-최종 Universe를 선정한다.
-
-## 6.1 입력
-
-* U2 core_stocks
-* 재무/펀더멘털 지표 (FMP/Finnhub API 등)
-* 수급 지표 (ETF 자금 유입, 기관/외국인 flows, 거래량 Spike)
-* 기술적 모멘텀 지표
-* 정책/테마 연관 키워드 점수
-
-## 6.2 처리 (Composite Scoring Model)
-
-* growth_score = 매출/영업이익/EPS 성장률
-* flow_score = 거래량 Spike, OBV/MFI, ETF 유입
-* theme_score = 뉴스/정책/산업 분류 기반
-* momentum_score = Price Momentum(3M/6M)
-
-최종 점수:
-
-```
-final_score = 0.35 * growth_score
-            + 0.30 * flow_score
-            + 0.20 * theme_score
-            + 0.15 * momentum_score
-```
-
-## 6.3 출력 예시
-
-```json
-{
-  "final_universe": [
-    {"symbol": "NVDA", "score": 0.92},
-    {"symbol": "TSMC", "score": 0.89},
-    {"symbol": "ASML", "score": 0.87}
-  ]
-}
-```
-
----
-
-# 7. Universe Summary Table
-
-| Step | Name                     | Output Type     | Description           |
-| ---- | ------------------------ | --------------- | --------------------- |
-| U0   | Macro Signal Detector    | macro_signal    | 거시 이벤트 감지 및 영향력 수치화   |
-| U1   | Theme Prioritization     | selected_themes | 각광받을 테마 후보 선정         |
-| U2   | Theme Universe Builder   | core_stocks     | 테마별 주요 종목 1차 후보군      |
-| U3   | Growth & Flow Candidates | final_universe  | 성장성·수급 기반 최종 Universe |
-
----
-
-# 8. Integration with Data Pipeline (EOD Ingest)
-
-Universe 파이프라인 결과는 Step 1 EOD Ingest와 직접 연결된다.
-
-* Bronze 레이어 EOD 수집 대상 = U3 Universe
-* 수집된 EOD 데이터는 Silver EOD Feature로 변환된다.
-* Gold Layer에서는:
-  - U3 Universe
-  - Silver EOD Feature (일 단위)
-  - Silver Macro Feature (as-of join)
-  를 결합하여 전략 입력용 Mart를 구성한다.
-* Universe는 기본적으로 일 1회 업데이트를 기준으로 하며, Macro/정책 이벤트 발생 시 비정기 재계산을 허용한다.
-* Universe 업데이트 시 EOD ingest 대상 종목 자동 변경
-* Silver/Gold 레이어는 U3 중심으로 확장
-
----
-
-# 9. 향후 개선 방향 (Roadmap)
-
-* Macro Detector LLM Fine-tuning
-* ETF Flow 기반 테마 강도 강화
-* 분석 지표 자동 가중치 학습(XGBoost/LightGBM)
-* Event-driven Universe Rebalancing
-* Market Regime Detection 모델 도입
-* 강화학습 기반 종목 점수 최적화
-
+Stock 유니버스 확장은 `Universe-Stock(U0~U3)` 로드맵으로 관리하며, 본 문서가 아니라 `docs/milestones.md`를 기준으로 한다.
