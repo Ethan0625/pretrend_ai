@@ -27,5 +27,9 @@ jobs:
       - name: Run pytest
         env:
           PYTHONPATH: ${{ github.workspace }}/src
+          PAPER_MAX_INVESTED_RATIO: "0.8"
+          KIS_IS_MOCK: "true"
+          KIS_DRY_RUN: "false"
+          PAPER_BROKER_ENABLED: "true"
         run: |
           pytest -q
