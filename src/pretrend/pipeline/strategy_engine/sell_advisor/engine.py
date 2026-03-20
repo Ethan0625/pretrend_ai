@@ -64,8 +64,9 @@ def build_sell_advice(
         rationale: List[str] = []
 
         if sell_budget > 0:
-            # universe에서 해당 날짜 후보 추출
-            univ_td = universe[universe["rebalance_date"] == td] if not universe.empty and "rebalance_date" in universe.columns else pd.DataFrame()
+            # universe에서 해당 날짜 후보 추출 (decision_date 우선, rebalance_date fallback)
+            _date_col = "decision_date" if "decision_date" in universe.columns else "rebalance_date"
+            univ_td = universe[universe[_date_col] == td] if not universe.empty and _date_col in universe.columns else pd.DataFrame()
             if not univ_td.empty:
                 # relative_strength 오름차순 (약한 것 먼저 매도)
                 sorted_univ = univ_td.sort_values("relative_strength", ascending=True)

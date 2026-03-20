@@ -125,7 +125,12 @@ class StrategyJobRunner:
         )
 
         # 3) Build Axis×Horizon State (3-state 집약 + detail)
-        df_ahs = build_axis_horizon_state(bundle, run_id=run_id, long_z_threshold=self.long_z_threshold)
+        df_ahs = build_axis_horizon_state(
+            bundle,
+            run_id=run_id,
+            long_z_threshold=self.long_z_threshold,
+            skew_gold_root=self.config.skew_gold_root,
+        )
         result.axis_horizon_state = StrategyStageResult(row_count=len(df_ahs))
         if not df_ahs.empty:
             write_snapshot_atomic(

@@ -66,7 +66,9 @@ def load_universe_for_group_transition(strategy_root: Path) -> pd.DataFrame:
     df = load_strategy_snapshot(strategy_root, "what_to_hold")
     if df is None or df.empty:
         return pd.DataFrame()
-    if "rebalance_date" in df.columns:
+    if "decision_date" in df.columns:
+        df["decision_date"] = pd.to_datetime(df["decision_date"], errors="coerce").dt.date
+    elif "rebalance_date" in df.columns:
         df["rebalance_date"] = pd.to_datetime(df["rebalance_date"], errors="coerce").dt.date
     return df
 

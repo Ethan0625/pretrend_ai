@@ -78,13 +78,15 @@ def _get_signal_row(
 def _get_universe_window(universe_df: Optional[pd.DataFrame], td: date) -> Optional[pd.DataFrame]:
     if universe_df is None or universe_df.empty:
         return None
-    if "rebalance_date" not in universe_df.columns:
+    # decision_date 우선, rebalance_date fallback (backward compat)
+    date_col = "decision_date" if "decision_date" in universe_df.columns else "rebalance_date"
+    if date_col not in universe_df.columns:
         return universe_df
-    day = universe_df[universe_df["rebalance_date"] <= td]
+    day = universe_df[universe_df[date_col] <= td]
     if day.empty:
         return None
-    latest = day["rebalance_date"].max()
-    return day[day["rebalance_date"] == latest].copy()
+    latest = day[date_col].max()
+    return day[day[date_col] == latest].copy()
 
 
 def _record_trade_rows(trades: List[Trade], source_job: str, decision_date: date, simulation_date: date) -> List[Dict]:
@@ -517,8 +519,6 @@ def simulate_paper_execution(
                 schd_min_weight=schd_min_weight,
                 nav_for_floor=portfolio.total_value(prices),
             )
-            if staged_sell is not None:
-                staged_sell = None
 
         # Friday: staged DECREASE
         elif weekday == 4:

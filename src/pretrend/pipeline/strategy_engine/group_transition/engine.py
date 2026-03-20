@@ -37,7 +37,9 @@ def _build_group_states(universe_df: pd.DataFrame) -> pd.DataFrame:
         return pd.DataFrame(columns=["trade_date", "asset_group", "group_state_now", "group_confidence"])
 
     x = universe_df.copy()
-    if "rebalance_date" in x.columns:
+    if "decision_date" in x.columns:
+        x["trade_date"] = pd.to_datetime(x["decision_date"], errors="coerce").dt.date
+    elif "rebalance_date" in x.columns:
         x["trade_date"] = pd.to_datetime(x["rebalance_date"], errors="coerce").dt.date
     elif "trade_date" in x.columns:
         x["trade_date"] = pd.to_datetime(x["trade_date"], errors="coerce").dt.date

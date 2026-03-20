@@ -112,3 +112,11 @@ AGENTS.md
 
 # --- 백테스트 결과 (로컬 전용, 대용량) ---
 result/
+# --- Codex 워커 worktree (git worktree add로 자동 생성) ---
+.worktrees/
+
+# --- Telegram 오케스트레이터 (로컬 전용, 경로 노출 방지) ---
+src/bot/
+tests/test_bot/
+state/
+conftest.py

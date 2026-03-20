@@ -12,7 +12,7 @@ ASSET_GROUP_ENUM: FrozenSet[str] = frozenset({
 })
 
 UNIVERSE_OUTPUT_COLUMNS: List[str] = [
-    "rebalance_date",
+    "decision_date",
     "symbol",
     "asset_group",
     "relative_strength",

@@ -112,9 +112,9 @@ is_candidate: true
 ### Non-goals
 - 동일일 다중 버전 관리 전략
 
-- Grain: `(rebalance_date, symbol)`
-- Primary key: `(rebalance_date, symbol)`
-- `rebalance_date`는 Composer `trade_date`와 동일 캘린더 기준을 사용한다.
+- Grain: `(decision_date, symbol)`
+- Primary key: `(decision_date, symbol)`
+- `decision_date`는 Composer `trade_date`와 동일 캘린더 기준을 사용한다.
 
 ## 6. 불변식
 ### 책임
@@ -182,12 +182,12 @@ is_candidate: true
 | U3 | Growth & Flow Filtering | U2 + 성장/수급/모멘텀 feature | `stock_universe_snapshot` |
 
 ### 인터페이스 경계(Execution 분리)
-- `Universe-ETF` 입력/출력(`rebalance_date, symbol`)과 `Universe-Stock` 산출물은 서로 독립 키를 사용한다.
+- `Universe-ETF` 입력/출력(`decision_date, symbol`)과 `Universe-Stock` 산출물은 서로 독립 키를 사용한다.
 - `Universe-Stock` 산출물은 Strategy Engine 실행 경로의 필수 입력이 아니다(Research 파이프라인).
 - M2 구현 전까지 `Universe-ETF` 계약/테스트(UV1~UV6)는 변경 없이 유지한다.
 
 ### Grain/Key 분리 원칙 (Gate A)
-- Universe-ETF(Execution) grain: `(rebalance_date, symbol)` (본 문서 §5)
+- Universe-ETF(Execution) grain: `(decision_date, symbol)` (본 문서 §5)
 - Universe-Stock(Research) 초안 grain:
   - U0: `(as_of_date, signal_id)`
   - U1: `(as_of_date, theme_id)`

@@ -111,13 +111,14 @@ def _pick_tactical(
     if universe_df is None or universe_df.empty:
         return []
 
-    # 해당 날짜 universe (가장 가까운 rebalance_date)
-    if "rebalance_date" in universe_df.columns:
-        df = universe_df[universe_df["rebalance_date"] <= trade_date]
+    # 해당 날짜 universe (가장 가까운 decision_date; rebalance_date fallback)
+    _date_col = "decision_date" if "decision_date" in universe_df.columns else "rebalance_date"
+    if _date_col in universe_df.columns:
+        df = universe_df[universe_df[_date_col] <= trade_date]
         if df.empty:
             return []
-        latest = df["rebalance_date"].max()
-        df = df[df["rebalance_date"] == latest]
+        latest = df[_date_col].max()
+        df = df[df[_date_col] == latest]
     else:
         df = universe_df
 

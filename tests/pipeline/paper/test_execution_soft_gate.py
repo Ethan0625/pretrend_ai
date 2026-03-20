@@ -475,6 +475,63 @@ def test_guardrail_auto_resume_allows_increase() -> None:
     assert not ledger[ledger["trade_date"] == date(2026, 1, 13)].empty
 
 
+def test_tuesday_increase_does_not_cancel_staged_sell() -> None:
+    """DECREASE 도중 Tuesday INCREASE 신호가 staged_sell을 취소하지 않아야 한다.
+
+    수정 전(버그): Tuesday 블록이 `staged_sell = None` → 2번째 Friday에서 새 계획 생성(tranche_idx=0).
+    수정 후: staged_sell 유지 → 2번째 Friday에서 tranche_idx=1 계속 실행.
+
+    검증 방법: Fri1(tranche1)과 Fri2(tranche2) 모두에서 SELL이 발생하면
+    staged_sell이 유지된 것으로 판단한다.
+    """
+    cfg = BacktestConfig(start_date=date(2026, 1, 6), end_date=date(2026, 1, 16))
+    exposure = pd.DataFrame([
+        {"trade_date": date(2026, 1, 6), "action": "INCREASE", "next_invested_ratio": 0.60, "delta_ratio": 0.60},
+        {"trade_date": date(2026, 1, 9), "action": "DECREASE", "next_invested_ratio": 0.30, "delta_ratio": -0.30},
+        {"trade_date": date(2026, 1, 13), "action": "INCREASE", "next_invested_ratio": 0.40, "delta_ratio": 0.10},
+        {"trade_date": date(2026, 1, 16), "action": "DECREASE", "next_invested_ratio": 0.30, "delta_ratio": -0.10},
+    ])
+    prices = pd.DataFrame([
+        {"trade_date": date(2026, 1, 6), "symbol": "SPY", "adj_close": 100.0},
+        {"trade_date": date(2026, 1, 6), "symbol": "SCHD", "adj_close": 50.0},
+        {"trade_date": date(2026, 1, 6), "symbol": "IAU", "adj_close": 20.0},
+        {"trade_date": date(2026, 1, 9), "symbol": "SPY", "adj_close": 100.0},
+        {"trade_date": date(2026, 1, 9), "symbol": "SCHD", "adj_close": 50.0},
+        {"trade_date": date(2026, 1, 9), "symbol": "IAU", "adj_close": 20.0},
+        {"trade_date": date(2026, 1, 13), "symbol": "SPY", "adj_close": 100.0},
+        {"trade_date": date(2026, 1, 13), "symbol": "SCHD", "adj_close": 50.0},
+        {"trade_date": date(2026, 1, 13), "symbol": "IAU", "adj_close": 20.0},
+        {"trade_date": date(2026, 1, 16), "symbol": "SPY", "adj_close": 100.0},
+        {"trade_date": date(2026, 1, 16), "symbol": "SCHD", "adj_close": 50.0},
+        {"trade_date": date(2026, 1, 16), "symbol": "IAU", "adj_close": 20.0},
+    ])
+
+    ledger, _, _, _ = simulate_paper_execution(
+        config=cfg,
+        exposure_df=exposure,
+        prices_df=prices,
+        source_job="paper_trading_dag",
+        decision_date=date(2026, 1, 16),
+        simulation_date=date(2026, 1, 16),
+        initial_capital=1000.0,
+        monthly_addition=0.0,
+        schd_sell_locked=False,
+        schd_min_weight=0.0,
+    )
+
+    # Fri1(Jan 9): tranche 1 SELL 발생 확인
+    fri1_sells = ledger[
+        (ledger["trade_date"] == date(2026, 1, 9)) & (ledger["action"] == "SELL")
+    ]
+    assert not fri1_sells.empty, "Fri1: DECREASE tranche 1 매도가 발생해야 함"
+
+    # Fri2(Jan 16): staged_sell이 Tuesday에 취소되지 않아야 tranche 2 SELL 발생
+    fri2_sells = ledger[
+        (ledger["trade_date"] == date(2026, 1, 16)) & (ledger["action"] == "SELL")
+    ]
+    assert not fri2_sells.empty, "Fri2: staged_sell이 유지되어 tranche 2 매도가 발생해야 함"
+
+
 def test_guardrail_panic_streak_warning_does_not_block() -> None:
     cfg = BacktestConfig(start_date=date(2026, 1, 5), end_date=date(2026, 1, 13))
     exposure = pd.DataFrame(

@@ -23,6 +23,6 @@ def test_universe_stock_extension_section_exists() -> None:
 def test_execution_research_grain_isolation_defined() -> None:
     text = DOC_PATH.read_text(encoding="utf-8")
 
-    assert "Universe-ETF(Execution) grain: `(rebalance_date, symbol)`" in text
+    assert "Universe-ETF(Execution) grain: `(decision_date, symbol)`" in text
     assert "U3: `(as_of_date, symbol)`" in text
     assert "동일 테이블/파티션을 공유하지 않는다" in text

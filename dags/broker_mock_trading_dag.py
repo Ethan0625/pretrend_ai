@@ -299,7 +299,7 @@ def broker_mock_trading_pipeline():
             broker_positions = adapter.get_positions()
 
             exposure_df = load_strategy_stage(data_root, "exposure", "trade_date")
-            what_to_hold_df = load_strategy_stage(data_root, "what_to_hold", "rebalance_date")
+            what_to_hold_df = load_strategy_stage(data_root, "what_to_hold", "decision_date")
             next_step_df = load_next_step_runtime_stage(data_root)
 
             exposure_row = _latest_row_at_or_before(exposure_df, "trade_date", decision_date)
@@ -318,7 +318,8 @@ def broker_mock_trading_pipeline():
                 if next_row is not None and next_row.get("bias_effective") is not None
                 else str(next_row.get("bias_20d", "UNKNOWN")) if next_row is not None else "UNKNOWN"
             )
-            universe_df = _latest_window_at_or_before(what_to_hold_df, "rebalance_date", decision_date)
+            _univ_dc = "decision_date" if not what_to_hold_df.empty and "decision_date" in what_to_hold_df.columns else "rebalance_date"
+            universe_df = _latest_window_at_or_before(what_to_hold_df, _univ_dc, decision_date)
 
             today_et = pendulum.now("America/New_York").date()
             weekday = today_et.weekday()

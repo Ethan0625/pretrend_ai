@@ -72,7 +72,7 @@ def build_universe(
     Returns
     -------
     DataFrame with UNIVERSE_OUTPUT_COLUMNS.
-    Grain: (rebalance_date, symbol).
+    Grain: (decision_date, symbol).
     is_candidate=True → CORE 전체 + TACTICAL Top-N.
     """
     if policy_selection.empty:
@@ -144,7 +144,7 @@ def build_universe(
             is_candidate = is_core or is_tactical_top
 
             rows.append({
-                "rebalance_date": td,
+                "decision_date": td,
                 "symbol": sym,
                 "asset_group": ag,
                 "relative_strength": eod_row.get("rs_vs_spy", eod_row.get("ret_20d")),

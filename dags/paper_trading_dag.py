@@ -117,7 +117,7 @@ def paper_trading_pipeline():
 
         exposure_df = load_strategy_stage(data_root, "exposure", "trade_date")
         policy_df = load_strategy_stage(data_root, "policy_selection", "trade_date")
-        universe_df = load_strategy_stage(data_root, "what_to_hold", "rebalance_date")
+        universe_df = load_strategy_stage(data_root, "what_to_hold", "decision_date")
         next_step_df = load_next_step_runtime_stage(data_root, start_date=paper_start)
         group_transition_df = load_group_transition_runtime_stage(data_root, start_date=paper_start)
         prices_df = load_prices(data_root)
@@ -125,8 +125,9 @@ def paper_trading_pipeline():
             exposure_df = exposure_df[exposure_df["trade_date"] >= paper_start]
         if not policy_df.empty:
             policy_df = policy_df[policy_df["trade_date"] >= paper_start]
-        if not universe_df.empty and "rebalance_date" in universe_df.columns:
-            universe_df = universe_df[universe_df["rebalance_date"] >= paper_start]
+        _univ_date_col = "decision_date" if not universe_df.empty and "decision_date" in universe_df.columns else "rebalance_date"
+        if not universe_df.empty and _univ_date_col in universe_df.columns:
+            universe_df = universe_df[universe_df[_univ_date_col] >= paper_start]
         if not prices_df.empty:
             prices_df = prices_df[prices_df["trade_date"] >= paper_start]
 
@@ -186,11 +187,12 @@ def paper_trading_pipeline():
         # candidate reason report from strategy snapshots
         if not universe_df.empty:
             last_univ = universe_df.copy()
-            if "rebalance_date" in last_univ.columns:
-                last_univ = last_univ[last_univ["rebalance_date"] <= latest]
+            _dc = "decision_date" if "decision_date" in last_univ.columns else "rebalance_date"
+            if _dc in last_univ.columns:
+                last_univ = last_univ[last_univ[_dc] <= latest]
                 if not last_univ.empty:
-                    latest_reb = last_univ["rebalance_date"].max()
-                    last_univ = last_univ[last_univ["rebalance_date"] == latest_reb].copy()
+                    latest_reb = last_univ[_dc].max()
+                    last_univ = last_univ[last_univ[_dc] == latest_reb].copy()
             if not last_univ.empty:
                 p_row = policy_df[policy_df["trade_date"] <= latest].tail(1)
                 n_row = next_step_df[next_step_df["trade_date"] <= latest].tail(1) if not next_step_df.empty else pd.DataFrame()

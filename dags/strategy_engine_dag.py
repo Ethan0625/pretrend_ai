@@ -316,9 +316,10 @@ def strategy_engine_pipeline():
         # {asset_group: [(한국어이름, symbol, RS), ...]} — RS 내림차순
         tactical_by_group: Dict[str, List[tuple]] = {}
         if not df_univ.empty:
-            if "rebalance_date" in df_univ.columns:
-                latest = df_univ["rebalance_date"].max()
-                df_univ = df_univ[df_univ["rebalance_date"] == latest]
+            _dc = "decision_date" if "decision_date" in df_univ.columns else "rebalance_date"
+            if _dc in df_univ.columns:
+                latest = df_univ[_dc].max()
+                df_univ = df_univ[df_univ[_dc] == latest]
             if "is_candidate" in df_univ.columns:
                 df_univ = df_univ[df_univ["is_candidate"] == True]
             if "symbol" in df_univ.columns:
