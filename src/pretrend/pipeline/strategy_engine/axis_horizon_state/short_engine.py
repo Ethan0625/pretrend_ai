@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
@@ -56,15 +57,27 @@ _IWM_SPY_VOL_SPREAD_THRESHOLD = 0.005  # IWM vol_20d - SPY vol_20d > 0.5%p → �
 
 # v1.2 임계값 (vix_extreme)
 _VIX_EXTREME_THRESHOLD = 35.0
-_SKEW_GOLD_ROOT = Path("data/gold/macro/skew/put_call")
+# SKEW_GOLD_ROOT: config 주입 없을 때 env var 기반 기본값 (하드코딩 제거)
+_DEFAULT_SKEW_GOLD_ROOT: str = str(
+    Path(os.getenv("PRETREND_DATA_ROOT", "data")) / "gold" / "macro" / "skew" / "put_call"
+)
 
 
 @lru_cache(maxsize=8192)
-def _load_skew_extreme(signal_date) -> int:
-    """skew_extreme_flag Gold feature 로드. 실패 시 0 반환 (fail-open)."""
+def _load_skew_extreme(signal_date, skew_root: str = "") -> int:
+    """skew_extreme_flag Gold feature 로드. 실패 시 0 반환 (fail-open).
+
+    Parameters
+    ----------
+    signal_date : date-like
+        신호 판정 날짜.
+    skew_root : str, optional
+        SKEW Gold 데이터 루트 경로 문자열. 빈 문자열이면 환경변수 기반 기본값 사용.
+    """
     try:
+        root = Path(skew_root) if skew_root else Path(_DEFAULT_SKEW_GOLD_ROOT)
         date_token = pd.Timestamp(signal_date).date().isoformat()
-        skew_dir = _SKEW_GOLD_ROOT / f"date={date_token}"
+        skew_dir = root / f"date={date_token}"
         files = sorted(skew_dir.glob("*.parquet"))
         if not files:
             return 0
@@ -264,6 +277,7 @@ def build_short_signal(
     flow: pd.DataFrame,
     sentiment: pd.DataFrame,
     run_id: str = "",
+    skew_gold_root: Optional[Path] = None,
 ) -> pd.DataFrame:
     """Short signal을 판정한다.
 
@@ -277,6 +291,8 @@ def build_short_signal(
         sentiment axis (REQUIRED).
     run_id : str
         Lineage run ID.
+    skew_gold_root : Path, optional
+        SKEW Gold 데이터 루트 경로. None이면 PRETREND_DATA_ROOT 환경변수 기반 기본값 사용.
 
     Returns
     -------
@@ -355,7 +371,7 @@ def build_short_signal(
         iau_ret = sent_iau.get(td)
         iwm_vol_spread = sent_iwm_vol_spread.get(td)
         vix_close = sent_vix_close.get(td)
-        skew_extreme = bool(_load_skew_extreme(td))
+        skew_extreme = bool(_load_skew_extreme(td, str(skew_gold_root) if skew_gold_root is not None else ""))
 
         signal, detail = _evaluate_short_signal(
             spy_ret_1d, spy_vol_20d,

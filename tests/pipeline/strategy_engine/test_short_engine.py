@@ -437,8 +437,8 @@ class TestShortSignalSkewV13:
 
         skew_root = tmp_path / "skew"
         monkeypatch.setattr(
-            "pretrend.pipeline.strategy_engine.axis_horizon_state.short_engine._SKEW_GOLD_ROOT",
-            skew_root,
+            "pretrend.pipeline.strategy_engine.axis_horizon_state.short_engine._DEFAULT_SKEW_GOLD_ROOT",
+            str(skew_root),
         )
         skew_path = skew_root / "date=2024-06-03"
         skew_path.mkdir(parents=True, exist_ok=True)
@@ -475,8 +475,8 @@ class TestShortSignalSkewV13:
             "iwm_spy_vol_spread": 0.003, "spy_intraday_range": 0.012,
         }])
         monkeypatch.setattr(
-            "pretrend.pipeline.strategy_engine.axis_horizon_state.short_engine._SKEW_GOLD_ROOT",
-            tmp_path / "missing_skew",
+            "pretrend.pipeline.strategy_engine.axis_horizon_state.short_engine._DEFAULT_SKEW_GOLD_ROOT",
+            str(tmp_path / "missing_skew"),
         )
         _load_skew_extreme.cache_clear()
         result = build_short_signal(pv, flow, sentiment)
