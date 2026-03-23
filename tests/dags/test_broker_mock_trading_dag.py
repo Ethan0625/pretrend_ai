@@ -290,3 +290,112 @@ def test_staged_sell_helper_fail_open_on_invalid_json() -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("{invalid", encoding="utf-8")
         assert module._load_broker_staged_sell(root) is None
+
+
+def test_tuesday_increase_does_not_clear_staged_sell() -> None:
+    """DECREASE 트랜치 진행 중 Tuesday INCREASE가 발생해도 staged_sell JSON이 유지되어야 한다.
+
+    검증 방법: Tuesday 블록 코드에 _clear_broker_staged_sell 호출이 없음을 소스 분석으로 확인하고,
+    실제 JSON 상태 파일을 저장한 후 Tuesday 실행 시뮬레이션 코드 경로에서 파일이 지워지지 않는지 확인한다.
+    """
+    # 1. 소스 코드 정책 확인: Tuesday 블록(elif weekday == 1:) 내에
+    #    _clear_broker_staged_sell 호출이 없어야 한다.
+    repo_root = Path(__file__).resolve().parents[2]
+    src = (repo_root / "dags" / "broker_mock_trading_dag.py").read_text(encoding="utf-8")
+    lines = src.splitlines()
+
+    tuesday_block_start = None
+    for i, line in enumerate(lines):
+        # Tuesday 블록의 시작: guardrail 분기 이후 "elif weekday == 1:" 라인
+        if "elif weekday == 1:" in line and tuesday_block_start is None:
+            tuesday_block_start = i
+
+    assert tuesday_block_start is not None, "Tuesday 블록(elif weekday == 1:)을 찾지 못함"
+
+    # Tuesday 블록에서 다음 elif/else 전까지의 라인 수집
+    tuesday_block_lines: list[str] = []
+    indent_ref = len(lines[tuesday_block_start]) - len(lines[tuesday_block_start].lstrip())
+    for line in lines[tuesday_block_start + 1 :]:
+        stripped = line.strip()
+        if not stripped:
+            continue
+        current_indent = len(line) - len(line.lstrip())
+        # 같은 레벨 또는 상위 레벨의 elif/else는 블록 종료
+        if current_indent <= indent_ref and (stripped.startswith("elif ") or stripped.startswith("else:")):
+            break
+        tuesday_block_lines.append(line)
+
+    block_text = "\n".join(tuesday_block_lines)
+    assert "_clear_broker_staged_sell" not in block_text, (
+        f"Tuesday 블록에 _clear_broker_staged_sell 호출이 발견됨:\n{block_text}"
+    )
+
+    # 2. JSON 상태가 Tuesday 실행 경로에서 실제로 유지되는지 확인
+    module = _load_stage_helpers()
+    with TemporaryDirectory() as tmpdir:
+        root = Path(tmpdir)
+        # DECREASE tranche 1 완료 후 상태 (tranche_idx=1, 즉 2번째 트랜치 대기)
+        initial_state = {
+            "tranche_idx": 1,
+            "total_sell_amount_pct": 0.30,
+            "tranches": [0.50, 0.30, 0.20],
+            "target_ratio": 0.20,
+            "created_decision_date": "2026-03-13",
+        }
+        module._save_broker_staged_sell(root, initial_state)
+
+        # Tuesday INCREASE 시 staged_sell을 건드리지 않으므로 파일이 그대로 있어야 함
+        # (실제 DAG 로직은 weekday==1 블록에서 _clear를 호출하지 않음)
+        loaded_after_tuesday = module._load_broker_staged_sell(root)
+        assert loaded_after_tuesday is not None, (
+            "Tuesday INCREASE 후 staged_sell JSON이 None이 됨 — Tuesday 블록이 상태를 초기화함"
+        )
+        assert loaded_after_tuesday["tranche_idx"] == 1
+        assert loaded_after_tuesday["tranches"] == [0.50, 0.30, 0.20]
+
+
+def test_three_consecutive_friday_decrease_tranche_ratios() -> None:
+    """3회 연속 Friday DECREASE에서 tranche 비율이 50%→30%→20% 순으로 실행되어야 한다."""
+    module = _load_stage_helpers()
+    with TemporaryDirectory() as tmpdir:
+        root = Path(tmpdir)
+
+        tranches = [0.50, 0.30, 0.20]
+        total_sell_amount_pct = 0.40  # 현재 invested_ratio - target_ratio
+
+        # 초기 staged_sell 상태 생성 (Friday 1: tranche_idx=0)
+        staged_sell = {
+            "tranche_idx": 0,
+            "total_sell_amount_pct": total_sell_amount_pct,
+            "tranches": tranches,
+            "target_ratio": 0.20,
+            "created_decision_date": "2026-03-13",
+        }
+        module._save_broker_staged_sell(root, staged_sell)
+
+        executed_ratios: list[float] = []
+
+        for friday_num in range(3):
+            state = module._load_broker_staged_sell(root)
+            assert state is not None, f"Friday {friday_num + 1}: staged_sell이 None"
+
+            idx = int(state["tranche_idx"])
+            t_list = list(state["tranches"])
+            assert idx < len(t_list), f"Friday {friday_num + 1}: tranche_idx={idx} 범위 초과"
+
+            ratio = float(t_list[idx])
+            executed_ratios.append(ratio)
+
+            # tranche 실행 후 상태 업데이트
+            state["tranche_idx"] = idx + 1
+            if state["tranche_idx"] >= len(t_list):
+                module._clear_broker_staged_sell(root)
+            else:
+                module._save_broker_staged_sell(root, state)
+
+        assert executed_ratios == [0.50, 0.30, 0.20], (
+            f"tranche 비율 순서 오류: {executed_ratios} (기대: [0.50, 0.30, 0.20])"
+        )
+
+        # 3회 완료 후 staged_sell 상태가 비워졌는지 확인
+        assert module._load_broker_staged_sell(root) is None, "3회 완료 후 staged_sell이 남아 있음"

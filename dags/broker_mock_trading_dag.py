@@ -601,7 +601,6 @@ def broker_mock_trading_pipeline():
             if weekday == 1 and guardrail_paused and action == "INCREASE":
                 target_orders_df = pd.DataFrame()
             elif weekday == 1:
-                _clear_broker_staged_sell(paper_root)
                 target_orders_df = build_broker_target_orders(
                     action=action,
                     next_invested_ratio=next_invested_ratio,
