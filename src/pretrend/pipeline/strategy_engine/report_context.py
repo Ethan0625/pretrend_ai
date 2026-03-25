@@ -19,6 +19,8 @@ import os
 import time
 from typing import Any, Dict, List, Optional
 
+from pretrend.pipeline.strategy_engine.report_analyzer import generate_report_via_analyzer
+
 # ── Re-exports (backward compat) ─────────────────────────────────────────────
 
 from pretrend.pipeline.strategy_engine.report_context_localization import (  # noqa: F401
@@ -120,6 +122,10 @@ def _report_llm_enabled() -> bool:
     return os.getenv("REPORT_LLM_ENABLED", "1").strip().lower() not in {"0", "false", "no"}
 
 
+def _report_analyzer_enabled() -> bool:
+    return os.getenv("REPORT_ANALYZER_ENABLED", "1").strip().lower() not in {"0", "false", "no"}
+
+
 def generate_llm_analysis(
     payload: Dict[str, Any],
     *,
@@ -136,12 +142,25 @@ def generate_llm_analysis(
     if not _report_llm_enabled():
         return None
 
+    compact = _build_compact_llm_input(payload)
+    user_content = json.dumps(compact, ensure_ascii=False, default=str)
+
+    if _report_analyzer_enabled():
+        try:
+            analyzed = generate_report_via_analyzer(
+                system_prompt=_ANALYSIS_SYSTEM_PROMPT,
+                user_content=user_content,
+                timeout=timeout,
+            )
+            if analyzed:
+                return analyzed
+        except Exception:
+            pass
+
     provider = os.getenv("REPORT_LLM_PROVIDER", "gemini").strip().lower()
     temperature = float(os.getenv("REPORT_LLM_TEMPERATURE", "0.4"))
     num_predict = int(os.getenv("REPORT_LLM_NUM_PREDICT", "2048"))
     retries = int(os.getenv("REPORT_LLM_RETRY", "3"))
-    compact = _build_compact_llm_input(payload)
-    user_content = json.dumps(compact, ensure_ascii=False, default=str)
 
     if provider == "gemini":
         for attempt in range(retries):

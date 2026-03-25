@@ -545,6 +545,7 @@ def test_generate_llm_analysis_fail_open_on_error(monkeypatch) -> None:
         raise RuntimeError("ollama down")
 
     monkeypatch.setenv("REPORT_LLM_ENABLED", "1")
+    monkeypatch.setenv("REPORT_ANALYZER_ENABLED", "0")
     monkeypatch.setenv("REPORT_LLM_PROVIDER", "ollama")
     monkeypatch.setattr(
         "pretrend.pipeline.strategy_engine.report_context._get_report_ollama_client",
@@ -568,6 +569,7 @@ def test_generate_llm_analysis_returns_string_on_success(monkeypatch) -> None:
             return {"message": {"content": "1. 시장 국면: 테스트 해석문입니다."}}
 
     monkeypatch.setenv("REPORT_LLM_ENABLED", "1")
+    monkeypatch.setenv("REPORT_ANALYZER_ENABLED", "0")
     monkeypatch.setenv("REPORT_LLM_PROVIDER", "ollama")
     monkeypatch.setattr(
         "pretrend.pipeline.strategy_engine.report_context._get_report_ollama_client",
@@ -585,6 +587,7 @@ def test_generate_llm_analysis_returns_string_on_success(monkeypatch) -> None:
 
 def test_generate_llm_analysis_gemini_success(monkeypatch) -> None:
     monkeypatch.setenv("REPORT_LLM_ENABLED", "1")
+    monkeypatch.setenv("REPORT_ANALYZER_ENABLED", "0")
     monkeypatch.setenv("REPORT_LLM_PROVIDER", "gemini")
     monkeypatch.setenv("REPORT_LLM_RETRY", "1")
     monkeypatch.setattr(
@@ -610,6 +613,7 @@ def test_generate_llm_analysis_gemini_fallback_to_ollama(monkeypatch) -> None:
             return {"message": {"content": "1. 시장 국면: Ollama fallback 해석문."}}
 
     monkeypatch.setenv("REPORT_LLM_ENABLED", "1")
+    monkeypatch.setenv("REPORT_ANALYZER_ENABLED", "0")
     monkeypatch.setenv("REPORT_LLM_PROVIDER", "gemini")
     monkeypatch.setenv("REPORT_LLM_RETRY", "1")
     monkeypatch.setenv("REPORT_LLM_FALLBACK_ENABLED", "1")
@@ -633,6 +637,50 @@ def test_generate_llm_analysis_gemini_fallback_to_ollama(monkeypatch) -> None:
     )
     assert isinstance(result, str)
     assert "fallback" in result
+
+
+def test_generate_llm_analysis_uses_analyzer_first(monkeypatch) -> None:
+    monkeypatch.setenv("REPORT_LLM_ENABLED", "1")
+    monkeypatch.setenv("REPORT_ANALYZER_ENABLED", "1")
+    monkeypatch.setattr(
+        "pretrend.pipeline.strategy_engine.report_context.generate_report_via_analyzer",
+        lambda **kwargs: "analyzer 해석문",
+    )
+    result = _generate_llm_analysis(
+        _build_llm_analysis_payload(**_make_payload_kwargs()),
+        model="ignored",
+        base_url="http://localhost:11434",
+        timeout=5,
+    )
+    assert result == "analyzer 해석문"
+
+
+def test_generate_llm_analysis_analyzer_falls_back_to_provider(monkeypatch) -> None:
+    class _MockClient:
+        def __init__(self, host=None):
+            pass
+
+        def chat(self, **kwargs):
+            return {"message": {"content": "provider fallback 해석문"}}
+
+    monkeypatch.setenv("REPORT_LLM_ENABLED", "1")
+    monkeypatch.setenv("REPORT_ANALYZER_ENABLED", "1")
+    monkeypatch.setenv("REPORT_LLM_PROVIDER", "ollama")
+    monkeypatch.setattr(
+        "pretrend.pipeline.strategy_engine.report_context.generate_report_via_analyzer",
+        lambda **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "pretrend.pipeline.strategy_engine.report_context._get_report_ollama_client",
+        lambda base_url: _MockClient(host=base_url),
+    )
+    result = _generate_llm_analysis(
+        _build_llm_analysis_payload(**_make_payload_kwargs()),
+        model="test-model",
+        base_url="http://localhost:11434",
+        timeout=5,
+    )
+    assert result == "provider fallback 해석문"
 
 
 # ── 신규: compact LLM input builder ──

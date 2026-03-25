@@ -170,6 +170,14 @@ def _fmt_pct(val: float) -> str:
     return f"{val:+.1%}"
 
 
+def _limit_lines(items: List[str], max_items: int) -> List[str]:
+    if len(items) <= max_items:
+        return items
+    kept = items[:max_items]
+    kept.append(f"... 외 {len(items) - max_items}건")
+    return kept
+
+
 def format_paper_result_message(payload: Dict[str, Any]) -> str:
     validate_paper_result_payload(payload)
 
@@ -206,50 +214,47 @@ def format_paper_result_message(payload: Dict[str, Any]) -> str:
     broker_total = payload.get("broker_balance_total")
     broker_status = payload.get("broker_status")
 
-    lines += [
-        "",
-        "📐 <b>운영 조건</b>",
-    ]
+    lines += ["", "💰 <b>PnL 요약</b>"]
+    daily_pnl = payload.get("daily_pnl")
+    cum_pnl = payload.get("cumulative_pnl")
+    nav = payload.get("nav")
+    invested_capital = payload.get("total_invested_capital")
+    daily_label = "당일(근사)" if execution_mode == "MOCK" and daily_pnl is not None else "당일"
+    cumulative_label = "누적(근사)" if execution_mode == "MOCK" and cum_pnl is not None else "누적"
+    capital_label = "총투입원금(근사)" if execution_mode == "MOCK" and invested_capital is not None else "총투입원금"
+    lines.append(f"- {daily_label}: {_fmt_pct(daily_pnl) if daily_pnl is not None else '집계 데이터 없음'}")
+    lines.append(f"- {cumulative_label}: {_fmt_pct(cum_pnl) if cum_pnl is not None else '집계 데이터 없음'}")
+    lines.append(f"- NAV: {f'${nav:,.2f}' if nav is not None else '집계 데이터 없음'}")
+    lines.append(
+        f"- {capital_label}: {f'${invested_capital:,.2f}' if invested_capital is not None else '집계 데이터 없음'}"
+    )
     if execution_mode == "MOCK":
         broker_cash_display = broker_cash
         if (
             (broker_cash_display is None or float(broker_cash_display) <= 0.0)
             and broker_total is not None
         ):
-            # Policy: mock account treats total as usable cash baseline when explicit cash is missing/zero.
             broker_cash_display = broker_total
-        lines += [
-            "- 운영 모드: MOCK(브로커 잔고 연동)",
-            f"- 시작 자본 기준: 브로커 계좌 스냅샷 ({payload.get('account_id') or 'UNKNOWN'})",
-            f"- 브로커 상태: {broker_status if broker_status else 'UNKNOWN'}",
+        lines.append(
             (
                 f"- 계좌 잔고: {float(broker_total):,.2f} {broker_ccy}"
                 if broker_total is not None and broker_ccy
                 else "- 계좌 잔고: 집계 데이터 없음"
-            ),
+            )
+        )
+        lines.append(
             (
                 f"- 주문가능현금: {float(broker_cash_display):,.2f} {broker_ccy}"
                 if broker_cash_display is not None and broker_ccy
                 else "- 주문가능현금: 집계 데이터 없음"
-            ),
-            f"- 환산환율: 1 USD = {float(fx_usdkrw):,.0f} KRW",
-            f"- 매수 규칙: {payload.get('buy_day_rule', 'N/A')}",
-            f"- 매도 규칙: {payload.get('sell_day_rule', 'N/A')} ({tranche_txt})",
-            f"- SCHD 매도: {'금지' if payload.get('schd_sell_locked', True) else '허용'}",
-        ]
-    else:
-        lines += [
-            f"- Paper 시작일: {paper_start_date}",
-            f"- 초기자금: {payload.get('initial_capital', 0):,.0f}원",
-            f"- 월 첫 거래일 DCA: {payload.get('monthly_addition', 0):,.0f}원",
-            f"- 환산환율: 1 USD = {float(fx_usdkrw):,.0f} KRW",
-            f"- 매수 규칙: {payload.get('buy_day_rule', 'N/A')}",
-            f"- 매도 규칙: {payload.get('sell_day_rule', 'N/A')} ({tranche_txt})",
-            f"- SCHD 매도: {'금지' if payload.get('schd_sell_locked', True) else '허용'}",
-        ]
+            )
+        )
+        lines.append(f"- 브로커 상태: {broker_status if broker_status else 'UNKNOWN'}")
 
-    fills = payload.get("virtual_fills") or ["가상 체결 데이터 없음"]
-    lines += [f"- {item}" for item in fills]
+    if execution_mode == "MOCK":
+        lines += ["", "🧩 <b>포지션 변화</b>"]
+    else:
+        lines += ["", "🧩 <b>포지션 변화</b>"]
 
     effective_bias = payload.get("effective_bias")
     bias_source = payload.get("bias_source")
@@ -273,85 +278,30 @@ def format_paper_result_message(payload: Dict[str, Any]) -> str:
             return "UNKNOWN"
         return "허용" if bool(v) else "제한"
 
-    lines += ["", "🎛️ <b>게이트/강도</b>"]
-    lines.append(
-        f"- 적용 Bias: {effective_bias if effective_bias is not None else 'UNKNOWN'} "
-        f"(source={bias_source if bias_source is not None else 'UNKNOWN'})"
-    )
+    bias_parts = [
+        f"Bias {effective_bias if effective_bias is not None else 'UNKNOWN'}",
+        f"source={bias_source if bias_source is not None else 'UNKNOWN'}",
+    ]
     if override_reason:
-        lines.append(f"- Override 사유: {override_reason}")
-    lines.append(
-        f"- Bias 상태: source={bias_state_source if bias_state_source is not None else 'UNKNOWN'}, "
-        f"switch={'Y' if bool(bias_switch_flag) else 'N'}, "
-        f"reason={bias_switch_reason if bias_switch_reason is not None else 'UNKNOWN'}, "
-        f"cooldown={bias_cooldown_left if bias_cooldown_left is not None else 'N/A'}"
-    )
-    if bool(cooldown_compressed_flag):
-        lines.append(
-            f"- Cooldown 압축: Y (reason={cooldown_compressed_reason if cooldown_compressed_reason is not None else 'UNKNOWN'})"
+        bias_parts.append(f"override={override_reason}")
+    if hazard_10d is not None:
+        bias_parts.append(f"10D위험={_fmt_pct(float(hazard_10d))}")
+    lines.append(f"- {' | '.join(bias_parts)}")
+    gate_parts = [
+        f"run_universe={_yn_or_unknown(hard_gate_run_universe)}",
+        f"risk_gate={_yn_or_unknown(hard_gate_risk_gate)}",
+    ]
+    if eff_slots is not None or eff_weight is not None:
+        gate_parts.append(
+            f"전술={eff_slots if eff_slots is not None else 'N/A'} slots / "
+            f"{f'{float(eff_weight):.2f}x' if eff_weight is not None else 'N/A'}"
         )
-    if bool(hard_gate_exit_assist_flag):
-        lines.append(
-            f"- Hard-gate Exit Assist: Y (reason={hard_gate_exit_assist_reason if hard_gate_exit_assist_reason is not None else 'UNKNOWN'})"
-        )
-    lines.append(
-        f"- Hard Gate: run_universe={_yn_or_unknown(hard_gate_run_universe)}, "
-        f"risk_gate={_yn_or_unknown(hard_gate_risk_gate)}"
-    )
-    lines.append(
-        f"- 전술 강도: slots={eff_slots if eff_slots is not None else 'N/A'}, "
-        f"weight={f'{float(eff_weight):.2f}x' if eff_weight is not None else 'N/A'}"
-    )
-    lines.append(
-        f"- 10D 전환위험: {_fmt_pct(float(hazard_10d)) if hazard_10d is not None else 'N/A'}"
-    )
-    lines.append(
-        f"- 브로커 인증: {payload.get('broker_auth_status') or 'UNKNOWN'} "
-        f"(token_refresh={payload.get('broker_token_refresh_count', 'N/A')})"
-    )
-    lines.append(
-        f"- 브로커 체결: orders={payload.get('broker_orders_count', 'N/A')}, "
-        f"fills={payload.get('broker_fills_count', 'N/A')}"
-    )
-    lines.append(
-        f"- 실행 식별: mode={payload.get('execution_mode') or 'UNKNOWN'}, "
-        f"capital={payload.get('capital_source') or 'UNKNOWN'}, "
-        f"broker={payload.get('broker_source') or 'UNKNOWN'}, "
-        f"account={payload.get('account_id') or 'UNKNOWN'}, "
-        f"nav={payload.get('nav_source') or 'UNKNOWN'}"
-    )
+    lines.append(f"- {' | '.join(gate_parts)}")
     applied_groups = payload.get("group_gate_applied_groups") or []
     reduced_groups = payload.get("group_gate_reduced_groups") or []
     gate_source = payload.get("group_gate_source")
-    lines += ["", "🧭 <b>전술 적용 근거</b>"]
-    lines.append(
-        f"- 적용 그룹: {', '.join(applied_groups) if applied_groups else 'N/A'}"
-    )
-    lines.append(
-        f"- 축소 그룹: {', '.join(reduced_groups) if reduced_groups else '없음'}"
-    )
-    lines.append(
-        f"- 그룹 게이트 소스: {gate_source if gate_source else 'UNKNOWN'}"
-    )
-
-    lines += ["", "💰 <b>PnL 요약</b>"]
-    daily_pnl = payload.get("daily_pnl")
-    cum_pnl = payload.get("cumulative_pnl")
-    nav = payload.get("nav")
-    invested_capital = payload.get("total_invested_capital")
-    daily_label = "당일(근사)" if execution_mode == "MOCK" and daily_pnl is not None else "당일"
-    cumulative_label = "누적(근사)" if execution_mode == "MOCK" and cum_pnl is not None else "누적"
-    capital_label = "총투입원금(근사)" if execution_mode == "MOCK" and invested_capital is not None else "총투입원금"
-    lines.append(f"- {daily_label}: {_fmt_pct(daily_pnl) if daily_pnl is not None else '집계 데이터 없음'}")
-    lines.append(f"- {cumulative_label}: {_fmt_pct(cum_pnl) if cum_pnl is not None else '집계 데이터 없음'}")
-    lines.append(f"- NAV: {f'${nav:,.2f}' if nav is not None else '집계 데이터 없음'}")
-    lines.append(
-        f"- {capital_label}: {f'${invested_capital:,.2f}' if invested_capital is not None else '집계 데이터 없음'}"
-    )
-
     changes = payload.get("position_changes") or ["포지션 변화 없음"]
-    lines += ["", "🧩 <b>포지션 변화</b>"]
-    lines += [f"- {item}" for item in changes]
+    lines += [f"- {item}" for item in _limit_lines(changes, 3)]
 
     top_positions = payload.get("top_positions") or []
     if top_positions:
@@ -377,7 +327,37 @@ def format_paper_result_message(payload: Dict[str, Any]) -> str:
     warnings = payload.get("risk_warnings") or []
     if warnings:
         lines += ["", "⚠️ <b>리스크 경고</b>"]
-        lines += [f"- {item}" for item in warnings]
+        lines += [f"- {item}" for item in _limit_lines(warnings, 3)]
+
+    lines += ["", "🛠 <b>실행 / 운영 compact</b>"]
+    if execution_mode == "MOCK":
+        lines += [
+            "- 운영 모드: MOCK(브로커 잔고 연동)",
+            f"- 시작 자본 기준: 브로커 계좌 스냅샷 ({payload.get('account_id') or 'UNKNOWN'})",
+        ]
+    else:
+        lines += [
+            f"- 운영 모드: {execution_mode}",
+            f"- Paper 시작일: {paper_start_date}",
+            f"- 초기자금: {payload.get('initial_capital', 0):,.0f}원",
+            f"- 월 첫 거래일 DCA: {payload.get('monthly_addition', 0):,.0f}원",
+        ]
+    lines += [
+        f"- 환산환율: 1 USD = {float(fx_usdkrw):,.0f} KRW",
+        f"- 매수 규칙: {payload.get('buy_day_rule', 'N/A')}",
+        f"- 매도 규칙: {payload.get('sell_day_rule', 'N/A')} ({tranche_txt})",
+        f"- SCHD 매도: {'금지' if payload.get('schd_sell_locked', True) else '허용'}",
+        f"- 브로커 인증: {payload.get('broker_auth_status') or 'UNKNOWN'} (token_refresh={payload.get('broker_token_refresh_count', 'N/A')})",
+        f"- 브로커 체결: orders={payload.get('broker_orders_count', 'N/A')}, fills={payload.get('broker_fills_count', 'N/A')}",
+        f"- 실행 식별: mode={payload.get('execution_mode') or 'UNKNOWN'}, capital={payload.get('capital_source') or 'UNKNOWN'}, broker={payload.get('broker_source') or 'UNKNOWN'}, account={payload.get('account_id') or 'UNKNOWN'}, nav={payload.get('nav_source') or 'UNKNOWN'}",
+        f"- 적용 그룹: {', '.join(applied_groups) if applied_groups else 'N/A'}",
+        f"- 축소 그룹: {', '.join(reduced_groups) if reduced_groups else '없음'}",
+        f"- 그룹 게이트 소스: {gate_source if gate_source else 'UNKNOWN'}",
+    ]
+
+    fills = payload.get("virtual_fills") or ["가상 체결 데이터 없음"]
+    lines += ["", "🔎 <b>체결 / 실행 세부</b>"]
+    lines += [f"- {item}" for item in _limit_lines(fills, 5)]
 
     return "\n".join(lines)
 

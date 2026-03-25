@@ -50,7 +50,7 @@ def test_format_message_includes_fixed_sections_and_fallbacks() -> None:
     assert "message_type=PAPER_RESULT" in msg
     assert "모의계좌 체결 요약" in msg
     assert "PnL 요약" in msg
-    assert "운영 조건" in msg
+    assert "실행 / 운영 compact" in msg
     assert "Paper 시작일: N/A" in msg
     assert "초기자금: 1,000,000원" in msg
     assert "월 첫 거래일 DCA: 300,000원" in msg
@@ -128,20 +128,11 @@ def test_format_message_includes_gate_and_strength_section() -> None:
         paper_start_date="2026-01-01",
     )
     msg = format_paper_result_message(payload)
-    assert "게이트/강도" in msg
-    assert "적용 Bias: RISK_OFF_BIAS (source=OVERRIDE)" in msg
-    assert "Override 사유: PANIC" in msg
-    assert "Bias 상태: source=OVERLAY, switch=Y, reason=SHORT_PANIC, cooldown=3" in msg
-    assert "Cooldown 압축: Y (reason=RELIEF_STREAK)" in msg
-    assert "Hard-gate Exit Assist: Y (reason=RUN_UNIVERSE_RECOVERY_RELIEF)" in msg
-    assert "run_universe=제한" in msg
-    assert "risk_gate=허용" in msg
-    assert "전술 강도: slots=0, weight=0.00x" in msg
-    assert "10D 전환위험: +88.0%" in msg
+    assert "Bias RISK_OFF_BIAS | source=OVERRIDE | override=PANIC | 10D위험=+88.0%" in msg
+    assert "run_universe=제한 | risk_gate=허용 | 전술=0 slots / 0.00x" in msg
     assert "브로커 인증:" in msg
     assert "브로커 체결:" in msg
     assert "실행 식별: mode=SIM, capital=ENV_SIM, broker=KIS_MOCK, account=****1133-01, nav=SIM_LEDGER" in msg
-    assert "전술 적용 근거" in msg
     assert "적용 그룹: BOND, SECTOR" in msg
     assert "축소 그룹: COMMODITY" in msg
     assert "그룹 게이트 소스: SNAPSHOT" in msg
@@ -159,12 +150,8 @@ def test_format_message_gate_section_fallback_unknown() -> None:
         delta_ratio=0.0,
     )
     msg = format_paper_result_message(payload)
-    assert "적용 Bias: UNKNOWN (source=UNKNOWN)" in msg
-    assert "Bias 상태: source=UNKNOWN, switch=N, reason=UNKNOWN, cooldown=N/A" in msg
-    assert "run_universe=UNKNOWN" in msg
-    assert "risk_gate=UNKNOWN" in msg
-    assert "전술 강도: slots=N/A, weight=N/A" in msg
-    assert "10D 전환위험: N/A" in msg
+    assert "Bias UNKNOWN | source=UNKNOWN" in msg
+    assert "run_universe=UNKNOWN | risk_gate=UNKNOWN" in msg
     assert "실행 식별: mode=UNKNOWN, capital=UNKNOWN, broker=UNKNOWN, account=UNKNOWN, nav=UNKNOWN" in msg
     assert "적용 그룹: N/A" in msg
     assert "축소 그룹: 없음" in msg
