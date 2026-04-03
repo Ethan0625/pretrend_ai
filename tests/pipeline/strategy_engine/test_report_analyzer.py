@@ -4,6 +4,10 @@ import json
 from pathlib import Path
 import sys
 
+import pytest
+
+pytest.importorskip("bot.task_store", reason="bot module not available in this environment")
+
 try:
     from bot.task_store import (
         CheckpointSummaryRecord,

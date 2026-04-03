@@ -11,6 +11,7 @@ from pathlib import Path
 import sys
 from typing import Optional
 
+_BOT_AVAILABLE = False
 try:
     from bot.task_store import (
         CheckpointSummaryRepo,
@@ -26,24 +27,29 @@ try:
         WorkingStateRepo,
         init_db,
     )
+    _BOT_AVAILABLE = True
 except ModuleNotFoundError:
     _SRC_ROOT = Path(__file__).resolve().parents[4]
     if str(_SRC_ROOT) not in sys.path:
         sys.path.insert(0, str(_SRC_ROOT))
-    from bot.task_store import (
-        CheckpointSummaryRepo,
-        ConversationRepo,
-        ConversationSummaryRecord,
-        DecisionLedgerRepo,
-        DecisionRecord,
-        IssueLedgerRepo,
-        IssueRecord,
-        SessionRecord,
-        SessionRepo,
-        WorkingStateRecord,
-        WorkingStateRepo,
-        init_db,
-    )
+    try:
+        from bot.task_store import (
+            CheckpointSummaryRepo,
+            ConversationRepo,
+            ConversationSummaryRecord,
+            DecisionLedgerRepo,
+            DecisionRecord,
+            IssueLedgerRepo,
+            IssueRecord,
+            SessionRecord,
+            SessionRepo,
+            WorkingStateRecord,
+            WorkingStateRepo,
+            init_db,
+        )
+        _BOT_AVAILABLE = True
+    except ModuleNotFoundError:
+        pass
 
 _ANALYZER_ROLE = "analyzer"
 _ANALYZER_PROVIDER = "openai_codex"
@@ -351,7 +357,10 @@ def generate_report_via_analyzer(
     Transitional design:
     - Reuse existing sessions/conversation_summary schema without migration.
     - `role='analyzer'` is interpreted as report-only session in P11.
+    - Returns None if bot.task_store is not available (e.g. CI without src/bot/).
     """
+    if not _BOT_AVAILABLE:
+        return None
     db_path = Path(os.getenv("PRETREND_STATE_DB", str(_default_state_db_path())))
     init_db(db_path)
 
