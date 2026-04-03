@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "pretrend-ai"
 version = "0.1.0"
-description = "Pre-Trend Value based stock trading AI system"
+description = "Contract-first, reproducible time-series data pipeline for AI-ready and strategy-ready snapshots"
 readme = "README.md"
 requires-python = ">=3.10"
 
