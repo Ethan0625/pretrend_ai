@@ -683,6 +683,42 @@ def test_generate_llm_analysis_analyzer_falls_back_to_provider(monkeypatch) -> N
     assert result == "provider fallback 해석문"
 
 
+def test_generate_llm_analysis_logs_analyzer_failure_before_fallback(monkeypatch, caplog) -> None:
+    class _MockClient:
+        def __init__(self, host=None):
+            pass
+
+        def chat(self, **kwargs):
+            return {"message": {"content": "provider fallback 해석문"}}
+
+    monkeypatch.setenv("REPORT_LLM_ENABLED", "1")
+    monkeypatch.setenv("REPORT_ANALYZER_ENABLED", "1")
+    monkeypatch.setenv("REPORT_LLM_PROVIDER", "ollama")
+
+    def _boom(**kwargs):
+        raise RuntimeError("analyzer timeout")
+
+    monkeypatch.setattr(
+        "pretrend.pipeline.strategy_engine.report_context.generate_report_via_analyzer",
+        _boom,
+    )
+    monkeypatch.setattr(
+        "pretrend.pipeline.strategy_engine.report_context._get_report_ollama_client",
+        lambda base_url: _MockClient(host=base_url),
+    )
+
+    with caplog.at_level("WARNING"):
+        result = _generate_llm_analysis(
+            _build_llm_analysis_payload(**_make_payload_kwargs()),
+            model="test-model",
+            base_url="http://localhost:11434",
+            timeout=5,
+        )
+
+    assert result == "provider fallback 해석문"
+    assert "report analyzer failed; falling back to provider path" in caplog.text
+
+
 # ── 신규: compact LLM input builder ──
 
 

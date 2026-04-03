@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import time
 from typing import Any, Dict, List, Optional
@@ -86,6 +87,8 @@ from pretrend.pipeline.strategy_engine.report_context_formatter import (  # noqa
 
 # ── LLM I/O ──────────────────────────────────────────────────────────────────
 
+logger = logging.getLogger(__name__)
+
 def _get_report_ollama_client(base_url: str):
     import ollama  # type: ignore
 
@@ -154,8 +157,8 @@ def generate_llm_analysis(
             )
             if analyzed:
                 return analyzed
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("report analyzer failed; falling back to provider path: %s", exc, exc_info=True)
 
     provider = os.getenv("REPORT_LLM_PROVIDER", "gemini").strip().lower()
     temperature = float(os.getenv("REPORT_LLM_TEMPERATURE", "0.4"))

@@ -9,6 +9,8 @@
 
 ## v2026.03.25d — P11 완료: Telegram 리포트 구조 개편
 
+> 해석 앵커(2026-03-30): 이 섹션의 `report`, `AI 해석`, `report analyzer`는 현재 기준으로 Telegram `analyzer_report` 축을 뜻한다. `review_packet -> audit_queue -> auditor` 감리 결과는 별도 `audit_report`, `_do_review_and_report()` 계열 완료 보고는 `task_review_report`로 분리해 읽는다.
+
 ### feat(report): Signal / AI / Result 보고 흐름 재정의
 - `dags/strategy_engine_dag.py`
   - Signal report와 AI 해석을 분리 2메시지로 고정 발송하지 않고, `main + support` 구조의 1~2 메시지 흐름으로 통합
@@ -2728,6 +2730,9 @@ print_phase_distribution(policy_df, group_by="year")
 - `report_context.generate_llm_analysis()`가 direct Gemini/Ollama owner 구조에서 `Codex report analyzer session` 우선 구조로 전환됐다.
 - transitional 단계에서는 별도 DB를 만들지 않고, 기존 control-plane DB의 `sessions(role='analyzer')`와 `conversation_summary(role='analyzer')`를 report workspace memory로 재사용한다.
 - analyzer 경로 실패 시 기존 direct provider(Gemini/Ollama) 경로로 fallback해 초기 전환 안정성을 유지한다.
+- 해석 앵커(2026-03-30):
+  - 여기서의 `Telegram Report`, `Report Analyzer`, `report workspace memory`는 현재 용어의 `analyzer_report` 축이다.
+  - 이 항목은 `audit_report`나 `task_review_report` 체계를 설명하지 않는다.
 
 ### Paper / Mock Compact
 - `PAPER_RESULT` Telegram 포맷터가 긴 운영/실행 로그 나열 중심에서 `본문 우선 + compact 실행 블록` 구조로 재배치됐다.
