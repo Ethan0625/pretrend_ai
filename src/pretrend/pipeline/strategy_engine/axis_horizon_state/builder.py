@@ -10,6 +10,8 @@ Storage: data/strategy/axis_horizon_state/decision_date=YYYY-MM-DD/axis_horizon_
 from __future__ import annotations
 
 import logging
+from pathlib import Path
+from typing import Optional
 
 import pandas as pd
 
@@ -26,6 +28,7 @@ def build_axis_horizon_state(
     bundle: AxisFeatureBundle,
     run_id: str = "",
     long_z_threshold: float = 0.0,
+    skew_gold_root: Optional[Path] = None,
 ) -> pd.DataFrame:
     """Axis×Horizon State(3-state + detail)를 구축한다.
 
@@ -38,6 +41,8 @@ def build_axis_horizon_state(
     long_z_threshold : float
         Long Engine v1 z-score 임계값 (default=0.0).
         |delta_6m_z| < threshold 이면 SLOWDOWN/RECESSION 대신 LATE_CYCLE/RECOVERY로 분류.
+    skew_gold_root : Path, optional
+        SKEW Gold 데이터 루트 경로. None이면 환경변수 기반 기본값 사용.
 
     Returns
     -------
@@ -66,6 +71,7 @@ def build_axis_horizon_state(
         flow=bundle.flow_structure,
         sentiment=bundle.sentiment,
         run_id=run_id,
+        skew_gold_root=skew_gold_root,
     )
 
     # 2) trade_date 기준 merge

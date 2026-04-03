@@ -9,6 +9,16 @@ from typing import Dict, List, Optional, Tuple
 import pandas as pd
 
 
+def _month_end_nav(nav: pd.Series) -> pd.Series:
+    """pandas 버전별 월말 리샘플 alias 차이를 흡수한다 (ME → M fallback)."""
+    for freq in ("ME", "M"):
+        try:
+            return nav.resample(freq).last()
+        except ValueError:
+            continue
+    raise ValueError("No supported month-end resample frequency found")
+
+
 def compute_xirr(cash_flows: List[Tuple]) -> float:
     """XIRR 계산 — 이분법(bisection) 기반 내부수익률.
 
@@ -138,7 +148,7 @@ def compute_metrics(
     calmar = cagr / abs(max_drawdown) if max_drawdown != 0 else 0.0
 
     # Win rate (monthly)
-    monthly_ret = daily_nav.resample("ME").last().pct_change().dropna()
+    monthly_ret = _month_end_nav(daily_nav).pct_change().dropna()
     win_rate = (monthly_ret > 0).mean() if len(monthly_ret) > 0 else 0.0
 
     # Benchmark metrics

@@ -72,6 +72,10 @@ class StrategyEngineConfig:
         return self.data_root / "gold" / "eod" / "eod_features"
 
     @property
+    def skew_gold_root(self) -> Path:
+        return self.data_root / "gold" / "macro" / "skew" / "put_call"
+
+    @property
     def gold_text_rule_root(self) -> Path:
         return self.data_root / "gold" / "text" / "text_daily_features"
 

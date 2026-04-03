@@ -242,7 +242,7 @@ class EodNormalizer(BaseNormalizer):
         df = raw_df.copy()
 
         # 타입 정리
-        df["trade_date"] = pd.to_datetime(df["trade_date"]).dt.date
+        df["trade_date"] = pd.to_datetime(df["trade_date"], utc=True).dt.date
 
         float_cols = ["open", "high", "low", "close", "adj_close"]
         int_cols = ["volume"]

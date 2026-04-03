@@ -1,45 +1,61 @@
-# Pretrend Data Pipeline
+# Pretrend AI
 
-### Market & Macro Data Feature Platform (AI-ready)
+### Reproducible Time-Series Data Pipeline for Strategy-Ready Inputs
 
-v.26.02.21
+v.26.04.03
 
-본 프로젝트는 모델 성능 향상이 아닌, **AI/ML 판단 이전 단계에서 데이터 정합성과 재현성을 확보하는 것**을 최우선 목표로 설계된 **개인 연구 프로젝트**이다.
+Pretrend AI는 **시계열 데이터를 재처리 가능하고 설명 가능한 구조로 고정한 뒤, 전략 엔진이 안정적으로 읽을 수 있는 입력을 만드는 계약 기반 데이터 파이프라인 프로젝트**다. 초점은 "AI가 무엇을 매수하느냐"가 아니라, **AI/ML·전략 판단 이전 단계에서 데이터 정합성, point-in-time 안전성, snapshot 재현성을 확보하는 것**에 있다.
 
-> ⚠️ 본 Repository는 **모델 학습·추론·자동매매를 직접 구현하지 않는다.**
-> 본 프로젝트의 목적은 **AI/ML·LLM 모델이 적용되기 전 단계에서
-> 데이터 정합성·재현성·확장성을 검증하는 것**이다.
+> 이 저장소의 본체는 자동매매 시스템이 아니라, **Bronze → Silver → Gold 레이어 기반의 AI-ready feature/data platform**이다.
+> Strategy Engine은 Gold snapshot을 읽는 downstream consumer이며, 데이터 생성 계층과 전략 판단 계층은 의도적으로 분리되어 있다.
 
 ---
 
-## 프로젝트 핵심 개념
+## What This Project Is
 
-### Layer vs Strategy Engine
+- **재현 가능한 시계열 데이터 파이프라인**: Macro, EOD, Calendar 데이터를 계약 기반으로 정규화하고 snapshot 단위로 저장한다.
+- **AI-ready feature platform**: 모델이나 전략이 직접 원천 데이터를 읽지 않고, Gold layer의 구조화된 입력을 읽도록 설계한다.
+- **Layered data architecture**: Bronze / Silver / Gold 레이어를 분리해 원본 보존, 정합성 보정, 전략 입력 준비를 책임별로 나눈다.
+- **Strategy-ready data foundation**: Strategy Engine은 데이터 생성 로직을 소유하지 않고, 검증된 snapshot을 읽어 WHAT/EXPOSURE/SELL 경계만 산출한다.
 
-본 프로젝트는 **Layer**와 **Strategy Engine**을 명확히 분리하여 설계되었다.
+## Why This Exists
 
-* **Layer (Bronze → Silver → Gold)**
-  → *데이터의 정제·가공 단계*
-* **Strategy Engine**
-  → *정제된 Gold snapshot을 입력으로 받아 WHAT/EXPOSURE/SELL 경계를 생성하는 계산 과정*
+- 시계열 데이터를 바로 모델이나 전략으로 연결하면 `release_date`, `trade_date`, snapshot 기준이 섞이면서 재현성과 설명 가능성이 무너진다.
+- 거시/가격 데이터는 같은 "날짜"를 갖고 있어도 실제로는 가용 시점이 다르므로, 판단 이전에 point-in-time 기준을 먼저 고정해야 한다.
+- 배치 재실행이나 백필이 자주 일어나는 데이터 파이프라인에서는 overwrite, atomic write, lineage가 없으면 partial state와 schema drift가 누적된다.
+- 전략 성능 실험보다 먼저, **동일 입력이면 동일 결과가 나오는 데이터 기반**을 만드는 것이 운영적으로 더 중요하다고 보고 설계했다.
+
+## Architecture At A Glance
 
 ```text
-Layer          : 데이터를 어떻게 만들 것인가 (HOW)
-StrategyEngine : 입력 snapshot으로 무엇을/얼마나/어떻게 실행할 것인가 (WHAT/EXPOSURE/SELL)
+Bronze -> Silver -> Gold -> Strategy Engine
+
+Bronze          : raw ingest and source preservation
+Silver          : normalization, dedup, contract-aligned features
+Gold            : PIT-safe, strategy-ready snapshots
+Strategy Engine : Gold read-only consumer for WHAT / EXPOSURE / SELL
 ```
 
-Layer는 **안정적이고 재현 가능해야 하며**,
-Strategy Engine은 **정책·전략 상태에 따라 변경 가능한 계산 결과**로 취급된다.
+- **Layer**는 데이터를 어떻게 만들고 저장하는가에 대한 책임을 가진다.
+- **Strategy Engine**은 정제된 Gold snapshot을 읽어 실행 경계를 계산하는 별도 계층이다.
+- 이 분리는 데이터 재현성과 전략 실험의 변경 주기를 분리하기 위한 설계다.
 
----
+## Operating Principles
 
-## 프로젝트 목표
+- **Contract-first**: 구현보다 `docs/architecture/*_contract.md`의 grain, key, invariant를 우선한다.
+- **Point-in-time safety**: Gold는 `selected_release_date < trade_date` 규칙을 지켜 미래 정보 누출을 막는다.
+- **Snapshot reproducibility**: 결과는 `decision_date` 및 파티션 기준으로 저장하고, 동일 입력 재실행 시 overwrite로 동일 산출물을 남긴다.
+- **Atomic and idempotent writes**: `_tmp_run` 경유 후 atomic rename, 동일 파티션 overwrite를 기본 원칙으로 둔다.
+- **Fail-open with explicit UNKNOWN**: 결측이 있어도 schema는 유지하고 downstream에는 `UNKNOWN`을 전달한다.
+- **Observability and validation**: lineage, evidence columns, contract tests로 "왜 이 값이 나왔는지"를 추적 가능하게 유지한다.
+- **Layer / strategy separation**: 전략 로직은 Gold를 read-only로 소비하며 상위 데이터 레이어를 다시 쓰지 않는다.
 
-* 이질적인 시계열 데이터(EOD·Macro)를 **point-in-time 안전하게 정렬**
-* Bronze → Silver 레이어 기반 **재현 가능한 Feature 생성**
-* Airflow 기반 **운영 환경에 가까운 배치 파이프라인 구성**
-* Universe-ETF 계산 로직을 분리하여 **전략 실험 가능성 확보**
-* 향후 ML/LLM 적용을 전제로 한 **AI-ready 데이터 구조 설계**
+## Explicit Non-Goals
+
+- 자동매매 시스템 자체를 구현하거나 실서비스 운용 성과를 주장하는 것
+- LLM을 핵심 매매 판단 로직에 직접 넣는 것
+- 모델 예측 성능이나 수익률 경쟁을 프로젝트의 핵심 가치로 내세우는 것
+- 원천 데이터 정합성보다 전략 튜닝을 우선하는 것
 
 ---
 
@@ -129,6 +145,7 @@ Strategy Engine은 **정책·전략 상태에 따라 변경 가능한 계산 결
 
 > ❌ 자동매매, 모델 학습, 실시간 추론은 **현재 범위에 포함되지 않는다.**
 > ❌ Text LLM feature는 현재 **Strategy/Paper/Backtest 실행 입력에 직접 연결되지 않는다**. 이 경계는 영구 observer-only 원칙으로 유지한다.
+> ❌ 이 저장소는 "AI 투자 에이전트"를 전면에 내세우는 프로젝트가 아니라, 그 이전 단계의 데이터 기반과 운영 계약을 다루는 프로젝트다.
 
 ---
 
@@ -270,6 +287,17 @@ pytest -q tests/pipeline/text/
 pytest -q tests/pipeline/test_macro_silver_writer.py
 ```
 
+## 테스트와 CI가 보호하는 약속
+
+이 저장소의 테스트와 CI는 "pytest가 돌아간다"는 사실보다, **데이터 파이프라인의 운영 약속이 깨지지 않았는지**를 확인하는 장치에 가깝다.
+
+- 재실행 시 동일 파티션에 중복 append가 남지 않도록 **idempotent overwrite**를 보호한다.
+- Calendar/Gold 계층에서 `selected_release_date < trade_date`가 무너지지 않도록 **point-in-time 규칙**을 보호한다.
+- contract test로 레이어별 grain, key, required columns가 흔들리지 않도록 **schema / contract drift**를 막는다.
+- `_tmp_run` 이후 atomic rename 패턴이 깨져 partial snapshot이 남지 않도록 **snapshot write safety**를 점검한다.
+- Strategy/Paper/Backtest 입력이 Gold snapshot 계약을 벗어나지 않도록 **downstream input boundary**를 보호한다.
+- `.github/workflows/ci.yaml`은 `main`, `dev`에 대한 push / pull request 시 `pytest -q`를 실행해 위 회귀를 기본선에서 감시한다.
+
 ### 4.2 환경 준비
 
 ```bash
@@ -289,10 +317,6 @@ PYTHONPATH=src python -m pretrend.pipeline.strategy_engine.strategy_job --date 2
 # 전체 테스트
 conda run -n pytest-pretrend pytest tests/ -v
 ```
-
-검증 기준(2026-02-22 세션):
-- 테스트: `389 passed, 1 skipped`
-- Strategy snapshots: `2009-03-09`, `2024-06-03` 기준 스모크 검증 완료
 
 ### 4.4 Backtest / Walk-Forward 실행
 
@@ -429,6 +453,8 @@ PYTHONPATH=src python -m pretrend.pipeline.eod_job \
 
 ## 5. 문서
 
+* 프로젝트 요약: `/docs/project_summary.md`
+* 시스템 요약(legacy, 운영 중심): `/docs/system_overview.md`
 * 환경 구성: `/docs/environment.md`
 * 데이터 설계:
   * `/docs/data_requirements.md`
@@ -472,8 +498,8 @@ Layer 구조 검증 이후 단계에서 확장 예정이다.
 
 ---
 
-> 📌 본 프로젝트는 **개인 연구 및 포트폴리오 용도**로, 
-> **금융 데이터 파이프라인과 AI 시스템 구조를 설계·검증하기 위한 Pre-production 단계의 프로젝트**입니다.
+> 📌 본 프로젝트는 **개인 연구 및 포트폴리오 용도**로,
+> **전략 판단 이전 단계의 데이터 정합성·재현성·레이어 분리를 설계하고 검증하기 위한 프로젝트**입니다.
 >
 > 향후 개인 학습 목적의 확장은 가능하나, 현재는 **실거래, 실자금 운용, 외부 서비스 제공을 전혀 수행하지 않습니다.**
 
@@ -481,6 +507,6 @@ Layer 구조 검증 이후 단계에서 확장 예정이다.
 
 ## Interview Summary (1-minute)
 
-- 본 프로젝트는 자동매매나 모델 성능을 다루지 않는다.
-- AI 적용 이전 단계에서 데이터 파이프라인과 판단 구조를 검증하는 것이 목적이다.
-- Layer와 Universe-ETF를 분리하여 재현성과 전략 실험 가능성을 동시에 확보했다.
+- 본 프로젝트는 자동매매나 모델 성능을 전면에 두지 않는다.
+- 핵심은 AI/전략 판단 이전 단계에서 시계열 데이터를 재현 가능한 snapshot 구조로 만드는 것이다.
+- Bronze / Silver / Gold와 Strategy Engine을 분리해 데이터 계층과 판단 계층의 경계를 명확히 했다.

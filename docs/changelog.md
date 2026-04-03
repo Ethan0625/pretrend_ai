@@ -7,6 +7,50 @@
 
 > 참고: changelog 과거 섹션은 작성 시점 원문을 보존한다.
 
+## v2026.03.25d — P11 완료: Telegram 리포트 구조 개편
+
+> 해석 앵커(2026-03-30): 이 섹션의 `report`, `AI 해석`, `report analyzer`는 현재 기준으로 Telegram `analyzer_report` 축을 뜻한다. `review_packet -> audit_queue -> auditor` 감리 결과는 별도 `audit_report`, `_do_review_and_report()` 계열 완료 보고는 `task_review_report`로 분리해 읽는다.
+
+### feat(report): Signal / AI / Result 보고 흐름 재정의
+- `dags/strategy_engine_dag.py`
+  - Signal report와 AI 해석을 분리 2메시지로 고정 발송하지 않고, `main + support` 구조의 1~2 메시지 흐름으로 통합
+  - AI 해석은 본문 내 `핵심 판단 해석` 섹션으로 편입
+- `src/pretrend/pipeline/strategy_engine/report_delivery.py`
+  - Telegram 보고 구조 분리용 순수 helper 추가
+
+### feat(strategy): report analyzer session 우선 경로 전환
+- `src/pretrend/pipeline/strategy_engine/report_analyzer.py`
+  - transitional `analyzer` 세션 경로 추가
+- `src/pretrend/pipeline/strategy_engine/report_context.py`
+  - `generate_llm_analysis()`를 analyzer-first, direct provider fallback 구조로 전환
+- note:
+  - `role + workspace` 물리 정규화는 아직 하지 않음
+  - `analyzer`는 현재 phase에서 report 전용 세션 역할로만 해석
+
+### feat(report): PAPER_RESULT compact 정책 적용
+- `src/pretrend/pipeline/paper/report.py`
+  - `PAPER_RESULT`를 본문 우선 + compact 실행 블록 구조로 재배치
+  - `PnL / NAV / 포지션 변화 / 핵심 리스크`는 본문 유지
+  - 브로커 인증/체결/실행 식별/그룹 게이트/체결 세부는 하단 compact block으로 이동
+
+### feat(bot): team lead bot append-only streaming 정리
+- `scripts/telegram_claude_bot.py`
+  - placeholder send + `editMessageText`/delete 기반 응답 경로 제거
+  - `stream-json` 기반으로 중간 문장과 최종 문장을 `sendMessage`로 누적 발송하도록 정리
+- `src/pretrend/pipeline/notify/telegram_sender.py`
+  - 기존 완성본 1회 발송 경로 유지
+
+### test
+- `tests/dags/test_strategy_engine_dag_report.py`
+- `tests/pipeline/strategy_engine/test_report_analyzer.py`
+- `tests/pipeline/strategy_engine/test_strategy_engine_dag_report.py`
+- `tests/pipeline/backtest/test_paper_trading_report.py`
+- `tests/test_bot/test_telegram_claude_bot.py`
+- 검증 결과:
+  - `conda run -n pytest-pretrend pytest tests/test_bot/test_telegram_claude_bot.py -q` → `13 passed`
+  - `conda run -n pytest-pretrend pytest tests/test_bot/ -q --tb=short` → `81 passed`
+  - `conda run -n pytest-pretrend pytest --tb=no -q` → `783 passed, 6 skipped, 11 warnings`
+
 ## v2026.03.12d — Report LLM: Ollama → Gemini 2.5 Flash 전환
 
 ### feat(strategy): Report LLM provider Gemini 전환
@@ -2674,3 +2718,23 @@ print_phase_distribution(policy_df, group_by="year")
   - `v1.3`는 PANIC 횟수를 줄였지만(`-20`), `GFC`와 `2022` 첫 PANIC은 늦어졌다.
   - 장기 `v2` 기준으로는 `false positive` 억제 효과만 확인됐고, 성과 개선 근거는 아직 부족하다.
   - 비교 산출물: `result/backtest_compare/skew_engine_v12_vs_v13_20260312.md`
+
+## 2026-03-25
+
+### Telegram Report
+- `strategy_engine_dag`의 Telegram 출력이 Signal 본문과 AI 해석을 별도 2메시지로 고정 발송하던 구조에서, `main + support` 기반 1~2 메시지 조합 구조로 바뀌었다.
+- AI 해석은 별도 `🤖 Pretrend AI 해석` 메시지가 아니라 본문 안 `핵심 판단 해석` 섹션으로 통합된다.
+- 보조 운영 정보(`next step`, `시장 근거`, `진단 요약`, `전술 그룹`, `전술 ETF`)는 support block으로 분리되며, 전체 길이가 짧으면 본문과 함께 1개 메시지로 발송된다.
+
+### Report Analyzer Transition
+- `report_context.generate_llm_analysis()`가 direct Gemini/Ollama owner 구조에서 `Codex report analyzer session` 우선 구조로 전환됐다.
+- transitional 단계에서는 별도 DB를 만들지 않고, 기존 control-plane DB의 `sessions(role='analyzer')`와 `conversation_summary(role='analyzer')`를 report workspace memory로 재사용한다.
+- analyzer 경로 실패 시 기존 direct provider(Gemini/Ollama) 경로로 fallback해 초기 전환 안정성을 유지한다.
+- 해석 앵커(2026-03-30):
+  - 여기서의 `Telegram Report`, `Report Analyzer`, `report workspace memory`는 현재 용어의 `analyzer_report` 축이다.
+  - 이 항목은 `audit_report`나 `task_review_report` 체계를 설명하지 않는다.
+
+### Paper / Mock Compact
+- `PAPER_RESULT` Telegram 포맷터가 긴 운영/실행 로그 나열 중심에서 `본문 우선 + compact 실행 블록` 구조로 재배치됐다.
+- `PnL / NAV / 포지션 변화 / 상위 보유 / 핵심 리스크`는 본문에 남기고, 브로커 인증/체결/실행 식별/그룹 게이트/체결 세부는 하단 compact block으로 이동했다.
+- payload schema는 유지하고 표시 우선순위만 바꿨다.

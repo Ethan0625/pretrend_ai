@@ -26,6 +26,9 @@ import pendulum
 from airflow.decorators import dag, task
 from pretrend.pipeline.notify.telegram_sender import send_telegram_fail_open
 from pretrend.pipeline.strategy_engine.io import load_gold_text
+from pretrend.pipeline.strategy_engine.report_delivery import (
+    compose_strategy_report_messages as _compose_strategy_report_messages,
+)
 from pretrend.pipeline.strategy_engine.report_context import (
     build_llm_analysis_payload as _build_llm_analysis_payload,
     build_risk_summary_struct as _build_risk_summary_struct,
@@ -316,9 +319,10 @@ def strategy_engine_pipeline():
         # {asset_group: [(한국어이름, symbol, RS), ...]} — RS 내림차순
         tactical_by_group: Dict[str, List[tuple]] = {}
         if not df_univ.empty:
-            if "rebalance_date" in df_univ.columns:
-                latest = df_univ["rebalance_date"].max()
-                df_univ = df_univ[df_univ["rebalance_date"] == latest]
+            _dc = "decision_date" if "decision_date" in df_univ.columns else "rebalance_date"
+            if _dc in df_univ.columns:
+                latest = df_univ[_dc].max()
+                df_univ = df_univ[df_univ[_dc] == latest]
             if "is_candidate" in df_univ.columns:
                 df_univ = df_univ[df_univ["is_candidate"] == True]
             if "symbol" in df_univ.columns:
@@ -358,8 +362,8 @@ def strategy_engine_pipeline():
         is_panic = (short_signal == "PANIC")
         cur_pct = strategy_summary["current_invested_ratio"]
 
-        # ── 메시지 조립 ───────────────────────────────────────
-        lines = [
+        # ── 본문 메시지 조립 ───────────────────────────────────
+        main_lines = [
             f"📊 <b>Pretrend</b> · {decision_date.isoformat()} ({weekday})",
             "<code>message_type=SIGNAL | source_job=strategy_engine_dag</code>",
             f"<code>decision_date={decision_date.isoformat()} | simulation_date={simulation_date}</code>",
@@ -371,13 +375,13 @@ def strategy_engine_pipeline():
         ]
 
         if is_panic:
-            lines += ["", "⚠️ 단기 공황 — 매도 동결"]
+            main_lines += ["", "⚠️ 단기 공황 — 매도 동결"]
 
         # ── 시장 컨텍스트 (3줄 + 설명) ──
         # Telegram report는 저장된 signal snapshot과 text snapshot을 함께 읽어
         # 상위 해석문(interpretation_summary)을 표시할 수 있다.
         # 이는 text-only `llm_summary` 필드와 다른 레이어다.
-        lines += [
+        main_lines += [
             "",
             "── 시장 컨텍스트 ──",
         ]
@@ -457,91 +461,12 @@ def strategy_engine_pipeline():
         risk_lines = _format_risk_summary_lines(risk_struct)
         confidence_lines = _format_signal_confidence_lines(confidence_struct)
 
-        lines += context_lines
-        lines += _build_switch_lines(risk_gate=risk_gate, run_universe=run_universe)
-        lines += [""] + guidance_lines
-        lines += [""] + risk_lines
-        lines += [""] + confidence_lines
+        main_lines += context_lines
+        main_lines += _build_switch_lines(risk_gate=risk_gate, run_universe=run_universe)
+        main_lines += [""] + guidance_lines
+        main_lines += [""] + risk_lines
+        main_lines += [""] + confidence_lines
 
-        # ── 다음 스텝 가설 (5/10/20/60/120D bias+hazard+expected) ──
-        lines += [
-            "",
-            "── 다음 스텝 가설 ──",
-        ]
-        lines += next_step_lines
-
-        # ── 시장 근거 (4축) ──
-        lines += [
-            "",
-            "── 시장 근거 ──",
-        ]
-        lines += evidence_lines
-        if text_section_lines:
-            lines += text_section_lines
-
-        # ── 진단 요약 (12셀 품질) ──
-        lines += [
-            "",
-            "── 진단 요약 ──",
-        ]
-        if not df_next.empty:
-            nrow = df_next.iloc[-1]
-            lines += [
-                f"🧪 12셀 품질: {str(nrow.get('diag_12slot_quality', '경고'))}",
-                (
-                    "→ coverage="
-                    f"{float(nrow.get('diag_12slot_coverage', 0.0)):.1%}, "
-                    f"unknown={float(nrow.get('evidence_unknown_ratio', 1.0)):.1%}"
-                ),
-            ]
-        else:
-            lines += _build_diagnostic_lines(long_detail, mid_detail, short_detail)
-
-        # ── 전술 그룹 다음 스텝 ──
-        lines += [
-            "",
-            "── 전술 그룹 다음 스텝 ──",
-        ]
-        lines += group_lines
-
-        # ── 전술 ETF (asset_group별 그룹핑) ──
-        if tactical_by_group:
-            lines += ["", "── 전술 ETF (SPY 대비 20일 상대강도) ──"]
-            # 표시 순서: COUNTRY → COMMODITY → BOND → SECTOR
-            first_group = True
-            for group in ["COUNTRY", "COMMODITY", "BOND", "SECTOR"]:
-                entries = tactical_by_group.get(group)
-                if not entries:
-                    continue
-                group_label = _GROUP_LABEL.get(group, group)
-                items = []
-                for name_ko, sym, rs in entries:
-                    if rs is not None:
-                        items.append(f"{name_ko} {sym} {float(rs):+.1%}")
-                    else:
-                        items.append(f"{name_ko} {sym}")
-                if not first_group:
-                    lines.append("")
-                lines.append(f"{group_label}")
-                lines.append(f"→ {' · '.join(items)}")
-                first_group = False
-
-        if sell_budget > 0:
-            sell_order = " → ".join(sell_list) if sell_list else "—"
-            lines += ["", f"🚨 <b>매도 예산</b> {sell_budget:.0%}  순서: {sell_order}"]
-
-        lines += ["", f"<code>─ {strategy_summary['run_id']}</code>"]
-
-        # ── Message 1: Signal Report (결정론) ──
-        send_telegram_fail_open(
-            token=token,
-            chat_id=chat_id,
-            text="\n".join(lines),
-            source_job="strategy_engine_dag",
-            logger=logger,
-        )
-
-        # ── Message 2: AI Interpretation (통합 해석) ──
         report_cfg = TextPipelineConfig.default()
         analysis_payload = _build_llm_analysis_payload(
             decision_date=decision_date.isoformat(),
@@ -574,20 +499,92 @@ def strategy_engine_pipeline():
             timeout=int(os.getenv("REPORT_LLM_TIMEOUT", str(report_cfg.ollama_timeout))),
         )
         if analysis_text:
-            msg2_lines = [
-                f"🤖 <b>Pretrend AI 해석</b> · {decision_date.isoformat()} ({weekday})",
+            main_lines += [
                 "",
+                "── 핵심 판단 해석 ──",
                 analysis_text,
             ]
+        else:
+            logger.info("[SIGNAL] LLM analysis skipped (disabled or failed)")
+
+        # ── 보조 운영 정보 ───────────────────────────────────
+        support_lines = [
+            "",
+            "── 보조 운영 정보 ──",
+        ]
+        support_lines += ["", "── 다음 스텝 가설 ──"]
+        support_lines += next_step_lines
+
+        # ── 시장 근거 (4축) ──
+        support_lines += [
+            "",
+            "── 시장 근거 ──",
+        ]
+        support_lines += evidence_lines
+        if text_section_lines:
+            support_lines += text_section_lines
+
+        # ── 진단 요약 (12셀 품질) ──
+        support_lines += [
+            "",
+            "── 진단 요약 ──",
+        ]
+        if not df_next.empty:
+            nrow = df_next.iloc[-1]
+            support_lines += [
+                f"🧪 12셀 품질: {str(nrow.get('diag_12slot_quality', '경고'))}",
+                (
+                    "→ coverage="
+                    f"{float(nrow.get('diag_12slot_coverage', 0.0)):.1%}, "
+                    f"unknown={float(nrow.get('evidence_unknown_ratio', 1.0)):.1%}"
+                ),
+            ]
+        else:
+            support_lines += _build_diagnostic_lines(long_detail, mid_detail, short_detail)
+
+        # ── 전술 그룹 다음 스텝 ──
+        support_lines += [
+            "",
+            "── 전술 그룹 다음 스텝 ──",
+        ]
+        support_lines += group_lines
+
+        # ── 전술 ETF (asset_group별 그룹핑) ──
+        if tactical_by_group:
+            support_lines += ["", "── 전술 ETF (SPY 대비 20일 상대강도) ──"]
+            # 표시 순서: COUNTRY → COMMODITY → BOND → SECTOR
+            first_group = True
+            for group in ["COUNTRY", "COMMODITY", "BOND", "SECTOR"]:
+                entries = tactical_by_group.get(group)
+                if not entries:
+                    continue
+                group_label = _GROUP_LABEL.get(group, group)
+                items = []
+                for name_ko, sym, rs in entries:
+                    if rs is not None:
+                        items.append(f"{name_ko} {sym} {float(rs):+.1%}")
+                    else:
+                        items.append(f"{name_ko} {sym}")
+                if not first_group:
+                    support_lines.append("")
+                support_lines.append(f"{group_label}")
+                support_lines.append(f"→ {' · '.join(items)}")
+                first_group = False
+
+        if sell_budget > 0:
+            sell_order = " → ".join(sell_list) if sell_list else "—"
+            support_lines += ["", f"🚨 <b>매도 예산</b> {sell_budget:.0%}  순서: {sell_order}"]
+
+        support_lines += ["", f"<code>─ {strategy_summary['run_id']}</code>"]
+
+        for message in _compose_strategy_report_messages(main_lines, support_lines):
             send_telegram_fail_open(
                 token=token,
                 chat_id=chat_id,
-                text="\n".join(msg2_lines),
+                text=message,
                 source_job="strategy_engine_dag",
                 logger=logger,
             )
-        else:
-            logger.info("[SIGNAL] LLM analysis skipped (disabled or failed)")
 
     @task(task_id="build_next_step_history_incremental")
     def build_next_step_history_incremental_task(strategy_summary: Dict[str, Any]) -> Dict[str, Any]:

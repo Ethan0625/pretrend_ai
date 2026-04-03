@@ -10,10 +10,10 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
 
-from pretrend.pipeline.strategy_engine.report_context import (
+from pretrend.pipeline.strategy_engine.report_context_schema import safe_json_dict
+from pretrend.pipeline.strategy_engine.report_context_formatter import (
     build_diagnostic_lines,
     build_evidence_lines,
-    safe_json_dict,
 )
 
 from .schema import NEXT_STEP_SIGNAL_COLUMNS
