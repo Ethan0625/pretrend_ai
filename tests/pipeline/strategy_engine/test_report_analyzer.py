@@ -2,18 +2,35 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import sys
 
-from bot.task_store import (
-    CheckpointSummaryRecord,
-    CheckpointSummaryRepo,
-    ConversationRepo,
-    DecisionLedgerRepo,
-    IssueLedgerRepo,
-    SessionRepo,
-    WorkingStateRecord,
-    WorkingStateRepo,
-    init_db,
-)
+try:
+    from bot.task_store import (
+        CheckpointSummaryRecord,
+        CheckpointSummaryRepo,
+        ConversationRepo,
+        DecisionLedgerRepo,
+        IssueLedgerRepo,
+        SessionRepo,
+        WorkingStateRecord,
+        WorkingStateRepo,
+        init_db,
+    )
+except ModuleNotFoundError:
+    _SRC_ROOT = Path(__file__).resolve().parents[3] / "src"
+    if str(_SRC_ROOT) not in sys.path:
+        sys.path.insert(0, str(_SRC_ROOT))
+    from bot.task_store import (
+        CheckpointSummaryRecord,
+        CheckpointSummaryRepo,
+        ConversationRepo,
+        DecisionLedgerRepo,
+        IssueLedgerRepo,
+        SessionRepo,
+        WorkingStateRecord,
+        WorkingStateRepo,
+        init_db,
+    )
 from pretrend.pipeline.strategy_engine.report_analyzer import generate_report_via_analyzer
 
 
