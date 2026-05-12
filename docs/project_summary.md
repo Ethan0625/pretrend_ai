@@ -1,12 +1,28 @@
 # Project Summary
 
+> ⚠️ **2026Q2 방향 재정의 안내**
+>
+> 본 프로젝트는 **Market Structure Observability Runtime**으로 재정의되었다.
+> 본 문서는 데이터 파이프라인 측면의 설계 의도를 설명하며 여전히 유효하지만, **자동매매/Strategy Engine 중심 서술은 Personal Track(동결) 자산을 의미**한다.
+> 신규 작업 방향은 다음 문서를 우선 참조한다:
+> - [`docs/architecture/track_separation.md`](architecture/track_separation.md) — 트랙 분리 원칙
+> - [`.agent/REFACTOR_2026Q2.md`](../.agent/REFACTOR_2026Q2.md) — 리팩토링 계획 (Phase 0~3)
+
 ## Problem Definition
+
+투자 영역에서는 "거시경제 흐름이 중요하다"는 말을 자주 하지만, 실제로 거시 이벤트와 시장 구조 변화가 어떤 방식으로 연결되는지를 반복적으로 확인할 수 있는 개인용 도구는 많지 않다. 저는 투자 전망을 제시하기보다, 무료로 접근 가능한 거시·ETF 데이터를 기반으로 시장 상태를 구조화하고, 특정 시점의 시장 구조가 과거 어떤 구간과 유사하거나 다른지를 재현 가능한 방식으로 관측하는 시스템을 만들고자 했다.
+
+## Why This Transition
+
+초기 Pretrend는 로컬 기반 매매 실험 구조였으나, 프로젝트 목적을 예측에서 시장 구조 관측으로 전환하면서 공개 운영 가능한 데이터 시스템으로 재설계하고 있다.
+
+이에 따라 로컬 의존 배치 구조를 정리하고, 자동화된 스케줄러 기반 수집, Bronze/Silver/Gold 데이터 레이어, market state feature 생성, dashboard serving, freshness monitoring 구조로 전환하고 있다.
+
+## 데이터 기반 운영 원칙 (legacy 보조 설명)
 
 시계열 데이터 파이프라인에서 가장 먼저 깨지는 것은 모델 성능이 아니라 데이터 기준이다. 거시 지표와 시장 데이터는 관측 시점, 발표 시점, 소비 시점이 다르기 때문에, 이를 정리하지 않고 바로 전략이나 모델로 연결하면 point-in-time 위반, snapshot 비재현, partial overwrite 같은 운영 문제가 발생한다.
 
-## Why This Exists
-
-이 프로젝트는 자동매매 시스템을 만들기 위해 시작한 것이 아니라, **전략 판단 이전 단계의 데이터 기반을 재현 가능하게 고정하기 위해** 만들었다. 목표는 AI/ML이나 규칙 기반 전략이 원천 데이터를 직접 읽지 않고, Bronze / Silver / Gold 레이어를 거쳐 계약이 고정된 입력만 읽도록 만드는 것이다.
+이 프로젝트는 전략 판단 이전 단계의 데이터 기반을 재현 가능하게 고정하기 위해, AI/ML이나 규칙 기반 분석이 원천 데이터를 직접 읽지 않고 Bronze / Silver / Gold 레이어를 거쳐 계약이 고정된 입력만 읽도록 만든다.
 
 ## Architecture Overview
 

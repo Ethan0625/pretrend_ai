@@ -1,9 +1,16 @@
 # Walk-Forward Validation — Contract (SOT)
 
+> 🔄 **Observability Track 자료 — "구간별 관측 검증 도구" 컨텍스트로 재해석**
+>
+> 본 문서는 2026Q2 방향 재정의 후 Observability Track의 검증 자료로 재해석됩니다.
+> "백테스트 성과 검증"이 아닌 **"구간별(window+step) 관측 분포 / phase transition diagnostics 검증"** 컨텍스트로 활용됩니다.
+> Phase 2 similarity replay 설계 시 본 검증 패턴을 차용해 historical similarity 검증 도구로 발전시킬 계획입니다.
+> 참조: [`track_separation.md`](./track_separation.md), [`REFACTOR_2026Q2.md`](../../.agent/REFACTOR_2026Q2.md)
+
 ## Document Status
 | Item | Value |
 | --- | --- |
-| Status | Active |
+| Status | **Active (Observability 자료, 구간별 관측 검증 컨텍스트)** |
 | Structure Policy | 구조는 고정, 기능은 확장 |
 | Effective Date | 2026-02-24 |
 | Change Tracking | docs/changelog.md |

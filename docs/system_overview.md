@@ -1,15 +1,24 @@
-# Pretrend AI — System Overview
+# Pretrend AI — System Overview (Legacy / Personal Track 동결)
 
-**Version:** 2026.03.11
-**Project:** Pre-Trend Value 기반 자동매매 AI 시스템
+**Version:** 2026.03.11 (Personal Track 동결 시점)
+**Project:** Pre-Trend Value 기반 ETF 포트폴리오 시스템 — Personal Track (동결)
 **Author:** Ethan
+
+> ⚠️ **2026Q2 방향 재정의 — 본 문서는 Personal Track(동결) 자산을 설명합니다.**
+>
+> 본 프로젝트는 **Market Structure Observability Runtime**으로 재정의되었다.
+> 본 문서가 설명하는 Strategy Engine / Backtest / Paper / Broker 체계는 **Personal Track으로 분리되어 동결 상태**다 (운영만 유지, 신규 기능 추가 금지).
+>
+> Observability Track 신규 작업 방향은 다음 문서를 우선 참조한다:
+> - [`docs/architecture/track_separation.md`](architecture/track_separation.md) — 트랙 분리 원칙
+> - [`.agent/REFACTOR_2026Q2.md`](../.agent/REFACTOR_2026Q2.md) — 리팩토링 계획 (Phase 0~3)
 
 ---
 
-## 한 줄 요약
+## 한 줄 요약 (Legacy)
 
 > 거시 경제 Regime을 3-Layer 신호 엔진으로 해석하고, ETF 포트폴리오를 자동으로 조정하는
-> 계약 기반(contract-driven) AI 투자 시스템. Backtest → Paper → Mock 3단계 검증을 거쳐 운영 중.
+> 계약 기반(contract-driven) ETF 자산 배분 시스템. Backtest → Paper → Mock 3단계 검증을 거쳐 운영 중. **(Personal Track, 동결)**
 
 ---
 

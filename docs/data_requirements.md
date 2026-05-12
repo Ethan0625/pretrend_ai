@@ -1,8 +1,15 @@
 # 📄 Data Requirements Document
 
-**Project:** Pre-Trend Value 기반 자동매매 AI 시스템  
-**Document:** Data Requirements  
-**Version:** 2026.02.12  
+**Project:** Pretrend AI — Market Structure Observability Runtime
+**Document:** Data Requirements
+**Version:** 2026.02.12 (재분류: 2026-05-12)
+
+> 🟢 **Infrastructure (공유) — 두 트랙 공통 자산**
+>
+> 데이터 요구사항(Macro/EOD/Calendar)은 Observability Track / Personal Track 양쪽이 공유하는 Infrastructure 자산입니다.
+> 본 문서 내 자동매매 관련 데이터 요구는 **Personal Track legacy**로 보존되며, 신규 요구는 Observability Track 컨텍스트로 추가됩니다.
+> 참조: [`architecture/track_separation.md`](architecture/track_separation.md)
+
 **Purpose:** Risk-Control 전략 아키텍처(v0) 기준의 데이터 요구사항 정의
 
 ---

@@ -1,11 +1,92 @@
 # Changelog
 
 ## 현재 유효 규칙 (As-Is)
-- Strategy Engine SOT: `docs/strategy_engine_design.md`
-- Allocation 계약(SOT): `docs/architecture/allocation_engine_contract.md`
-- 운영 실행 가이드: `docs/operation_guide.md`
+- 프로젝트 방향 / 트랙 경계 SOT: `docs/architecture/track_separation.md`
+- 운영/작업 규칙 SOT: `.agent/WORKFLOW.md`, `.agent/CHANGE_GATES.md`
+- 운영 실행 가이드 SOT: `docs/operation_guide.md`
+- Infrastructure / 계약 SOT:
+  - `docs/architecture/*_contract.md`
+  - `docs/strategy_engine_design.md`는 계약/불변식 참조용으로 유지
+- 상태 해석:
+  - Observability Track + Infrastructure가 현재 메인 운영 범위다.
+  - Personal Track(Strategy/Backtest/Paper/Broker)은 동결 + 운영 중단 상태이며, 아래 과거 섹션은 legacy 기록으로 보존한다.
 
 > 참고: changelog 과거 섹션은 작성 시점 원문을 보존한다.
+
+## v2026.05.12 — 2026Q2 방향 재정의: Observability Track 본진화
+
+### docs(direction): 프로젝트 기준점 재설정
+- 프로젝트를 `Market Structure Observability Runtime`으로 재정의
+- Two-Track 분리 확정:
+  - Observability Track: 메인, 신규 작업 본진
+  - Personal Track: 동결 + 운영 중단
+- Cloud roadmap 확정:
+  - Phase 0~1: 로컬 유지
+  - Phase 2: Cloudflare Tunnel
+  - Phase 4 이후: 필요 시 AWS/Hetzner 재검토
+
+### ops(boundary): 현재 운영 범위 재해석
+- 운영 유지:
+  - Infrastructure (`macro`, `eod`, `calendar`)
+  - Text observability
+- 운영 중단:
+  - `strategy_engine_dag`
+  - `paper_trading_dag`
+  - `broker_mock_trading_dag`
+  - Telegram bot orchestration
+
+### docs(legacy): 과거 기록 보존 원칙
+- 2026-05-12 이전 changelog 항목은 작성 시점 원문을 보존한다.
+- 단, Personal Track 관련 항목은 현재 운영 규칙이 아니라 legacy reference로 해석한다.
+
+### docs(problem-definition): 프로젝트 문제 정의 + 전환 이유 명시화
+- README, project_summary, DIRECTION, track_separation 4개 문서에 동일한 문제 정의 + 전환 이유 텍스트 동기화
+  - "거시경제 흐름이 중요하다고 하지만, 거시 이벤트와 시장 구조 변화 연결을 반복 확인할 수 있는 개인용 도구가 적음"
+  - "예측에서 시장 구조 관측으로 전환, 공개 운영 가능한 데이터 시스템으로 재설계하고 있음"
+
+### docs(track-classification): docs/architecture/* 헤더 분류 표시 일괄 추가
+- 16개 문서에 트랙 분류 헤더(`🔒 Frozen` / `🔄 Observability 자료` / `⚠️ Mixed`)를 일관된 패턴으로 추가
+- 진짜 Frozen (4): `allocation_engine_contract`, `paper_execution_ledger_contract`, `paper_trading_alert_contract`, `policy_config_contract`
+- Mixed (2): `text_strategy_connection_contract` (일부 규칙 Phase 3 차용), `universe_contract` (ETF SOT는 공유, picking은 frozen)
+- Observability 재해석 (11): `market_structure_*` (4), `axis_horizon_dependency_contract`, `threshold_policy`, `next_step_signal_contract`, `group_transition_signal_contract`, `walk_forward_validation_contract`, `text_observability_contract`, `strategy_engine_design`, `strategy_architecture`
+- 원칙: "전략" 영역 전체를 frozen 처리하지 않고, 시장 관측 영역과 매매 의사결정 영역을 세분화
+
+### refactor(task-queue): TASK_QUEUE.md 재구성 + legacy archive
+- 기존 ~2000줄 TASK_QUEUE.md → `.agent/task/archive/TASK_QUEUE_pre-2026Q2.md` 이동
+- 새 TASK_QUEUE.md는 P17 (Observability Phase 0) 중심으로 ~120줄 재작성
+- 신규 작업자/Codex 진입 컨텍스트 부담 12배 감소
+
+### refactor(workflow): commit scope 표준 도입
+- `.agent/WORKFLOW.md §6.2`에 Track scope 표준 추가
+  - `observability` — 신규 작업 본진
+  - `infra` — Infrastructure (Bronze/Silver/Gold, Macro/EOD)
+  - `personal-frozen` — Personal Track unavoidable fix (극히 드물게)
+- `§6.4`에 `personal-frozen` scope 등장 시 강화 규칙 추가 (변경 이유 명시, 신규 기능 0)
+
+### feat(task-p17): Observability Phase 0 task 문서 6개 작성
+- `P17_parent_observability_phase0.md` — parent task (DoD, 그룹, 실행 순서)
+- `P17-1_docker_compose_postgres.md` — Postgres+TimescaleDB Docker Compose
+- `P17-2_config_module_setup.md` — `pretrend.config` pydantic-settings
+- `P17-3_models_package_init.md` — `pretrend.models` SQLAlchemy + Pydantic Base
+- `P17-4_alembic_initial_setup.md` — Alembic baseline + TimescaleDB extension
+- `P17-5_observability_layout_doc.md` — 디렉토리 레이아웃 매트릭스 문서
+
+### docs(operation-guide): Observability 운영 명령 + DAG paused 안내
+- `operation_guide.md`에 Phase 0 Docker Compose / Alembic / Config·Models 검증 명령 추가
+- Phase 2~3 예정 명령 (FastAPI, Cloudflare Tunnel) 안내 추가
+- Airflow DAG paused 처리 명령 (`paper_trading_dag`, `broker_mock_trading_dag`, `strategy_engine_dag`) 명시
+
+### docs(environment): 신규 인프라 의존성 명시
+- `environment.md §7.5` 신설 — Postgres+TimescaleDB Docker, 신규 Python 의존성(pydantic-settings, sqlalchemy, alembic, psycopg2-binary, asyncpg, fastapi, uvicorn) 표
+- 환경 변수 `.env.example` 항목 명시 (DATABASE_URL, DATABASE_URL_ASYNC 등)
+
+### docs(architecture): Observability Track 아키텍처 섹션 추가
+- `architecture.md §6` 신설 — 신규 컴포넌트 디렉토리 트리 + 데이터 흐름 + Phase 0~4 로드맵
+- `§7 결론` 갱신 — production-grade runtime ownership 목표 명시
+
+### docs(milestones): Personal Track legacy 분리 + Observability 로드맵 추가
+- `milestones.md` 상단에 Observability Track 로드맵 표(P17~P20 가칭) 추가
+- 기존 M1~M6 Personal Track 마일스톤은 legacy 보존 표시
 
 ## v2026.03.25d — P11 완료: Telegram 리포트 구조 개편
 

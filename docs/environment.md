@@ -1,12 +1,18 @@
 # 📄 개발 환경 구성 문서 (Environment Setup Guide)
 
-**Project:** Pre-Trend Value 기반 자동매매 AI 시스템\
-**Document:** Data Requirements\
-**Version:** 2026.01.14\
+**Project:** Pretrend AI — Market Structure Observability Runtime\
+**Document:** Environment Setup\
+**Version:** 2026.05.12\
 **Purpose:** 개발·운영 환경을 표준화\
 
-본 문서는 Pre-Trend Value 기반 자동매매 시스템의  
-**개발·운영 환경을 표준화하기 위한 구성 가이드**이다.
+> ⚠️ **2026Q2 방향 재정의 안내**
+>
+> 본 문서는 Observability Track + Infrastructure 운영 환경을 다룬다.
+> Personal Track(Strategy/Backtest/Paper/Broker) 환경 의존성은 운영 중단(2026-05-12~) 이후 신규 추가 없이 보존된다.
+>
+> 참조: [`architecture/track_separation.md`](architecture/track_separation.md), [`.agent/REFACTOR_2026Q2.md`](../.agent/REFACTOR_2026Q2.md)
+
+본 문서는 Pretrend AI Observability Runtime의 **개발·운영 환경을 표준화하기 위한 구성 가이드**이다.
 
 ---
 
@@ -198,6 +204,70 @@ airflow standalone
 ## 7.4 데이터 볼륨 및 경로 기준
 - 현재 구현 단계에서는 파일 시스템 기반 스토리지를 사용한다.
     - 데이터 루트: data/
+
+---
+
+## 7.5 Observability Track 데이터 / 인프라 의존성 (2026Q2~)
+
+Phase 0 진입 시 Observability Track용 신규 인프라가 추가된다.
+
+### 7.5.1 PostgreSQL + TimescaleDB (Docker Compose)
+
+- 이미지: `timescale/timescaledb:latest-pg16`
+- 컨테이너 이름: `pretrend-postgres`
+- 포트: `${POSTGRES_PORT:-5432}`
+- 데이터 볼륨: `./.local/postgres-data/` (gitignored)
+- 환경 변수: `.env` (gitignored), 샘플은 `.env.example`
+
+```bash
+docker compose up -d postgres
+docker compose ps postgres
+docker compose exec postgres psql -U pretrend -d pretrend_obs -c "\dx"
+```
+
+### 7.5.2 신규 Python 의존성
+
+Observability Track 진입 시 conda env(`pytest-pretrend`)에 다음 의존성 추가:
+
+| 패키지 | 버전 | 용도 | 추가 시점 |
+|---|---|---|---|
+| `pydantic-settings` | >=2.0 | Settings 클래스 (config.py) | P17-2 |
+| `sqlalchemy` | >=2.0 | ORM Base | P17-3 |
+| `pydantic` | >=2.0 | Schema Base (이미 사용 중일 가능성) | P17-3 |
+| `alembic` | >=1.13 | DB migration | P17-4 |
+| `psycopg2-binary` | >=2.9 | sync Postgres driver | P17-4 |
+| `asyncpg` | (Phase 2) | async Postgres driver | Phase 2 |
+| `fastapi` | (Phase 2) | API framework | Phase 2 |
+| `uvicorn` | (Phase 2) | ASGI server | Phase 2 |
+
+설치 명령 (단계별):
+
+```bash
+# Phase 0
+conda run -n pytest-pretrend pip install "pydantic-settings>=2.0" "sqlalchemy>=2.0" "alembic>=1.13" "psycopg2-binary>=2.9"
+
+# Phase 2 (예정)
+conda run -n pytest-pretrend pip install "asyncpg>=0.29" "fastapi>=0.110" "uvicorn[standard]>=0.27"
+```
+
+### 7.5.3 환경 변수 (.env)
+
+샘플은 `.env.example`. 실제 값은 `.env` (gitignored).
+
+- `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `POSTGRES_PORT`, `POSTGRES_HOST`
+- `DATABASE_URL` — sync URL (psycopg2)
+- `DATABASE_URL_ASYNC` — async URL (asyncpg, Phase 2)
+- 기존: `FRED_API_KEY`, `TELEGRAM_BOT_TOKEN` 등 (Personal Track 자료, Telegram bot 운영 중단 시 사용 안 함)
+
+### 7.5.4 Phase 2~3 인프라 (계획)
+
+- FastAPI (`apps/api/`): `uvicorn apps.api.main:app --reload --port 8000`
+- React + Vite (`apps/web/`): `cd apps/web && npm install && npm run dev`
+- Cloudflare Tunnel: `cloudflared tunnel run pretrend-obs` (외부 노출)
+
+### 7.5.5 Phase 4 (가정) — AWS 이주
+
+외부 사용자 / 가용성 요구 발생 시 IaaS 이주 검토. 별도 의제. 본 환경 가이드 갱신.
 
 ---
 

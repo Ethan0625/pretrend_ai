@@ -1,11 +1,28 @@
 # Strategy Engine — Design (SOT)
 
+> ⚠️ **Mixed — 7단계 파이프라인의 단계별로 분류가 다름**
+>
+> 본 문서가 정의하는 Strategy Engine 7-stage pipeline은 2026Q2 방향 재정의 후 단계별로 다르게 분류됩니다:
+>
+> **🔄 Observability Track 자료로 재해석되는 단계** (Phase 1 추출 대상):
+> - Axis Features (4축 관측 지표)
+> - Axis × Horizon State (12-slot 관측 매트릭스)
+> - Market Position (RS, breadth 관측)
+>
+> **🔒 Personal Track Frozen** (자동매매 의사결정):
+> - Policy Selector
+> - Universe Picking (ETF 선정 로직)
+> - Allocation (자산배분 비율)
+> - Sell Advisor
+>
+> 참조: [`track_separation.md`](architecture/track_separation.md), [`REFACTOR_2026Q2.md`](../.agent/REFACTOR_2026Q2.md)
+
 ## Document Status
 | Item | Value |
 | --- | --- |
-| Status | Active |
-| Structure Policy | 구조는 고정, 기능은 확장 |
-| Effective Date | 2026-02-13 |
+| Status | **Mixed (Frozen + Observability)** — 단계별 재분류 (헤더 참조) |
+| Structure Policy | 관측 단계(Axis/Horizon/Market Position)는 Phase 1+ 이전, 매매 단계(Policy/Universe Picking/Allocation/Sell)는 동결 |
+| Effective Date | 2026-02-13 (재분류: 2026-05-12) |
 | Change Tracking | docs/changelog.md |
 
 ## Capability Matrix

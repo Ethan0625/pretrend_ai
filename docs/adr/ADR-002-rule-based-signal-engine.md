@@ -1,5 +1,7 @@
 # ADR-002: Rule-based Signal Engine (ML 모델 대신 상태 기반 규칙 엔진)
 
+> 🔄 **Observability Track 자료** — Rule-based engine은 "시장 관측" 컨텍스트로 재해석. 분류: [`README.md`](README.md)
+
 ## Status
 Accepted
 

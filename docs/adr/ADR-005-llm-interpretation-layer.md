@@ -1,5 +1,7 @@
 # ADR-005: LLM을 해석 계층으로만 한정 (의사결정 엔진 배제)
 
+> 🔄 **Observability Track 자료** — explainability layer 원칙 (관측 only, 예측 금지). 분류: [`README.md`](README.md)
+
 ## Status
 Accepted
 

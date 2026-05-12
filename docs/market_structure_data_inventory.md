@@ -1,5 +1,11 @@
 # Market Structure — 데이터 인벤토리
 
+> 🔄 **Observability Track 자료 — 시장 구조 관측 컨텍스트**
+>
+> 본 문서는 2026Q2 방향 재정의 후 Observability Track의 시장 관측 데이터 인벤토리로 활용됩니다.
+> 인벤토리 자체는 그대로 유효하며, "투자 의사결정" 컨텍스트가 아닌 "시장 구조 관측" 컨텍스트로 소비됩니다.
+> 참조: [`architecture/track_separation.md`](architecture/track_separation.md)
+
 ## Document Status
 | Item | Value |
 | --- | --- |

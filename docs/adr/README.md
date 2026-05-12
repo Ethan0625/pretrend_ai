@@ -1,5 +1,16 @@
 # Architecture Decision Records (ADR)
 
+> ⚠️ **2026Q2 방향 재정의 — ADR 트랙 컨텍스트**
+>
+> 본 폴더의 ADR들은 **작성 시점 의사결정 기록**입니다. 2026Q2 방향 재정의 후 트랙 분류:
+>
+> - **🟢 Infrastructure 결정**: ADR-001 (Medallion) — 두 트랙 공유, 유효
+> - **🔄 Observability Track 자료**: ADR-002 (Rule-based Engine), ADR-003 (Three-Layer Market Structure), ADR-005 (LLM Interpretation) — 시장 관측 컨텍스트로 재해석
+> - **⚠️ Mixed**: ADR-004 (ETF-based Execution Universe) — Universe SOT는 공유, picking 부분은 Personal Track
+> - **🔒 Personal Track Frozen**: ADR-006 (Execution Tier Hierarchy) — Level 1/2/3 실행 계층, 운영 중단
+>
+> ADR 자체는 immutable 의사결정 기록이며, 현재 트랙 분류는 [`../architecture/track_separation.md`](../architecture/track_separation.md)를 우선 참조합니다.
+
 이 디렉토리는 Pretrend AI 시스템의 핵심 설계 결정과 그 근거를 기록한다.
 
 각 ADR은 "왜 이렇게 설계했는가"에 답한다.

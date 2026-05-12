@@ -1,11 +1,29 @@
-# Pretrend AI — 전략 아키텍처 정리 (Risk-Control 중심 구조)
+# Pretrend AI — 전략 아키텍처 (Mixed: Frozen + Observability 재해석)
+
+> ⚠️ **2026Q2 방향 재정의 — 본 문서의 단계별 분류**
+>
+> 본 문서가 설명하는 Risk-Control 전략 흐름은 단계별로 다음과 같이 분리됩니다:
+>
+> **🔄 Observability Track 자료로 재해석** (Phase 1+ 추출 대상):
+> - Layer (Bronze/Silver/Gold) — Infrastructure 공유
+> - Market Structure 4축 (Long/Mid/Short/Composer) — 시장 관측 자료
+> - Axis × Horizon State — 12-slot 관측 매트릭스
+> - Market Position — RS, breadth 관측
+>
+> **🔒 Personal Track Frozen** (자동매매 의사결정, 2026-05-12~ 운영 중단):
+> - Composer → Universe-ETF picking → Allocation Engine → Weekly Report
+> - Sell Advisor (자동 매도 권고)
+>
+> 참조:
+> - [`docs/architecture/track_separation.md`](architecture/track_separation.md)
+> - [`.agent/REFACTOR_2026Q2.md`](../.agent/REFACTOR_2026Q2.md)
 
 ## Document Status
 | Item | Value |
 | --- | --- |
-| Status | Active |
-| Structure Policy | 구조는 고정, 기능은 확장 |
-| Effective Date | 2026-02-13 |
+| Status | **Mixed (Frozen + Observability)** |
+| Structure Policy | 관측 영역은 Phase 1+ 이전, 매매 영역은 동결 |
+| Effective Date | 2026-02-13 (재분류: 2026-05-12) |
 | Change Tracking | docs/changelog.md |
 
 ## Capability Matrix

@@ -1,10 +1,43 @@
-# 📄 Pre-Trend Value AI 시스템
+# 📄 Pretrend AI — Market Structure Observability Runtime
 
 # 프로젝트 마일스톤 문서 (Milestones)
 
-**Version:** 2025.12\
-**Period:** 2025.12 ~ 2026.11\
-**Scope:** 거시 → 테마 → 종목 Universe-Stock(U0~U3) 기반 AI 자동매매 리서치 시스템
+**Version:** 2026.05.12 (2026Q2 방향 재정의)\
+**Period:** 2025.12 ~ ongoing\
+**Scope (현재)**: 시장 구조 관측·설명 시스템 — Bronze/Silver/Gold + Observability regime + similarity + dashboard
+
+> ⚠️ **2026Q2 방향 재정의 — 본 문서의 마일스톤 분류**
+>
+> 본 문서가 정의하는 마일스톤은 2026Q2 재정의 후 다음과 같이 분리됩니다:
+> - **🔄 유효 마일스톤**: Infrastructure(Bronze/Silver/Gold, Calendar, Text Observability) + Observability Track 신규 작업
+> - **🔒 Personal Track legacy**: 종목 Universe-Stock(U0~U3) 기반 자동매매 / Strategy Engine 운영화 등은 운영 중단 (2026-05-12~)
+>
+> 신규 로드맵: [`REFACTOR_2026Q2.md §4 단계 분해`](../.agent/REFACTOR_2026Q2.md), [`track_separation.md`](architecture/track_separation.md)
+>
+> 본 문서의 기존 M1~M6 마일스톤 중 Personal Track 영역(자동매매, 종목 신호 등)은 동결 상태이며, 신규 마일스톤은 P17+ phase로 진행됩니다 (`.agent/TASK_QUEUE.md` 참조).
+
+---
+
+## Observability Track 로드맵 (2026Q2~)
+
+| Phase | Task ID | 단계 | 상태 |
+|---|---|---|---|
+| Phase 0 | P17 | Foundation Setup (DB, config, models, Alembic, layout) | TODO |
+| Phase 1 | P18 (가칭) | axis_features 추출 → observability/regime/axis/ | 대기 |
+| Phase 1+ | P18.x | axis_horizon_state, market_position, next_step, group_transition 이전 | 대기 |
+| Phase 2 | P19 (가칭) | similarity, explainability, FastAPI, Postgres sync DAG, Cloudflare Tunnel | 대기 |
+| Phase 3 | P20 (가칭) | React Dashboard (heatmap, regime timeline, similarity replay) | 대기 |
+| Phase 4 | (가정) | AWS RDS / Fargate 이주 (외부 노출 / 가용성 요구 시) | 미결정 |
+
+상세는 `.agent/REFACTOR_2026Q2.md §4` 참조.
+
+---
+
+## Personal Track Legacy (동결 + 운영 중단)
+
+이하 본 문서가 정의하는 M1~M6 마일스톤은 **Personal Track 자료**이며, 운영 중단(2026-05-12~) 상태로 보존됩니다. 신규 작업은 없습니다.
+
+---
 
 ---
 

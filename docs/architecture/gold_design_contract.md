@@ -1,4 +1,10 @@
 # Gold Layer v1 — Design Contract (문서 전용)
+
+> 🟢 **Infrastructure (공유) — 두 트랙 공통 자산**
+>
+> Gold Layer v1 PIT join contract는 Bronze/Silver/Gold 데이터 파이프라인의 핵심 invariant이며, Observability Track / Personal Track 양쪽이 read-only로 소비합니다.
+> 참조: [`track_separation.md`](./track_separation.md)
+
 This document is the SOT for: Gold Layer v1 PIT join contract and release-date usage in Gold outputs.
 
 ## 1. 개요 (Overview & Status)

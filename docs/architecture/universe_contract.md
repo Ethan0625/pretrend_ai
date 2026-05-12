@@ -1,11 +1,20 @@
-# Universe-ETF (Execution Universe) — Contract (SOT)
+# Universe-ETF — Contract (SOT)
+
+> 🔄 **Mixed (대부분 Observability Track 공유 자산)**
+>
+> 본 문서는 2026Q2 방향 재정의 후 다음과 같이 분리됩니다:
+> - **ETF Universe 정의** (SOT 32 ETFs, asset_group, asset_subtype 등): **Observability Track 공유 자산** — 시장 관측의 입력 universe로 그대로 활용.
+> - **Execution Universe picking 로직** (RS 기반 상위 N 선정 등): **Personal Track Frozen** — 투자 의사결정 영역.
+>
+> Phase 1+ 진입 시 본 문서에서 picking 로직 부분을 분리해 `universe_observation_contract.md` (가칭)로 재정리할 계획입니다.
+> 참조: [`track_separation.md`](./track_separation.md), [`REFACTOR_2026Q2.md`](../../.agent/REFACTOR_2026Q2.md)
 
 ## Document Status
 | Item | Value |
 | --- | --- |
-| Status | Active |
-| Structure Policy | 구조는 고정, 기능은 확장 |
-| Effective Date | 2026-02-21 |
+| Status | **Mixed (Observability-shared + Frozen picking)** — 헤더 참조 |
+| Structure Policy | ETF SOT(32종) 정의는 두 트랙 공유 유지, picking 로직(RS 상위 N 선정 등)은 동결 |
+| Effective Date | 2026-02-21 (재분류: 2026-05-12) |
 | Change Tracking | docs/changelog.md |
 
 ## Capability Matrix

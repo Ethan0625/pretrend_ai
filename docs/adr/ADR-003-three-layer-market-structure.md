@@ -1,5 +1,7 @@
 # ADR-003: 3-Layer Market Structure (Long / Mid / Short + Composer)
 
+> 🔄 **Observability Track 자료** — 시장 구조 관측의 핵심 결정. 분류: [`README.md`](README.md)
+
 ## Status
 Accepted
 

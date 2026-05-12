@@ -1,9 +1,16 @@
 # Text Observability — Contract (SOT)
 
+> 🔄 **Observability Track 자료 — 이름 그대로 observability**
+>
+> 본 문서는 2026Q2 방향 재정의 후 Observability Track의 핵심 자료로 그대로 유효합니다.
+> Text feature(FOMC, SEC, 거시 리포트 텍스트)는 시장 관측·해석 컨텍스트로 활용되며, **observer-only 원칙**(직접 매매 연결 금지)은 유지됩니다.
+> Phase 2 explainability layer에서 본 contract를 직접 소비합니다.
+> 참조: [`track_separation.md`](./track_separation.md), [`REFACTOR_2026Q2.md`](../../.agent/REFACTOR_2026Q2.md)
+
 ## Document Status
 | Item | Value |
 | --- | --- |
-| Status | Active |
+| Status | **Active (Observability 자료, observer-only 원칙 유지)** |
 | Structure Policy | 구조는 고정, 기능은 확장 |
 | Effective Date | 2026-02-13 |
 | Last Updated | 2026-03-04 |

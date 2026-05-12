@@ -1,9 +1,16 @@
 # Long Engine z-score Threshold 가변화 정책 — 설계 문서 (v2)
 
+> 🔄 **Observability Track 자료 — Regime 분류 임계값 정책**
+>
+> 본 문서는 2026Q2 방향 재정의 후 Observability Track의 regime 관측 자료로 재해석됩니다.
+> "투자 의사결정"이 아닌 **"Long-cycle regime 분류 임계값 정책"** 컨텍스트로 활용됩니다.
+> Phase 1 추출 시 본 정책은 `observability/regime/horizon/` 하위 모듈과 함께 이전됩니다.
+> 참조: [`track_separation.md`](./track_separation.md), [`REFACTOR_2026Q2.md`](../../.agent/REFACTOR_2026Q2.md)
+
 ## Document Status
 | Item | Value |
 | --- | --- |
-| Status | Draft — 설계만, 코드 미구현 |
+| Status | **Draft — Observability 자료, 설계만, 코드 미구현** |
 | Effective Date | 미정 (운영 검증 후 결정) |
 | Change Tracking | docs/changelog.md |
 | Prerequisite | walk-forward + phase 분포 모니터링으로 필요 조건 확인 후 적용 |

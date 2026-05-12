@@ -1,5 +1,7 @@
 # ADR-001: Medallion Data Architecture (Bronze / Silver / Gold)
 
+> 🟢 **Infrastructure 결정 (두 트랙 공유, 유효)** — 분류 컨텍스트: [`README.md`](README.md)
+
 ## Status
 Accepted
 

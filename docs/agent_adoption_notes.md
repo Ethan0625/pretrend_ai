@@ -1,5 +1,11 @@
 # Agent Adoption Notes — Codex 도입 평가 및 운영 기준
 
+> 🟢 **공통 가이드 (두 트랙 공유) — Workflow / Agent 운영 규칙**
+>
+> 본 문서는 Codex(Agent) 도입 평가 결과를 정리한 운영 가이드이며, 두 트랙 모두에 적용됩니다.
+> 현재 운영 규칙 SOT: [`.agent/WORKFLOW.md`](../.agent/WORKFLOW.md), [`.agent/DIRECTION.md`](../.agent/DIRECTION.md), [`architecture/track_separation.md`](architecture/track_separation.md)
+> 본 문서는 평가 시점 기록으로 보존되며, 최신 규칙은 `.agent/WORKFLOW.md`를 우선 참조합니다.
+
 ## 1. 목적
 
 본 문서는 Pretrend 프로젝트에서 AI Agent(OpenAI Codex)를 **실험적으로 도입하고, 실제 운영에 적용 가능한 범위와 한계를 평가한 결과**를 정리한다.

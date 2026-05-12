@@ -1,9 +1,15 @@
 # Paper Trading Alert — Contract (SOT)
 
+> 🔒 **Personal Track (Frozen) — 자동매매·매매 리포팅 영역**
+>
+> 본 문서는 2026Q2 방향 재정의에 따라 Personal Track으로 분류되어 동결 상태입니다.
+> Personal Track은 2026-05-12부터 운영 중단되었으며, 본 문서가 정의하는 Telegram 매매 알림 기능도 추가 개발이 없습니다.
+> 참조: [`track_separation.md`](./track_separation.md), [`REFACTOR_2026Q2.md`](../../.agent/REFACTOR_2026Q2.md)
+
 ## Document Status
 | Item | Value |
 | --- | --- |
-| Status | Active |
+| Status | **Frozen (Personal Track 운영 중단, 2026-05-12~)** |
 | Structure Policy | 구조는 고정, 기능은 확장 |
 | Effective Date | 2026-02-25 |
 | Change Tracking | docs/changelog.md |

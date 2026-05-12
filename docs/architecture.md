@@ -1,11 +1,18 @@
 # Pretrend AI 아키텍처 문서 (architecture.md)
-**Project:** Pre-Trend Value 기반 자동매매 AI 시스템\
-**Document:** architecture\
-**Version:** 2026.02.14\
+**Project:** Pretrend AI — Market Structure Observability Runtime\
+**Document:** architecture (Infrastructure + Personal Track legacy)\
+**Version:** 2026.02.14 (Pre-2026Q2 재정의)\
 
-본 문서는 **Pre-Trend Value 기반 주식 자동매매 시스템**의 기술 아키텍처를 정의한다.  
-특히, 현재 구현된 **Macro/EOD/Calendar 파이프라인 및 Gold Feature Mart(Macro/EOD)**를 중심으로 설명하고,  
-향후 확장 대상(뉴스/전략/LLM 등)을 상위 레벨에서 제시한다.
+> ⚠️ **2026Q2 방향 재정의 안내**
+>
+> 본 프로젝트는 Observability Runtime으로 재정의되었다. 본 문서가 설명하는 **Infrastructure(Bronze/Silver/Gold, Calendar)는 두 트랙 공통이며 그대로 유효**하다. 그러나 자동매매 / Strategy Engine 중심 서술은 **Personal Track(동결) 자산**을 의미한다.
+>
+> 신규 방향:
+> - [`docs/architecture/track_separation.md`](architecture/track_separation.md) — 트랙 분리 원칙
+> - [`.agent/REFACTOR_2026Q2.md`](../.agent/REFACTOR_2026Q2.md) — 리팩토링 계획 (Phase 0~3)
+
+본 문서는 현재 구현된 **Macro/EOD/Calendar 파이프라인 및 Gold Feature Mart(Macro/EOD)**를 중심으로 설명하고,
+Personal Track legacy 구조를 함께 기록한다. Observability Track의 신규 컴포넌트(`observability/`, `apps/api`, `apps/web`)는 위 신규 문서를 참조한다.
 
 ---
 
@@ -513,25 +520,70 @@ CUDA_VISIBLE_DEVICES=2 python -m vllm.entrypoints.openai.api_server \
 
 ---
 
-## 6. 확장 계획 및 TODO
+## 6. Observability Track 신규 아키텍처 (2026Q2~)
 
-[표] 아키텍처 관점 TODO
+본 섹션은 2026Q2 방향 재정의 후 신설/확장되는 Observability Track의 아키텍처를 요약한다.
+상세: [`architecture/track_separation.md`](architecture/track_separation.md), [`.agent/REFACTOR_2026Q2.md`](../.agent/REFACTOR_2026Q2.md)
 
-| 영역           | 작업 항목                                                  |
-| ------------ | ------------------------------------------------------ |
-| Macro Silver | 단위테스트 (`tests/pipeline/test_macro_features.py`) 작성     |
-| EOD 파이프라인    | `pretrend.pipeline.ingest.eod_*` 설계 및 Bronze/Silver 정의 |
-| 뉴스/RAG       | 뉴스/공시 Ingest + FAISS/Elastic 기반 색인, LLM RAG 통합         |
-| 전략/시그널       | `pretrend.signals.*` 구조 정의 (전략, 시그널, 백테스트 인터페이스)       |
-| Gold Layer   | 전략별 Mart 설계 (`data/gold/...`) 및 API 연동                 |
-| 모니터링         | ETL/LLM 토큰/비용 메트릭 → Grafana/Prometheus 연동              |
-| 보안/Secret 관리 | `.env` + Kubernetes Secret, API Key 관리 정책 문서화          |
+### 6.1 신규 컴포넌트
+
+```
+src/pretrend/
+├── pipeline/                # Infrastructure (공유, 본 문서 §1~§5 참조)
+├── observability/           # 신규 — 시장 관측 자료
+│   ├── regime/              # axis_features, market_position 등 Phase 1+ 이전
+│   ├── similarity/          # Phase 2 — 과거 시장 구조 유사도
+│   └── explainability/      # Phase 2 — LLM 설명 layer (관측 only)
+├── models/                  # 신규 — SQLAlchemy + Pydantic Base
+└── config.py                # 신규 — 환경 / DB 설정 중앙화
+
+apps/                        # 신규
+├── api/                     # FastAPI (Phase 2)
+└── web/                     # React + Vite (Phase 3)
+
+migrations/                  # 신규 — Alembic + TimescaleDB schema
+docker-compose.yml           # Postgres + TimescaleDB
+```
+
+### 6.2 데이터 흐름 (Observability)
+
+```
+Bronze/Silver/Gold (Parquet)  ─┐
+                              │  Parquet → Postgres sync DAG (Phase 2)
+                              ▼
+                  PostgreSQL + TimescaleDB
+                              │
+                              ▼
+                          FastAPI
+                              │
+                              ▼
+                     React Dashboard
+                              │
+                              ▼
+                  Cloudflare Tunnel (외부 노출)
+```
+
+### 6.3 Phase 0~3 로드맵
+
+- **Phase 0 (P17, 진행 중)**: Docker Compose Postgres + TimescaleDB, `config.py`, `models/`, Alembic 베이스라인, 레이아웃 문서
+- **Phase 1**: `axis_features` → `observability/regime/axis/` 추출 (첫 타깃), `axis_horizon_state`, `market_position` 이전
+- **Phase 2**: `observability/similarity/`, `explainability/` 신설, FastAPI 골격, Parquet→Postgres sync DAG, Cloudflare Tunnel
+- **Phase 3**: React Dashboard (heatmap, regime timeline, similarity replay)
+- **Phase 4 (가정)**: AWS RDS / Fargate 등 IaaS 이주 (외부 사용자 / 가용성 요구 발생 시)
+
+### 6.4 Personal Track Legacy (동결 + 운영 중단)
+
+본 문서 §1~§5가 설명하는 Strategy Engine / Backtest / Paper / Broker 영역은 **2026-05-12부터 운영 중단**.
+- 코드는 보존, 신규 기능 추가 영구 금지
+- 자세한 운영 중단 범위: [`architecture/track_separation.md §2.2`](architecture/track_separation.md)
 
 ---
 
 ## 7. 결론
 
-* 현재 아키텍처는 **데이터 레이어(Bronze/Silver) + 파이프라인 모듈 구조**를 먼저 견고하게 다진 상태이며,
-  특히 **Macro Ingest & Feature Layer**가 전략/리서치의 기반으로 동작한다.
-* 이후 EOD/뉴스/전략/LLM RAG/배포까지 순차적으로 확장해 나가면서,
-  **“실제 운용 가능한 자동매매 시스템”**을 목표로 아키텍처와 구현을 함께 발전시킨다.
+본 프로젝트는 **Market Structure Observability Runtime**으로 재정의되었다.
+- **Infrastructure(Bronze/Silver/Gold) 데이터 레이어**: 그대로 유효하며 두 트랙 공유 자산으로 운영된다.
+- **Observability Track**: 시장 상태를 구조적으로 관측·설명하는 시스템을 production-grade로 구축한다.
+- **Personal Track**: 자동매매 실험 결과물로 보존되지만 운영은 중단되며 신규 기능 추가가 없다.
+
+진짜 목표는 "수익률 경쟁"이 아니라 **"production-grade runtime ownership 경험"** 학습이며, 모든 아키텍처 결정은 이 우선순위에 따라 정렬된다.

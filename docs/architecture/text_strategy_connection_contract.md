@@ -1,11 +1,24 @@
-# Text Strategy Connection — Contract (SOT)
+# Text Strategy Connection — Contract (SOT, Frozen with reusable rules)
+
+> 🔒 **Frozen with reusable rules — 본 문서 자체는 동결, 일부 규칙은 Phase 3에서 추출 예정**
+>
+> 본 문서가 정의하는 "텍스트 → Strategy Engine 연결"은 Personal Track 매매 의사결정 영역에 속하므로 **동결 (2026-05-12~ 운영 중단)** 상태입니다. 본 문서의 본문 그대로 사용하지 않습니다.
+>
+> 단, 다음 규칙은 **Phase 3 Dashboard report 구성 시 차용 대상**입니다 (본 문서에서 발췌해 Observability Track용 `report_layout_contract.md` (가칭)로 분리할 계획):
+> - observer-only 원칙 (텍스트 LLM 출력이 매매 / 예측에 직접 연결 금지)
+> - fact control (`llm_summary` 내 raw 값 노출 제한)
+> - interpretation rendering 규칙 (textual + structured 병행)
+>
+> 본 문서 본문의 "Strategy Engine 연결" 표현은 **legacy 문맥**으로 읽고, 위 reusable rules만 신규 작업에서 참조합니다.
+>
+> 참조: [`track_separation.md`](./track_separation.md), [`REFACTOR_2026Q2.md`](../../.agent/REFACTOR_2026Q2.md)
 
 ## Document Status
 | Item | Value |
 | --- | --- |
-| Status | Accepted (Permanent observer-only) |
-| Effective Date | 2026-03-04 |
-| Last Updated | 2026-03-04 |
+| Status | **Frozen with reusable rules** — 본문 동결, 위 3개 규칙만 Phase 3 차용 예정 |
+| Effective Date | 2026-03-04 (재분류: 2026-05-12) |
+| Last Updated | 2026-05-12 |
 | Change Tracking | docs/changelog.md |
 
 ## 1. 문서 목적

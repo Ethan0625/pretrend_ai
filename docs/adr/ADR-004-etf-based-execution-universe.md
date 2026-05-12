@@ -1,5 +1,7 @@
 # ADR-004: ETF 기반 실행 Universe (개별 종목 대신)
 
+> ⚠️ **Mixed** — ETF SOT(32종)는 공유, picking 로직은 Personal Track. 분류: [`README.md`](README.md)
+
 ## Status
 Accepted
 

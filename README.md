@@ -1,22 +1,55 @@
 # Pretrend AI
 
-### Reproducible Time-Series Data Pipeline for Strategy-Ready Inputs
+### Market Structure Observability Runtime
 
-v.26.04.03
+v.26.05.12 (Observability Track 재정의)
 
-Pretrend AI는 **시계열 데이터를 재처리 가능하고 설명 가능한 구조로 고정한 뒤, 전략 엔진이 안정적으로 읽을 수 있는 입력을 만드는 계약 기반 데이터 파이프라인 프로젝트**다. 초점은 "AI가 무엇을 매수하느냐"가 아니라, **AI/ML·전략 판단 이전 단계에서 데이터 정합성, point-in-time 안전성, snapshot 재현성을 확보하는 것**에 있다.
+Pretrend AI는 **과거와 현재의 시장 상태(state)를 구조적으로 설명 가능하게(reproducible + explainable) 관측(observable)하는 production-grade observability runtime**이다. 초점은 미래 예측(prediction)이 아니라, "당시 시장에서 실제로 알 수 있었던 구조"를 재현 가능하게 고정하는 것에 있다.
 
-> 이 저장소의 본체는 자동매매 시스템이 아니라, **Bronze → Silver → Gold 레이어 기반의 AI-ready feature/data platform**이다.
-> Strategy Engine은 Gold snapshot을 읽는 downstream consumer이며, 데이터 생성 계층과 전략 판단 계층은 의도적으로 분리되어 있다.
+> 이 저장소는 **투자 추천/AI 매매 신호/수익률 예측 시스템이 아니다.**
+> Bronze → Silver → Gold 데이터 레이어 위에서, ETF/Macro의 시장 구조를 관측·설명하는 시스템이다.
+
+**핵심 목표**: production-grade runtime ownership 경험 — ingestion reliability, observability, reproducibility, deployment discipline.
+
+---
+
+## Why this exists
+
+투자 영역에서는 "거시경제 흐름이 중요하다"는 말을 자주 하지만, 실제로 거시 이벤트와 시장 구조 변화가 어떤 방식으로 연결되는지를 반복적으로 확인할 수 있는 개인용 도구는 많지 않다. 저는 투자 전망을 제시하기보다, 무료로 접근 가능한 거시·ETF 데이터를 기반으로 시장 상태를 구조화하고, 특정 시점의 시장 구조가 과거 어떤 구간과 유사하거나 다른지를 재현 가능한 방식으로 관측하는 시스템을 만들고자 했다.
+
+## Why this transition
+
+초기 Pretrend는 로컬 기반 매매 실험 구조였으나, 프로젝트 목적을 예측에서 시장 구조 관측으로 전환하면서 공개 운영 가능한 데이터 시스템으로 재설계하고 있다.
+
+이에 따라 로컬 의존 배치 구조를 정리하고, 자동화된 스케줄러 기반 수집, Bronze/Silver/Gold 데이터 레이어, market state feature 생성, dashboard serving, freshness monitoring 구조로 전환하고 있다.
+
+---
+
+## Two-Track 운영 원칙
+
+본 프로젝트는 두 트랙을 명시적으로 분리한다. 자세한 boundary 규칙은 [`docs/architecture/track_separation.md`](docs/architecture/track_separation.md) 참조.
+
+### Observability Track (메인, 신규)
+- 시장 구조 관측 시스템 (regime / similarity / explainability)
+- FastAPI + React Dashboard + Postgres/TimescaleDB
+- 모든 신규 작업의 본진
+- 상세 계획: [`.agent/REFACTOR_2026Q2.md`](.agent/REFACTOR_2026Q2.md)
+
+### Personal Track (Investing, **동결 + 운영 중단**)
+- 기존 6개월 작업한 Strategy Engine / Backtest / Paper / Broker
+- **운영 중단 (2026-05-12~)**: Telegram bot systemd disable, paper/broker/strategy DAG paused
+- 코드는 보존, 신규 기능 추가 영구 금지
+- 외부에 "투자 시스템"으로 포지셔닝하지 않음
 
 ---
 
 ## What This Project Is
 
-- **재현 가능한 시계열 데이터 파이프라인**: Macro, EOD, Calendar 데이터를 계약 기반으로 정규화하고 snapshot 단위로 저장한다.
-- **AI-ready feature platform**: 모델이나 전략이 직접 원천 데이터를 읽지 않고, Gold layer의 구조화된 입력을 읽도록 설계한다.
-- **Layered data architecture**: Bronze / Silver / Gold 레이어를 분리해 원본 보존, 정합성 보정, 전략 입력 준비를 책임별로 나눈다.
-- **Strategy-ready data foundation**: Strategy Engine은 데이터 생성 로직을 소유하지 않고, 검증된 snapshot을 읽어 WHAT/EXPOSURE/SELL 경계만 산출한다.
+- **Market structure observability runtime**: ETF/Macro 데이터로 시장 상태를 관측하고 설명한다.
+- **재현 가능한 시계열 데이터 파이프라인**: Bronze → Silver → Gold 레이어 기반 PIT-safe snapshot.
+- **Layered data architecture**: 원본 보존(Bronze), 정합성 보정(Silver), 관측 입력 준비(Gold)를 책임별로 분리.
+- **Historical similarity (Phase 1 신규)**: 현재 시장 구조와 과거 시기의 구조적 유사성 관측 — 예측 아닌 설명.
+- **Explainability layer**: LLM은 관측 결과 설명에만 사용. 예측/추천 금지.
 
 ## Why This Exists
 
@@ -52,16 +85,20 @@ Strategy Engine : Gold read-only consumer for WHAT / EXPOSURE / SELL
 
 ## Explicit Non-Goals
 
-- 자동매매 시스템 자체를 구현하거나 실서비스 운용 성과를 주장하는 것
-- LLM을 핵심 매매 판단 로직에 직접 넣는 것
-- 모델 예측 성능이나 수익률 경쟁을 프로젝트의 핵심 가치로 내세우는 것
-- 원천 데이터 정합성보다 전략 튜닝을 우선하는 것
+- 투자 추천 / 매수·매도 신호 / 수익률 예측 시스템
+- LLM 기반 매매 판단 또는 자동 전략 추천
+- 초반부터 Kubernetes / microservice / event bus 등 과설계
+- 거대한 범용 플랫폼 / multi-agent orchestration
+- 자동매매 시스템 자체를 실서비스로 운용하는 것
+- 모델 예측 성능이나 수익률 경쟁을 프로젝트 핵심 가치로 내세우는 것
 
 ---
 
 ## 현재 구현 범위
 
-* 📊 **데이터 파이프라인 / Airflow ETL**
+> ⚠️ 아래 항목은 대부분 **Personal Track (동결)** 자산이다. Observability Track 신규 작업은 [`.agent/REFACTOR_2026Q2.md`](.agent/REFACTOR_2026Q2.md)의 Phase 1~3 일정에 따라 진행된다. Infrastructure(Bronze/Silver/Gold, Calendar)는 두 트랙 공통이다.
+
+* 📊 **데이터 파이프라인 / Airflow ETL** *(Infrastructure — 공유)*
 
   * Bronze / Silver Layer
   * 롤링 재처리 + 파티션 overwrite 기반 멱등성
@@ -453,8 +490,10 @@ PYTHONPATH=src python -m pretrend.pipeline.eod_job \
 
 ## 5. 문서
 
+* **방향성 / 트랙 분리**: `/docs/architecture/track_separation.md`
+* **리팩토링 계획 (Phase 0~3)**: `/.agent/REFACTOR_2026Q2.md`
 * 프로젝트 요약: `/docs/project_summary.md`
-* 시스템 요약(legacy, 운영 중심): `/docs/system_overview.md`
+* 시스템 요약(legacy, Personal Track 운영 중심): `/docs/system_overview.md`
 * 환경 구성: `/docs/environment.md`
 * 데이터 설계:
   * `/docs/data_requirements.md`
@@ -475,38 +514,48 @@ PYTHONPATH=src python -m pretrend.pipeline.eod_job \
 
 ---
 
-## 6. 향후 확장 로드맵 (Out of scope)
+## 6. 로드맵
 
-아래 항목은 **현재 구현 범위에는 포함되지 않으며**,
-Layer 구조 검증 이후 단계에서 확장 예정이다.
+### Observability Track (신규, Phase 0~3)
+상세: [`.agent/REFACTOR_2026Q2.md`](.agent/REFACTOR_2026Q2.md)
 
-* [x] **FRED Macro Bronze Ingest (CPI/UNRATE/FEDFUNDS/DGS10)**
-* [x] **Macro Silver Feature 설계 (YoY/MoM/Rolling/Regime)**
-* [x] **EOD Bronze Ingest (yfinance, Observability SOT 32개 ETF)**
-* [x] **EOD Silver Feature 설계 (Return / Vol / ATR / RSI)**
-* [x] **EOD Observability Contract v1 (32 ETFs SOT + Bronze labels + Silver/Gold pass-through)**
-* [x] **Airflow DAG 기반 Macro/EOD Bronze → Silver 통합 파이프라인**
-* [x] **Calendar Pipeline v1 (Bronze/Silver: econ_events + fred_vintages)**
-* [x] **Gold Macro Feature v1 (Macro + Calendar fallback cascade)**
-* [x] Gold Layer (Macro + EOD Feature Mart)
-* [x] **Risk-Control 전략 문서 분리 (Market Structure 4축 + Composer + Allocation v0 Contract)**
-* [ ] Strategy Engine v1+ 확장(Stock/Text/LLM 포트 운영화)
-* [ ] 뉴스 / FOMC / 거시 리포트 텍스트 수집
-* [ ] 전략/신호 생성 모듈 (Pre-Trend Value Score)
-* [ ] Docker → Kubernetes 전환 / 배포 자동화
-* [ ] Grafana 기반 모니터링 및 LLM 비용 리포팅 구축
+* [ ] **Phase 0**: PostgreSQL + TimescaleDB 도입, `docker-compose.yml`, `src/pretrend/models/`, Alembic 초기화
+* [ ] **Phase 1**: `axis_features` → `observability/regime/axis/` 추출 (첫 타깃), `axis_horizon_state`, `market_position` 이전
+* [ ] **Phase 2**: `observability/similarity/` 신설, `observability/explainability/` 신설, `apps/api/` (FastAPI), Parquet → Postgres sync DAG, **Cloudflare Tunnel** (로컬 외부 노출)
+* [ ] **Phase 3**: `apps/web/` React Dashboard (heatmap, regime timeline, similarity replay)
+* [ ] **Phase 4 (가정)**: 외부 사용자/가용성 요구 시 AWS RDS / Fargate 재이주 검토
+
+### Infrastructure (공유, 완료)
+* [x] FRED Macro Bronze Ingest
+* [x] Macro Silver Feature
+* [x] EOD Bronze Ingest (Observability SOT 32 ETFs)
+* [x] EOD Silver Feature
+* [x] Calendar Pipeline v1 (econ_events + fred_vintages)
+* [x] Gold Macro Feature v1
+* [x] Gold EOD Feature v1
+* [x] Airflow DAG 기반 통합 파이프라인
+
+### Personal Track (동결, 운영 중단)
+* [x] Strategy Engine v0/v1/v2/v3.x
+* [x] Backtest Engine + Walk-Forward
+* [x] Paper Engine + KIS mock broker
+
+### 명시적 Out-of-Scope
+* Kubernetes / microservice / event bus
+* 자동매매 실서비스 운용
+* AI 매수/매도 추천
 
 ---
 
-> 📌 본 프로젝트는 **개인 연구 및 포트폴리오 용도**로,
-> **전략 판단 이전 단계의 데이터 정합성·재현성·레이어 분리를 설계하고 검증하기 위한 프로젝트**입니다.
->
-> 향후 개인 학습 목적의 확장은 가능하나, 현재는 **실거래, 실자금 운용, 외부 서비스 제공을 전혀 수행하지 않습니다.**
+> 📌 본 프로젝트는 **개인 연구 및 production-grade runtime ownership 학습용**입니다.
+> **시장 구조를 관측·설명하는 observability runtime을 운영하기 위한 프로젝트**이며,
+> **실거래, 실자금 운용, 외부 서비스 제공을 수행하지 않습니다.**
 
 ---
 
 ## Interview Summary (1-minute)
 
 - 본 프로젝트는 자동매매나 모델 성능을 전면에 두지 않는다.
-- 핵심은 AI/전략 판단 이전 단계에서 시계열 데이터를 재현 가능한 snapshot 구조로 만드는 것이다.
-- Bronze / Silver / Gold와 Strategy Engine을 분리해 데이터 계층과 판단 계층의 경계를 명확히 했다.
+- 핵심은 시장 구조를 production-grade로 관측·설명하는 **observability runtime**을 운영하는 것이다.
+- 두 트랙 분리: Observability Track(신규, 본진) + Personal Track(기존 자산, 동결).
+- 우선순위: ingestion reliability → reproducibility → observability → runtime stability → explainability → dashboard → AI summary (AI는 항상 후순위).

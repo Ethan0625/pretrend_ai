@@ -1,5 +1,10 @@
 # EOD Observability Contract v1
 
+> 🟢 **Infrastructure (공유) — 두 트랙 공통 자산**
+>
+> EOD Observability SOT(32 ETFs)는 Bronze/Silver/Gold 레이어의 입력 universe이며, Observability Track / Personal Track 양쪽이 read-only로 소비합니다.
+> 참조: [`track_separation.md`](./track_separation.md)
+
 ## 1. 문서 목적
 본 문서는 Pretrend AI의 EOD 관측용 ETF 세트(Observability Set)와 분류/라벨 계약을 고정하기 위한 계약 문서다.
 이 계약은 EOD Pipeline, Universe-ETF(Execution Universe), Universe-Stock(U0~U3), Gold Layer가 공통으로 참조하는 단일 기준(SOT)으로 사용된다.

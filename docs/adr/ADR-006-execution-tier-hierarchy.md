@@ -1,5 +1,7 @@
 # ADR-006: 실행 계층 분리 (Backtest → Paper SIM → Broker Mock → Live)
 
+> 🔒 **Personal Track Frozen** — 매매 실행 계층 결정. Personal Track 운영 중단(2026-05-12~). 분류: [`README.md`](README.md)
+
 ## Status
 Accepted
 

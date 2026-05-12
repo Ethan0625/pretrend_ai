@@ -1,8 +1,15 @@
 # 📄 ETL — Data Source Ingest Layer
 
-### Universe-Stock(U0~U3)와 EOD 파이프라인을 위한 기초 데이터 Ingest 구조
+### Bronze Ingest 데이터 소스 구조
 
-**Version:** 2025.12\
+**Version:** 2025.12 (재분류: 2026-05-12)\
+
+> 🟢 **Infrastructure (공유) — 두 트랙 공통 자산**
+>
+> Bronze 레이어 데이터 소스 정의는 Observability Track / Personal Track 양쪽이 read-only로 소비하는 공통 자산입니다.
+> Universe-Stock(U0~U3) 관련 로드맵 부분은 **Personal Track legacy**로 분류되며 운영 중단 상태입니다.
+> 참조: [`architecture/track_separation.md`](architecture/track_separation.md)
+
 **Milestone:** M1 – Data Source Ingest Layer 구축\
 **Source Modules:** `pretrend.pipeline.ingest.*`
 

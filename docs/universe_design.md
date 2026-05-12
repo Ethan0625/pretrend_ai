@@ -1,9 +1,19 @@
 # 📄 Universe-ETF Design Document
 
-**Project:** Pre-Trend Value 기반 자동매매 AI 시스템  
-**Document:** Universe-ETF Design  
-**Version:** 2026.02.12  
-**Purpose:** Risk-Control 전략 구조에서 Universe-ETF(v1)의 역할/입력/출력 정의
+**Project:** Pretrend AI — Market Structure Observability Runtime
+**Document:** Universe-ETF Design
+**Version:** 2026.02.12 (재분류: 2026-05-12)
+**Purpose:** Universe-ETF(v1) 역할/입력/출력 정의
+
+> ⚠️ **Mixed — Universe SOT는 Observability 공유, picking 로직은 Frozen**
+>
+> 본 문서가 정의하는 Universe-ETF v1은 단계별로 분리됩니다:
+> - **🔄 Observability Track 공유 자산**: ETF 후보 풀(SOT 32 ETFs), asset_group/subtype 라벨, Market Structure Composer 입력 정합
+> - **🔒 Personal Track Frozen**: "후보를 선별하는" picking 로직 (RS 기반 상위 N 선정 등)
+>
+> Phase 1+ 진입 시 본 문서에서 picking 로직 부분을 분리해 `universe_observation_design.md` (가칭)로 재정리할 계획입니다.
+>
+> 참조: [`architecture/track_separation.md`](architecture/track_separation.md), [`.agent/REFACTOR_2026Q2.md`](../.agent/REFACTOR_2026Q2.md)
 
 ---
 
