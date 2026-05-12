@@ -11,8 +11,12 @@ requires-python = ">=3.10"
 
 # 의존성은 일단 최소만, 나머지는 requirements.txt로 계속 관리
 dependencies = [
+    "alembic>=1.13",
     "pandas",
     "numpy",
+    "pydantic-settings>=2.0",
+    "psycopg2-binary>=2.9",
+    "sqlalchemy>=2.0",
 ]
 
 [tool.setuptools.packages.find]

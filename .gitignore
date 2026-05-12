@@ -28,7 +28,8 @@ pip-wheel-metadata/
 # --- 환경 변수 파일 / 시크릿 ---
 .env
 .env.*
-!.env.example        # 예시용 env 파일만 허용
+# 예시용 env 파일만 허용
+!.env.example
 secrets/
 config/local_*.yaml
 config/*.local.yaml
@@ -83,7 +84,6 @@ tmp/
 temp/
 cache/
 checkpoints/
-models/
 artifacts/
 
 # --- 세부디렉토리 ---
@@ -94,6 +94,7 @@ research/indexes/
 # --- Docker / 컨테이너 런타임 ---
 docker-compose.override.yml
 *.pid
+.local/
 
 # --- OS 별 기타 ---
 Desktop.ini
