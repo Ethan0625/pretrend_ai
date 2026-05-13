@@ -51,6 +51,7 @@ pretrend_ai/
 | `src/pretrend/pipeline/ingest/` | Infrastructure | Bronze 수집 | 운영 |
 | `src/pretrend/pipeline/features/` | Infrastructure | Silver/Gold feature | 운영 |
 | `src/pretrend/pipeline/calendar/` | Infrastructure | Release evidence | 운영 |
+| `src/pretrend/pipeline/sync/` | Observability | Gold Parquet → Postgres mirror sync | Phase 2 — P25 완료 |
 | `src/pretrend/observability/regime/` | Observability | 시장 상태 관측 | Phase 1 추출 진행 |
 | `src/pretrend/observability/regime/axis/` | Observability | axis_features 관측 지표 | Phase 1 추출 완료 (2026-05-13) |
 | `src/pretrend/observability/regime/horizon/` | Observability | axis_horizon_state 관측 엔진 | Phase 1 추출 완료 (2026-05-13) |
@@ -77,6 +78,7 @@ pretrend_ai/
 | `migrations/` | Observability | Alembic | Phase 2 — Gold schema revision 0002 (P24 완료) |
 | `dags/paper_trading_dag.py`, `dags/broker_mock_trading_dag.py` | Personal | 페이퍼/모의 거래 DAG | 동결 |
 | `dags/macro_pipeline_dag.py`, `dags/eod_pipeline_dag.py` | Infrastructure | 데이터 수집 DAG | 운영 |
+| `dags/gold_postgres_sync_dag.py` | Observability | Postgres mirror sync DAG (11:00 KST) | Phase 2 — P25 완료 |
 | `dags/strategy_engine_dag.py` | Personal | Strategy snapshot DAG | 동결 |
 
 ## 4. Import 규칙
@@ -144,3 +146,4 @@ grep -rn "from pretrend.strategy_engine\|from pretrend.backtest\|from pretrend.p
 - 2026-05-13: P21로 `group_transition`을 `src/pretrend/observability/regime/rotation/`으로 추출하고 테스트 위치를 갱신.
 - 2026-05-13: P22로 `next_step`을 `src/pretrend/observability/regime/transition/`으로 추출하고, `report_context_*`/`report_analyzer`를 `src/pretrend/observability/explainability/`로 사전 추출.
 - 2026-05-13: P24로 Gold layer Postgres mirror schema(`gold_macro_features`, `gold_eod_features`)와 SQLAlchemy 모델/Alembic revision 0002를 도입.
+- 2026-05-13: P25로 Gold Parquet → Postgres mirror sync runner와 `gold_postgres_sync_dag`를 도입.

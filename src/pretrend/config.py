@@ -3,7 +3,7 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import Literal
 
-from sqlalchemy import URL
+from sqlalchemy.engine import URL
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 

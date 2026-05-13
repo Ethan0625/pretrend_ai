@@ -13,6 +13,15 @@
 
 > 참고: changelog 과거 섹션은 작성 시점 원문을 보존한다.
 
+## v2026.05.13 — P25 완료: Gold Postgres sync DAG 도입
+
+### feat(observability): Parquet Gold to Postgres mirror sync 추가
+- `docs/architecture/gold_postgres_sync.md` 신설: 워터마크, lookback, UPSERT, DAG 트리거 정책 SOT
+- sync runner 추가: `sync_gold_macro`, `sync_gold_eod`
+- Airflow DAG `gold_postgres_sync_dag` 추가: 11:00 KST 독립 스케줄, `sync_macro` / `sync_eod` 병렬 task
+- sync 정책: macro 35일 lookback, EOD 0일 lookback, 워터마크 NULL 시 전체 backfill, UPSERT 멱등
+- 통합 검증: 첫 backfill macro 26,101행 / EOD 179,037행, 재실행 후 row count 변동 0
+
 ## v2026.05.13 — P24 완료: Gold Postgres schema 도입
 
 ### feat(observability): Gold-only Postgres mirror schema 추가
