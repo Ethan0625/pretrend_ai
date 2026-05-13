@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pandas as pd
 import pytest
+from pydantic import ValidationError
 from sqlalchemy import Engine, create_engine, text
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -18,7 +19,12 @@ from pretrend.pipeline.sync.gold_postgres import (
 
 @pytest.fixture(scope="module")
 def pg_engine() -> Engine:
-    engine = create_engine(get_settings().database_url)
+    try:
+        database_url = get_settings().database_url
+    except ValidationError as exc:
+        pytest.skip(f"postgres settings unavailable for sync tests: {exc}")
+
+    engine = create_engine(database_url)
     try:
         with engine.connect() as conn:
             tables = conn.execute(
