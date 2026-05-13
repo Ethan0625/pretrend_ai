@@ -1,16 +1,18 @@
 # Group Transition Signal — Contract (SOT)
 
-> 🔄 **Observability Track 자료 — "Tactical group 전환 관측" 컨텍스트로 재해석**
+> 🔄 **Observability Track 자료 — "Tactical group 전환 관측" 컨텍스트로 재해석 (Phase 1 추출 완료 — 2026-05-13)**
 >
 > 본 문서는 2026Q2 방향 재정의 후 Observability Track의 시장 관측 자료로 재해석됩니다.
 > "투자 의사결정"이 아닌 **"섹터/자산군 rotation 관측"** 컨텍스트로 활용됩니다.
-> 코드 모듈(`strategy_engine/group_transition/`)은 Phase 1+에서 `observability/regime/rotation/` (가칭) 하위로 이전 검토됩니다.
+> `group_transition` 코드는 P21에서 `observability/regime/rotation/`로 이전 완료되었습니다.
+> 기존 `strategy_engine/group_transition/`는 re-export shim으로 backward compat을 유지합니다.
+> 디렉토리 명은 `rotation`이지만 코드 심볼(`GROUP_TRANSITION_SIGNAL_COLUMNS`, `build_group_transition_signal`)은 그대로 유지합니다.
 > 참조: [`track_separation.md`](./track_separation.md), [`REFACTOR_2026Q2.md`](../../.agent/REFACTOR_2026Q2.md)
 
 ## Document Status
 | Item | Value |
 | --- | --- |
-| Status | **Active (Observability 자료, group rotation 관측 컨텍스트)** |
+| Status | **Active (Observability 자료, Phase 1 추출 완료 — 2026-05-13)** |
 | Structure Policy | 구조는 고정, 기능은 확장 |
 | Effective Date | 2026-02-26 |
 | Change Tracking | docs/changelog.md |
@@ -110,3 +112,4 @@
 | Date | Summary | References |
 | --- | --- | --- |
 | 2026-02-26 | tactical asset-group 전이예측 계약 신규 추가 | docs/changelog.md |
+| 2026-05-13 | P21로 `group_transition`을 `observability/regime/rotation/`으로 추출, 기존 경로는 shim 유지 | docs/changelog.md |

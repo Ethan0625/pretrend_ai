@@ -1,16 +1,19 @@
 # Axis-Horizon Dependency — Contract (SOT)
 
-> 🔄 **Observability Track 자료 — Phase 1 추출 첫 타깃**
+> 🔄 **Observability Track 자료 — Phase 1 axis_features + axis_horizon_state 추출 완료**
 >
 > 본 문서는 2026Q2 방향 재정의 후 Observability Track의 시장 관측 자료로 재해석됩니다.
 > "투자 의사결정"이 아닌 **"4축 × 3-horizon (Long/Mid/Short) 의존성 관측"** 컨텍스트로 활용됩니다.
-> 코드 모듈(`strategy_engine/axis_features/`, `axis_horizon_state/`)은 **Phase 1 추출 첫 타깃**으로 `observability/regime/axis/`, `observability/regime/horizon/`로 이전됩니다.
+> `axis_features` 코드는 Phase 1 P18에서 `observability/regime/axis/`로 이전 완료되었습니다.
+> 기존 `strategy_engine/axis_features/` import path는 re-export shim으로 backward compat을 유지합니다.
+> `axis_horizon_state` 코드는 Phase 1 P19에서 `observability/regime/horizon/`으로 이전 완료되었습니다.
+> 기존 `strategy_engine/axis_horizon_state/` import path는 re-export shim으로 backward compat을 유지합니다.
 > 참조: [`track_separation.md`](./track_separation.md), [`REFACTOR_2026Q2.md`](../../.agent/REFACTOR_2026Q2.md)
 
 ## Document Status
 | Item | Value |
 | --- | --- |
-| Status | **Active (Observability 자료, Phase 1 추출 첫 타깃)** |
+| Status | **Active (Observability 자료, Phase 1 axis_features + axis_horizon_state 추출 완료 — 2026-05-13)** |
 | Structure Policy | 구조는 고정, 기능은 확장 |
 | Effective Date | 2026-02-13 |
 | Change Tracking | docs/changelog.md |

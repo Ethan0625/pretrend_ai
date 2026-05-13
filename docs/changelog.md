@@ -13,6 +13,81 @@
 
 > 참고: changelog 과거 섹션은 작성 시점 원문을 보존한다.
 
+## v2026.05.13 — P23 완료: Personal Track 테스트 archive 분리
+
+### test(archive): Personal Track 테스트를 default pytest에서 분리
+- `pyproject.toml`에 `testpaths = ["tests"]`, `norecursedirs += ["archive"]`를 추가해 `tests/archive/`를 기본 pytest 수집에서 제외
+- `tests/archive/personal/` 보관소 신설
+- Backtest / Paper / Broker / Personal Strategy Engine / Personal DAG / Telegram bot 테스트를 archive로 이동
+- `tests/test_bot/`도 Personal Track 운영 중단 범위로 판단해 `tests/archive/personal/test_bot/`으로 이동
+- active smoke 보강:
+  - `tests/test_smoke.py`
+  - `tests/observability/regime/position/test_market_position_smoke.py`
+  - `tests/observability/explainability/test_context_smoke.py`
+- 검증:
+  - active default pytest → `315 passed, 3 skipped, 11 warnings`
+  - archive manual pytest → `521 passed, 3 skipped`
+  - 합산 → `836 passed, 6 skipped` (P22 baseline 833 passed + 신규 smoke 3건)
+
+## v2026.05.13 — P22 완료: next_step 추출 + report_context 사전 추출
+
+### refactor(observability/regime/transition): next_step을 strategy_engine에서 추출
+- 5개 파일(`schema`, `engine`, `io`, `history_io`, `__init__`)을 `src/pretrend/observability/regime/transition/`으로 이전
+- 기존 `src/pretrend/pipeline/strategy_engine/next_step/`는 re-export shim으로 변환해 backward compat 유지
+- `engine.py`의 report 렌더링 의존은 신규 `pretrend.observability.explainability` 경로로 갱신
+- 테스트 4개를 `tests/observability/regime/transition/`으로 이전
+
+### refactor(observability/explainability): report_context 계열을 사전 추출
+- `report_context.py`, `report_context_schema.py`, `report_context_localization.py`, `report_context_interpretation.py`, `report_context_formatter.py`를 `src/pretrend/observability/explainability/`로 이전
+- 실제 의존성 확인 결과 `report_analyzer.py`도 `report_context.py`의 직접 의존이어서 함께 `src/pretrend/observability/explainability/analyzer.py`로 이전
+- 기존 `src/pretrend/pipeline/strategy_engine/report_context*.py`, `report_analyzer.py`는 re-export shim으로 유지
+- `test_strategy_engine_dag_report.py`의 monkeypatch target을 신규 explainability 경로로 갱신
+- `test_report_analyzer.py`를 `tests/observability/explainability/`로 이전
+- 신규 위치 테스트 `26 passed`, report DAG 테스트 `47 passed` 확인
+- Observability 코드의 `pretrend.pipeline.strategy_engine` import 0줄 확인
+
+## v2026.05.13 — P21 완료: group_transition 추출 (Phase 1 네 번째 모듈)
+
+### refactor(observability/regime/rotation): group_transition을 strategy_engine에서 추출
+- 5개 파일(`schema`, `engine`, `io`, `history_io`, `__init__`)을 `src/pretrend/observability/regime/rotation/`으로 이전
+- 외부 strategy_engine 의존성 없음 → import 갱신 0
+- 디렉토리 명 변경: 코드 모듈은 `group_transition`, 신규 위치는 `rotation`. 코드 내 심볼 명은 그대로 유지
+- 기존 `src/pretrend/pipeline/strategy_engine/group_transition/`는 re-export shim으로 변환
+- 외부 소비자(`strategy_job.py`, `backtest/runner.py`, `paper/{execution,io}.py`, `strategy_engine/report_context*.py`, 관련 테스트) 수정 0줄
+- 테스트 `test_group_transition_engine.py`를 `tests/observability/regime/rotation/`으로 이전
+- 외부 소비자 테스트 `86 passed`, group_transition 테스트 `4 passed` 확인
+- 전체 회귀 `833 passed, 6 skipped, 11 warnings` 확인
+
+## v2026.05.13 — P20 완료: market_position 추출 (Phase 1 세 번째 모듈)
+
+### refactor(observability/regime/position): market_position을 strategy_engine에서 추출
+- 2개 파일(`schema`, `engine`)을 `src/pretrend/observability/regime/position/`으로 이전
+- `engine.py` 1줄 import 갱신: `..axis_horizon_state.schema` → `..horizon.schema`
+- 기존 `src/pretrend/pipeline/strategy_engine/market_position/`는 re-export shim으로 변환
+- 외부 소비자(`strategy_job.py`, `next_step/engine.py`, `policy_selector/engine.py`, `report_context_interpretation.py`, 관련 테스트) 수정 0줄
+- 별도 market_position 테스트 파일 없음 → 테스트 이전 leaf 생략
+- 외부 소비자 테스트 `70 passed`, 전체 회귀 `833 passed, 6 skipped, 11 warnings` 확인
+
+## v2026.05.13 — P19 완료: axis_horizon_state 추출 (Phase 1 두 번째 모듈)
+
+### refactor(observability/regime/horizon): axis_horizon_state를 strategy_engine에서 추출
+- 5개 파일(`schema`, `long_engine`, `mid_engine`, `short_engine`, `builder`)을 `src/pretrend/observability/regime/horizon/`으로 이전
+- `builder.py` 1줄 import 갱신: `..axis_features.schema` → `pretrend.observability.regime.axis.schema`
+- 기존 `src/pretrend/pipeline/strategy_engine/axis_horizon_state/`는 re-export shim으로 변환
+- Personal Track 소비자(`strategy_job.py`, `backtest/*`, `research/*`, `market_position/engine.py`, `next_step/engine.py`) 수정 0줄
+- 테스트 4개를 `tests/observability/regime/horizon/`으로 이전
+- `test_composer.py`, `test_strategy_job.py`는 shim 통해 그대로 동작
+- 전체 회귀 `833 passed, 6 skipped, 11 warnings` 확인
+
+## v2026.05.13 — P18 완료: axis_features 추출 (Phase 1 첫 타깃)
+
+### refactor(observability/regime/axis): axis_features를 strategy_engine에서 추출
+- 5개 axis 파일(`schema`, `macro_policy`, `price_volatility`, `flow_structure`, `sentiment`)을 `src/pretrend/observability/regime/axis/`로 이전
+- 기존 `src/pretrend/pipeline/strategy_engine/axis_features/`는 re-export shim으로 변환해 backward compat 유지
+- Personal Track 소비자(`strategy_job.py`, `axis_horizon_state/builder.py`) 수정 0줄
+- 테스트를 `tests/observability/regime/axis/test_axis_features.py`로 이전
+- 전체 회귀 `833 passed, 6 skipped, 11 warnings` 확인
+
 ## v2026.05.12 — 2026Q2 방향 재정의: Observability Track 본진화
 
 ### docs(direction): 프로젝트 기준점 재설정

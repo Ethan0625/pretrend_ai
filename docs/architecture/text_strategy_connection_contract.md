@@ -11,14 +11,16 @@
 >
 > 본 문서 본문의 "Strategy Engine 연결" 표현은 **legacy 문맥**으로 읽고, 위 reusable rules만 신규 작업에서 참조합니다.
 >
+> P22(2026-05-13)에서 legacy `report_context_*` / `report_analyzer` 구현은 `src/pretrend/observability/explainability/`로 사전 추출되었습니다. 이는 Phase 3 전체 report layout 계약 완료가 아니라, 기존 report 렌더링 구현의 위치 이동과 shim 유지 범위입니다.
+>
 > 참조: [`track_separation.md`](./track_separation.md), [`REFACTOR_2026Q2.md`](../../.agent/REFACTOR_2026Q2.md)
 
 ## Document Status
 | Item | Value |
 | --- | --- |
-| Status | **Frozen with reusable rules** — 본문 동결, 위 3개 규칙만 Phase 3 차용 예정 |
+| Status | **Frozen with reusable rules** — 본문 동결, 위 3개 규칙만 Phase 3 차용 예정. P22에서 구현 일부(`report_context_*`, `report_analyzer`)만 explainability로 사전 추출 |
 | Effective Date | 2026-03-04 (재분류: 2026-05-12) |
-| Last Updated | 2026-05-12 |
+| Last Updated | 2026-05-13 |
 | Change Tracking | docs/changelog.md |
 
 ## 1. 문서 목적

@@ -1,10 +1,2 @@
-"""Next step signal package."""
-
-from .engine import build_next_step_signal
-from .schema import NEXT_STEP_BIAS_ENUM, NEXT_STEP_SIGNAL_COLUMNS
-
-__all__ = [
-    "build_next_step_signal",
-    "NEXT_STEP_BIAS_ENUM",
-    "NEXT_STEP_SIGNAL_COLUMNS",
-]
+"""Re-export shim - moved to pretrend.observability.regime.transition (P22 / 2026-05-13)."""
+from pretrend.observability.regime.transition import *  # noqa: F401,F403

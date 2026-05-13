@@ -19,8 +19,13 @@ pretrend_ai/
 │   ├── pipeline/             # Infrastructure (공유)
 │   ├── observability/        # Observability Track (신규)
 │   │   ├── regime/
+│   │   │   └── axis/         # axis_features 추출 완료 (P18)
+│   │   │   └── horizon/      # axis_horizon_state 추출 완료 (P19)
+│   │   │   └── position/     # market_position 추출 완료 (P20)
+│   │   │   └── rotation/     # group_transition 추출 완료 (P21)
+│   │   │   └── transition/   # next_step 추출 완료 (P22)
 │   │   ├── similarity/
-│   │   └── explainability/
+│   │   └── explainability/   # report_context / report_analyzer 사전 추출 완료 (P22)
 │   ├── models/               # Observability Track 신규
 │   ├── config.py             # Observability Track 신규
 │   ├── strategy_engine/      # Personal Track (동결)
@@ -46,13 +51,23 @@ pretrend_ai/
 | `src/pretrend/pipeline/ingest/` | Infrastructure | Bronze 수집 | 운영 |
 | `src/pretrend/pipeline/features/` | Infrastructure | Silver/Gold feature | 운영 |
 | `src/pretrend/pipeline/calendar/` | Infrastructure | Release evidence | 운영 |
-| `src/pretrend/observability/regime/` | Observability | 시장 상태 관측 | Phase 1 추출 예정 |
+| `src/pretrend/observability/regime/` | Observability | 시장 상태 관측 | Phase 1 추출 진행 |
+| `src/pretrend/observability/regime/axis/` | Observability | axis_features 관측 지표 | Phase 1 추출 완료 (2026-05-13) |
+| `src/pretrend/observability/regime/horizon/` | Observability | axis_horizon_state 관측 엔진 | Phase 1 추출 완료 (2026-05-13) |
+| `src/pretrend/observability/regime/position/` | Observability | market_position 관측 상태 벡터 | Phase 1 추출 완료 (2026-05-13) |
+| `src/pretrend/observability/regime/rotation/` | Observability | group_transition tactical group rotation 관측 | Phase 1 추출 완료 (2026-05-13). 코드 심볼은 group_transition 유지 |
+| `src/pretrend/observability/regime/transition/` | Observability | next_step 5/10/20/60/120D sojourn / transition hazard 관측 | Phase 1 추출 완료 (2026-05-13). 기존 위치는 shim 유지 |
 | `src/pretrend/observability/similarity/` | Observability | 유사도 비교 | Phase 2 신설 |
-| `src/pretrend/observability/explainability/` | Observability | LLM 설명 layer | Phase 2 신설 |
+| `src/pretrend/observability/explainability/` | Observability | report_context 렌더링 / LLM report analyzer 설명 layer | P22에서 `report_context_*`, `report_analyzer` 사전 추출 완료 (2026-05-13). Phase 3 전체 완료 아님 |
 | `src/pretrend/models/` | Observability | SQLAlchemy + Pydantic | Phase 0 |
 | `src/pretrend/config.py` | Observability | 환경/DB 설정 | Phase 0 |
-| `src/pretrend/strategy_engine/{axis_features, axis_horizon_state, market_position}` | Observability 이전 예정 | 관측 로직 추출 | 동결 → 이전 |
-| `src/pretrend/strategy_engine/{allocation, policy_selector, sell_advisor, universe}` | Personal | 투자 판단 | 동결 |
+| `src/pretrend/pipeline/strategy_engine/axis_features/` | Observability compat shim | 기존 import path backward compat | shim 유지 |
+| `src/pretrend/pipeline/strategy_engine/axis_horizon_state/` | Observability compat shim | 기존 import path backward compat | shim 유지 |
+| `src/pretrend/pipeline/strategy_engine/market_position/` | Observability compat shim | 기존 import path backward compat | shim 유지 |
+| `src/pretrend/pipeline/strategy_engine/group_transition/` | Observability compat shim | 기존 import path backward compat | shim 유지 |
+| `src/pretrend/pipeline/strategy_engine/next_step/` | Observability compat shim | 기존 import path backward compat | shim 유지 |
+| `src/pretrend/pipeline/strategy_engine/report_context*.py`, `report_analyzer.py` | Observability compat shim | 기존 import path backward compat | shim 유지 |
+| `src/pretrend/pipeline/strategy_engine/{allocation, policy_selector, sell_advisor, universe}` | Personal | 투자 판단 | 동결 |
 | `src/pretrend/backtest/` | Personal | 백테스트 | 동결 |
 | `src/pretrend/paper/`, `src/pretrend/broker/` | Personal | 페이퍼/브로커 | 동결 |
 | `apps/api/` | Observability | FastAPI | Phase 2 |
@@ -81,7 +96,12 @@ grep -rn "from pretrend.strategy_engine\|from pretrend.backtest\|from pretrend.p
 - `tests/observability/` (신규) — Observability Track
 - `tests/test_config.py`, `tests/test_models_base.py` — Phase 0 신규
 - 기존 `tests/pipeline/strategy_engine/`, `tests/pipeline/backtest/`, `tests/pipeline/paper/` — Personal Track (동결)
-- Phase 1 추출 시 `tests/pipeline/strategy_engine/test_axis_*`는 `tests/observability/regime/axis/`로 함께 이전한다.
+- `tests/observability/regime/axis/` — axis_features 테스트 (P18 추출 완료)
+- `tests/observability/regime/horizon/` — axis_horizon_state 테스트 (P19 추출 완료)
+- `tests/observability/regime/rotation/` — group_transition 테스트 (P21 추출 완료)
+- `tests/observability/regime/transition/` — next_step 테스트 (P22 추출 완료)
+- `tests/observability/explainability/` — report analyzer 테스트 (P22 사전 추출 완료)
+- Phase 1 후속 추출 시 남은 `tests/pipeline/strategy_engine/test_axis_*`는 해당 Observability 위치로 함께 이전한다.
 
 ## 6. 위치 결정 빠른 가이드
 
@@ -116,3 +136,8 @@ grep -rn "from pretrend.strategy_engine\|from pretrend.backtest\|from pretrend.p
 ## 9. 변경 이력
 
 - 2026-05-12: P17-5로 초안 작성.
+- 2026-05-13: P18로 `axis_features`를 `src/pretrend/observability/regime/axis/`로 추출하고 테스트 위치를 갱신.
+- 2026-05-13: P19로 `axis_horizon_state`를 `src/pretrend/observability/regime/horizon/`으로 추출하고 테스트 위치를 갱신.
+- 2026-05-13: P20으로 `market_position`을 `src/pretrend/observability/regime/position/`으로 추출.
+- 2026-05-13: P21로 `group_transition`을 `src/pretrend/observability/regime/rotation/`으로 추출하고 테스트 위치를 갱신.
+- 2026-05-13: P22로 `next_step`을 `src/pretrend/observability/regime/transition/`으로 추출하고, `report_context_*`/`report_analyzer`를 `src/pretrend/observability/explainability/`로 사전 추출.

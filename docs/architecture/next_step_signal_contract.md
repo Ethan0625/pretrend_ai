@@ -4,13 +4,14 @@
 >
 > 본 문서는 2026Q2 방향 재정의 후 Observability Track의 시장 관측 자료로 재해석됩니다.
 > "매매 신호"가 아닌 **"5/10/20/60/120거래일 sojourn / transition hazard 관측"** 컨텍스트로 활용됩니다.
-> 코드 모듈(`strategy_engine/next_step/`)은 Phase 1에서 `observability/regime/transition/` (가칭) 하위로 이전 검토됩니다.
+> 코드 모듈은 P22(2026-05-13)에서 `observability/regime/transition/` 하위로 이전 완료되었습니다.
+> 기존 `strategy_engine/next_step/` 경로는 backward compatibility re-export shim으로 유지됩니다.
 > 참조: [`track_separation.md`](./track_separation.md), [`REFACTOR_2026Q2.md`](../../.agent/REFACTOR_2026Q2.md)
 
 ## Document Status
 | Item | Value |
 | --- | --- |
-| Status | **Active (Observability 자료, 전이 관측 컨텍스트)** |
+| Status | **Active (Observability 자료, 전이 관측 컨텍스트, Phase 1 추출 완료 — 2026-05-13)** |
 | Structure Policy | 구조는 고정, 기능은 확장 |
 | Effective Date | 2026-02-24 |
 | Change Tracking | docs/changelog.md |

@@ -137,16 +137,16 @@ AI/LLM 기능은 항상 후순위다.
 | 현재 위치 | 분류 | 처리 | 비고 |
 |---|---|---|---|
 | `pipeline/ingest/`, `features/`, `calendar/` | Infrastructure | 위치 유지 (공유) | Medallion 공통 |
-| `strategy_engine/axis_features/` | Observation | `observability/regime/axis/`로 이전 | Phase 1 첫 타깃 |
-| `strategy_engine/axis_horizon_state/{long,mid,short}_engine` | Observation | `observability/regime/horizon/`로 이전 | Phase 1 |
-| `strategy_engine/market_position/` | Observation | `observability/regime/position/`로 이전 | Phase 1 |
-| `strategy_engine/next_step/` | Observation | `observability/regime/transition/` (가칭)로 이전 | Phase 1+ — 5/10/20/60/120D 전이 관측 |
-| `strategy_engine/group_transition/` | Observation | `observability/regime/rotation/` (가칭)로 이전 | Phase 1+ — Tactical group rotation 관측 |
+| `strategy_engine/axis_features/` | Observation | `observability/regime/axis/`로 이전 완료 | Phase 1 첫 타깃, 기존 위치는 shim 유지 |
+| `strategy_engine/axis_horizon_state/{long,mid,short}_engine` | Observation | `observability/regime/horizon/`로 이전 완료 | Phase 1, 기존 위치는 shim 유지 |
+| `strategy_engine/market_position/` | Observation | `observability/regime/position/`로 이전 완료 | Phase 1, 기존 위치는 shim 유지 |
+| `strategy_engine/next_step/` | Observation | `observability/regime/transition/`로 이전 완료 | Phase 1 — 5/10/20/60/120D 전이 관측, 기존 위치는 shim 유지 |
+| `strategy_engine/group_transition/` | Observation | `observability/regime/rotation/`로 이전 완료 | Phase 1 — Tactical group rotation 관측, 기존 위치는 shim 유지 |
 | `strategy_engine/universe/` | Mixed | ETF 정의는 공유, picking은 frozen | 32 ETFs SOT는 Observability 입력, picking 로직만 frozen |
 | `strategy_engine/{allocation, policy_selector, sell_advisor}` | Investment (Frozen) | 위치 유지 | Personal Track 자동매매 의사결정 |
 | `backtest/` | Investment (Frozen) | 위치 유지 | historical replay 필요 시 view만 추가 |
 | `paper/`, `broker/` | Investment (Frozen) | 위치 유지 | 손 안 댐 |
-| `strategy_engine/report_context*`, `report_analyzer` | Mixed | 추후 분리 | observability 측 explainability로 일부 이전 (Phase 3) |
+| `strategy_engine/report_context*`, `report_analyzer` | Mixed → Explainability | `observability/explainability/`로 사전 이전 완료 | P22에서 next_step boundary 해소를 위해 선행. Phase 3 전체 완료 아님, 기존 위치는 shim 유지 |
 
 ### 문서 분류 매트릭스 (`docs/architecture/*`)
 
@@ -271,3 +271,43 @@ production-grade runtime ownership을 위한 운영 항목:
 - 2026-05-12: 초안. Two-Track 분리 결정. Personal Track 동결 + Observability Track 신규 작업 본진.
 - 2026-05-12: Personal Track **운영 중단** 결정 (코드는 보존, 서비스는 정지). Cloud roadmap: Phase 2 Cloudflare Tunnel 도입.
 - 2026-05-12: §4 추출 대상 표 세분화 — strategy 영역 전체 frozen이 아니라 Observation(market_structure/axis/horizon/next_step/group_transition)과 Investment(allocation/policy/sell/picking)를 분리. next_step, group_transition 모듈 추가. 문서 분류 매트릭스 추가.
+- 2026-05-13: P23으로 Personal Track 테스트를 `tests/archive/personal/`로 이동하고, default pytest surface에서 archive를 제외.
+
+---
+
+## 11. Test Surface 운영 정책
+
+### 11.1 Active Surface
+
+기본 pytest(`conda run -n pytest-pretrend pytest -q --tb=short`)는 active surface만 검증한다.
+
+- 포함:
+  - `tests/observability/`
+  - `tests/pipeline/`의 Infrastructure 및 active Mixed 잔여 테스트
+  - `tests/dags/`의 active 잔여 테스트
+  - `tests/test_*.py`
+- 제외:
+  - `tests/archive/`
+  - Personal Track frozen 테스트(`tests/archive/personal/`로 이동)
+
+### 11.2 Archive Surface
+
+`tests/archive/personal/`은 Personal Track frozen 자산의 회귀 검증 보관소다.
+
+- 포함:
+  - Backtest / Paper / Broker 테스트
+  - Personal Strategy Engine 테스트
+  - Personal DAG 테스트
+  - Telegram bot / task store / policy engine 테스트
+- 기본 pytest에서는 제외한다.
+- 필요 시 명시적으로 실행한다:
+
+```bash
+conda run -n pytest-pretrend pytest tests/archive/personal/ -q --tb=short
+```
+
+### 11.3 실행 책임
+
+- Observability / Infrastructure 작업: active surface 기본 pytest 실행.
+- Personal Track frozen 영역 변경: archive surface 수동 pytest를 함께 실행.
+- Personal Track은 신규 기능 추가 금지 상태이므로 archive 테스트는 삭제하지 않고 보존한다.
