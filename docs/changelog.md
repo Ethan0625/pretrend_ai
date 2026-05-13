@@ -13,6 +13,15 @@
 
 > 참고: changelog 과거 섹션은 작성 시점 원문을 보존한다.
 
+## v2026.05.13 — P24 완료: Gold Postgres schema 도입
+
+### feat(observability): Gold-only Postgres mirror schema 추가
+- `docs/architecture/gold_postgres_schema.md` 신설: `gold_macro_features`, `gold_eod_features` 컬럼/PK/nullability/hypertable/index 명세
+- SQLAlchemy 모델 2개 추가: `GoldMacroFeature`, `GoldEodFeature`
+- Alembic revision `0002` 추가: 두 Gold 테이블, TimescaleDB hypertable, BRIN/B-tree index 생성
+- Macro는 Parquet contract와 맞춰 lineage 컬럼을 추가하지 않고, EOD lineage(`run_id_gold`, `ingestion_ts_gold`)만 mirror
+- 데이터 적재/sync DAG는 P25 범위로 분리
+
 ## v2026.05.13 — P23 완료: Personal Track 테스트 archive 분리
 
 ### test(archive): Personal Track 테스트를 default pytest에서 분리

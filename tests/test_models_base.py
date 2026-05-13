@@ -11,9 +11,11 @@ def test_models_package_imports_base_types() -> None:
     assert BaseSchema is not None
 
 
-def test_base_exposes_empty_metadata() -> None:
+def test_base_exposes_gold_metadata() -> None:
     assert isinstance(Base.metadata, MetaData)
-    assert Base.metadata.tables == {}
+    assert {"gold_macro_features", "gold_eod_features"}.issubset(
+        Base.metadata.tables.keys()
+    )
 
 
 def test_base_schema_supports_model_dump() -> None:

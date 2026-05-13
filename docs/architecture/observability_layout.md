@@ -59,8 +59,10 @@ pretrend_ai/
 | `src/pretrend/observability/regime/transition/` | Observability | next_step 5/10/20/60/120D sojourn / transition hazard 관측 | Phase 1 추출 완료 (2026-05-13). 기존 위치는 shim 유지 |
 | `src/pretrend/observability/similarity/` | Observability | 유사도 비교 | Phase 2 신설 |
 | `src/pretrend/observability/explainability/` | Observability | report_context 렌더링 / LLM report analyzer 설명 layer | P22에서 `report_context_*`, `report_analyzer` 사전 추출 완료 (2026-05-13). Phase 3 전체 완료 아님 |
-| `src/pretrend/models/` | Observability | SQLAlchemy + Pydantic | Phase 0 |
+| `src/pretrend/models/` | Observability | SQLAlchemy + Pydantic | Phase 2 — Gold mirror (P24 완료) |
 | `src/pretrend/config.py` | Observability | 환경/DB 설정 | Phase 0 |
+| `postgres:gold_macro_features` | Observability | Gold Macro Postgres + TimescaleDB hypertable mirror | Phase 2 — P24 완료 |
+| `postgres:gold_eod_features` | Observability | Gold EOD Postgres + TimescaleDB hypertable mirror | Phase 2 — P24 완료 |
 | `src/pretrend/pipeline/strategy_engine/axis_features/` | Observability compat shim | 기존 import path backward compat | shim 유지 |
 | `src/pretrend/pipeline/strategy_engine/axis_horizon_state/` | Observability compat shim | 기존 import path backward compat | shim 유지 |
 | `src/pretrend/pipeline/strategy_engine/market_position/` | Observability compat shim | 기존 import path backward compat | shim 유지 |
@@ -72,7 +74,7 @@ pretrend_ai/
 | `src/pretrend/paper/`, `src/pretrend/broker/` | Personal | 페이퍼/브로커 | 동결 |
 | `apps/api/` | Observability | FastAPI | Phase 2 |
 | `apps/web/` | Observability | React Dashboard | Phase 3 |
-| `migrations/` | Observability | Alembic | Phase 0 |
+| `migrations/` | Observability | Alembic | Phase 2 — Gold schema revision 0002 (P24 완료) |
 | `dags/paper_trading_dag.py`, `dags/broker_mock_trading_dag.py` | Personal | 페이퍼/모의 거래 DAG | 동결 |
 | `dags/macro_pipeline_dag.py`, `dags/eod_pipeline_dag.py` | Infrastructure | 데이터 수집 DAG | 운영 |
 | `dags/strategy_engine_dag.py` | Personal | Strategy snapshot DAG | 동결 |
@@ -141,3 +143,4 @@ grep -rn "from pretrend.strategy_engine\|from pretrend.backtest\|from pretrend.p
 - 2026-05-13: P20으로 `market_position`을 `src/pretrend/observability/regime/position/`으로 추출.
 - 2026-05-13: P21로 `group_transition`을 `src/pretrend/observability/regime/rotation/`으로 추출하고 테스트 위치를 갱신.
 - 2026-05-13: P22로 `next_step`을 `src/pretrend/observability/regime/transition/`으로 추출하고, `report_context_*`/`report_analyzer`를 `src/pretrend/observability/explainability/`로 사전 추출.
+- 2026-05-13: P24로 Gold layer Postgres mirror schema(`gold_macro_features`, `gold_eod_features`)와 SQLAlchemy 모델/Alembic revision 0002를 도입.
