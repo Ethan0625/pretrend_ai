@@ -120,4 +120,3 @@ result/
 src/bot/
 tests/test_bot/
 state/
-conftest.py
