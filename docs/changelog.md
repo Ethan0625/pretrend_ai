@@ -13,6 +13,18 @@
 
 > 참고: changelog 과거 섹션은 작성 시점 원문을 보존한다.
 
+## v2026.05.14 — P26 완료: Observability similarity 도입
+
+### feat(observability/similarity): multi-view historical similarity 기반 구축
+- `docs/architecture/similarity_design.md` 신설: regime view와 gold view를 분리 계산하는 multi-view similarity SOT
+- Alembic revision `0003` 추가: `gold_market_state_similarity_feature`, `similarity_regime`, `similarity_gold` 테이블 및 SQLAlchemy 모델 도입
+- `src/pretrend/observability/similarity/` 신설: canonical market-state feature producer, SQL feature loader, cosine Top-N builder, runtime source 연결
+- similarity 정책: view별 독립 cosine, z-score 정규화, Top-N=100, min_gap=30일, `UNKNOWN`/missing은 `NULL` 저장 후 계산 시 0 기여
+- `dags/similarity_build_dag.py` 추가: 12:00 KST 독립 스케줄, regime/gold similarity build task 병렬 실행
+- historical backfill: `gold_market_state_similarity_feature` `2003-11-07 ~ 2026-05-12` 적재, `similarity_regime`/`similarity_gold` row 생성 검증
+- `what_to_hold` historical backfill 추가: 기존 시작일 `2009-03-09`를 `2006-02-01`까지 보강하고 초기 rotation feature 결측 일부 완화
+- 검증: similarity tests `12 passed, 7 skipped`, active pytest `363 passed, 19 skipped, 11 warnings`
+
 ## v2026.05.13 — P25 완료: Gold Postgres sync DAG 도입
 
 ### feat(observability): Parquet Gold to Postgres mirror sync 추가

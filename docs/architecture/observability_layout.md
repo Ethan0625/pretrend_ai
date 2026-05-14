@@ -58,12 +58,15 @@ pretrend_ai/
 | `src/pretrend/observability/regime/position/` | Observability | market_position 관측 상태 벡터 | Phase 1 추출 완료 (2026-05-13) |
 | `src/pretrend/observability/regime/rotation/` | Observability | group_transition tactical group rotation 관측 | Phase 1 추출 완료 (2026-05-13). 코드 심볼은 group_transition 유지 |
 | `src/pretrend/observability/regime/transition/` | Observability | next_step 5/10/20/60/120D sojourn / transition hazard 관측 | Phase 1 추출 완료 (2026-05-13). 기존 위치는 shim 유지 |
-| `src/pretrend/observability/similarity/` | Observability | 유사도 비교 | Phase 2 신설 |
+| `src/pretrend/observability/similarity/` | Observability | multi-view market structure similarity (regime view + gold view) | Phase 2 — P26 완료 |
 | `src/pretrend/observability/explainability/` | Observability | report_context 렌더링 / LLM report analyzer 설명 layer | P22에서 `report_context_*`, `report_analyzer` 사전 추출 완료 (2026-05-13). Phase 3 전체 완료 아님 |
 | `src/pretrend/models/` | Observability | SQLAlchemy + Pydantic | Phase 2 — Gold mirror (P24 완료) |
 | `src/pretrend/config.py` | Observability | 환경/DB 설정 | Phase 0 |
 | `postgres:gold_macro_features` | Observability | Gold Macro Postgres + TimescaleDB hypertable mirror | Phase 2 — P24 완료 |
 | `postgres:gold_eod_features` | Observability | Gold EOD Postgres + TimescaleDB hypertable mirror | Phase 2 — P24 완료 |
+| `postgres:gold_market_state_similarity_feature` | Observability | regime similarity canonical fixed-width feature table | Phase 2 — P26 완료 |
+| `postgres:similarity_regime` | Observability | regime view historical similarity Top-N 결과 | Phase 2 — P26 완료 |
+| `postgres:similarity_gold` | Observability | gold view historical similarity Top-N 결과 | Phase 2 — P26 완료 |
 | `src/pretrend/pipeline/strategy_engine/axis_features/` | Observability compat shim | 기존 import path backward compat | shim 유지 |
 | `src/pretrend/pipeline/strategy_engine/axis_horizon_state/` | Observability compat shim | 기존 import path backward compat | shim 유지 |
 | `src/pretrend/pipeline/strategy_engine/market_position/` | Observability compat shim | 기존 import path backward compat | shim 유지 |
@@ -79,6 +82,7 @@ pretrend_ai/
 | `dags/paper_trading_dag.py`, `dags/broker_mock_trading_dag.py` | Personal | 페이퍼/모의 거래 DAG | 동결 |
 | `dags/macro_pipeline_dag.py`, `dags/eod_pipeline_dag.py` | Infrastructure | 데이터 수집 DAG | 운영 |
 | `dags/gold_postgres_sync_dag.py` | Observability | Postgres mirror sync DAG (11:00 KST) | Phase 2 — P25 완료 |
+| `dags/similarity_build_dag.py` | Observability | Similarity build DAG (12:00 KST) | Phase 2 — P26 완료 |
 | `dags/strategy_engine_dag.py` | Personal | Strategy snapshot DAG | 동결 |
 
 ## 4. Import 규칙
@@ -105,6 +109,7 @@ grep -rn "from pretrend.strategy_engine\|from pretrend.backtest\|from pretrend.p
 - `tests/observability/regime/rotation/` — group_transition 테스트 (P21 추출 완료)
 - `tests/observability/regime/transition/` — next_step 테스트 (P22 추출 완료)
 - `tests/observability/explainability/` — report analyzer 테스트 (P22 사전 추출 완료)
+- `tests/observability/similarity/` — multi-view similarity / canonical feature / backfill 테스트 (P26 완료)
 - Phase 1 후속 추출 시 남은 `tests/pipeline/strategy_engine/test_axis_*`는 해당 Observability 위치로 함께 이전한다.
 
 ## 6. 위치 결정 빠른 가이드
@@ -147,3 +152,4 @@ grep -rn "from pretrend.strategy_engine\|from pretrend.backtest\|from pretrend.p
 - 2026-05-13: P22로 `next_step`을 `src/pretrend/observability/regime/transition/`으로 추출하고, `report_context_*`/`report_analyzer`를 `src/pretrend/observability/explainability/`로 사전 추출.
 - 2026-05-13: P24로 Gold layer Postgres mirror schema(`gold_macro_features`, `gold_eod_features`)와 SQLAlchemy 모델/Alembic revision 0002를 도입.
 - 2026-05-13: P25로 Gold Parquet → Postgres mirror sync runner와 `gold_postgres_sync_dag`를 도입.
+- 2026-05-14: P26으로 `src/pretrend/observability/similarity/`, similarity Postgres schema, canonical market-state feature producer, `similarity_build_dag`, historical `what_to_hold` backfill을 도입.
