@@ -45,7 +45,7 @@ def test_generate_report_via_analyzer_creates_session_and_summary(
     db_path = tmp_path / "orchestrator.db"
     monkeypatch.setenv("PRETREND_STATE_DB", str(db_path))
     monkeypatch.setattr(
-        "pretrend.observability.explainability.analyzer._require_codex_bin",
+        "pretrend.observability.explainability.legacy_report.analyzer._require_codex_bin",
         lambda: Path("/tmp/fake-codex"),
     )
 
@@ -56,7 +56,7 @@ def test_generate_report_via_analyzer_creates_session_and_summary(
         )
 
     monkeypatch.setattr(
-        "pretrend.observability.explainability.analyzer._run_codex_output_command",
+        "pretrend.observability.explainability.legacy_report.analyzer._run_codex_output_command",
         _fake_run,
     )
 
@@ -96,7 +96,7 @@ def test_generate_report_via_analyzer_reuses_active_session(
     db_path = tmp_path / "orchestrator.db"
     monkeypatch.setenv("PRETREND_STATE_DB", str(db_path))
     monkeypatch.setattr(
-        "pretrend.observability.explainability.analyzer._require_codex_bin",
+        "pretrend.observability.explainability.legacy_report.analyzer._require_codex_bin",
         lambda: Path("/tmp/fake-codex"),
     )
 
@@ -113,7 +113,7 @@ def test_generate_report_via_analyzer_reuses_active_session(
         )
 
     monkeypatch.setattr(
-        "pretrend.observability.explainability.analyzer._run_codex_output_command",
+        "pretrend.observability.explainability.legacy_report.analyzer._run_codex_output_command",
         _fake_run,
     )
 
@@ -140,7 +140,7 @@ def test_generate_report_via_analyzer_includes_report_memory_context(
     db_path = tmp_path / "orchestrator.db"
     monkeypatch.setenv("PRETREND_STATE_DB", str(db_path))
     monkeypatch.setattr(
-        "pretrend.observability.explainability.analyzer._require_codex_bin",
+        "pretrend.observability.explainability.legacy_report.analyzer._require_codex_bin",
         lambda: Path("/tmp/fake-codex"),
     )
     init_db(db_path)
@@ -173,7 +173,7 @@ def test_generate_report_via_analyzer_includes_report_memory_context(
         )
 
     monkeypatch.setattr(
-        "pretrend.observability.explainability.analyzer._run_codex_output_command",
+        "pretrend.observability.explainability.legacy_report.analyzer._run_codex_output_command",
         _fake_run,
     )
 
@@ -198,7 +198,7 @@ def test_generate_report_via_analyzer_updates_report_working_state_rich_fields(
     db_path = tmp_path / "orchestrator.db"
     monkeypatch.setenv("PRETREND_STATE_DB", str(db_path))
     monkeypatch.setattr(
-        "pretrend.observability.explainability.analyzer._require_codex_bin",
+        "pretrend.observability.explainability.legacy_report.analyzer._require_codex_bin",
         lambda: Path("/tmp/fake-codex"),
     )
 
@@ -209,7 +209,7 @@ def test_generate_report_via_analyzer_updates_report_working_state_rich_fields(
         )
 
     monkeypatch.setattr(
-        "pretrend.observability.explainability.analyzer._run_codex_output_command",
+        "pretrend.observability.explainability.legacy_report.analyzer._run_codex_output_command",
         _fake_run,
     )
 
@@ -239,7 +239,7 @@ def test_generate_report_via_analyzer_has_no_default_timeout(monkeypatch, tmp_pa
     monkeypatch.setenv("PRETREND_STATE_DB", str(db_path))
     monkeypatch.delenv("REPORT_ANALYZER_TIMEOUT", raising=False)
     monkeypatch.setattr(
-        "pretrend.observability.explainability.analyzer._require_codex_bin",
+        "pretrend.observability.explainability.legacy_report.analyzer._require_codex_bin",
         lambda: Path("/tmp/fake-codex"),
     )
 
@@ -253,7 +253,7 @@ def test_generate_report_via_analyzer_has_no_default_timeout(monkeypatch, tmp_pa
         )
 
     monkeypatch.setattr(
-        "pretrend.observability.explainability.analyzer._run_codex_output_command",
+        "pretrend.observability.explainability.legacy_report.analyzer._run_codex_output_command",
         _fake_run,
     )
 

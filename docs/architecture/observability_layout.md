@@ -25,7 +25,7 @@ pretrend_ai/
 │   │   │   └── rotation/     # group_transition 추출 완료 (P21)
 │   │   │   └── transition/   # next_step 추출 완료 (P22)
 │   │   ├── similarity/
-│   │   └── explainability/   # report_context / report_analyzer 사전 추출 완료 (P22)
+│   │   └── explainability/   # legacy report + LLM explainability layer (P22/P27)
 │   ├── models/               # Observability Track 신규
 │   ├── config.py             # Observability Track 신규
 │   ├── strategy_engine/      # Personal Track (동결)
@@ -59,7 +59,10 @@ pretrend_ai/
 | `src/pretrend/observability/regime/rotation/` | Observability | group_transition tactical group rotation 관측 | Phase 1 추출 완료 (2026-05-13). 코드 심볼은 group_transition 유지 |
 | `src/pretrend/observability/regime/transition/` | Observability | next_step 5/10/20/60/120D sojourn / transition hazard 관측 | Phase 1 추출 완료 (2026-05-13). 기존 위치는 shim 유지 |
 | `src/pretrend/observability/similarity/` | Observability | multi-view market structure similarity (regime view + gold view) | Phase 2 — P26 완료 |
-| `src/pretrend/observability/explainability/` | Observability | report_context 렌더링 / LLM report analyzer 설명 layer | P22에서 `report_context_*`, `report_analyzer` 사전 추출 완료 (2026-05-13). Phase 3 전체 완료 아님 |
+| `src/pretrend/observability/explainability/legacy_report/` | Observability legacy | legacy Telegram bot report_context / report analyzer 경로 | P22 사전 추출, P27-0 package split 완료. root 파일은 shim 유지 |
+| `src/pretrend/observability/explainability/llm_client.py` | Observability | LLM provider 추상화 (`VSCodeCodexProvider`) + invariant filter | Phase 2 — P27 완료 |
+| `src/pretrend/observability/explainability/{similarity,regime,macro}_explainer.py` | Observability | similarity / regime / macro 3 use case 설명 report builder | Phase 2 — P27 완료 |
+| `src/pretrend/observability/explainability/cache.py` | Observability | `explainability_cache` lookup / UPSERT / invalidate | Phase 2 — P27 완료 |
 | `src/pretrend/models/` | Observability | SQLAlchemy + Pydantic | Phase 2 — Gold mirror (P24 완료) |
 | `src/pretrend/config.py` | Observability | 환경/DB 설정 | Phase 0 |
 | `postgres:gold_macro_features` | Observability | Gold Macro Postgres + TimescaleDB hypertable mirror | Phase 2 — P24 완료 |
@@ -67,6 +70,7 @@ pretrend_ai/
 | `postgres:gold_market_state_similarity_feature` | Observability | regime similarity canonical fixed-width feature table | Phase 2 — P26 완료 |
 | `postgres:similarity_regime` | Observability | regime view historical similarity Top-N 결과 | Phase 2 — P26 완료 |
 | `postgres:similarity_gold` | Observability | gold view historical similarity Top-N 결과 | Phase 2 — P26 완료 |
+| `postgres:explainability_cache` | Observability | similarity/regime/macro LLM 설명 JSON cache | Phase 2 — P27 완료 |
 | `src/pretrend/pipeline/strategy_engine/axis_features/` | Observability compat shim | 기존 import path backward compat | shim 유지 |
 | `src/pretrend/pipeline/strategy_engine/axis_horizon_state/` | Observability compat shim | 기존 import path backward compat | shim 유지 |
 | `src/pretrend/pipeline/strategy_engine/market_position/` | Observability compat shim | 기존 import path backward compat | shim 유지 |
@@ -83,6 +87,7 @@ pretrend_ai/
 | `dags/macro_pipeline_dag.py`, `dags/eod_pipeline_dag.py` | Infrastructure | 데이터 수집 DAG | 운영 |
 | `dags/gold_postgres_sync_dag.py` | Observability | Postgres mirror sync DAG (11:00 KST) | Phase 2 — P25 완료 |
 | `dags/similarity_build_dag.py` | Observability | Similarity build DAG (12:00 KST) | Phase 2 — P26 완료 |
+| `dags/explainability_build_dag.py` | Observability | Explainability build DAG (13:00 KST) | Phase 2 — P27 완료 |
 | `dags/strategy_engine_dag.py` | Personal | Strategy snapshot DAG | 동결 |
 
 ## 4. Import 규칙
@@ -108,7 +113,7 @@ grep -rn "from pretrend.strategy_engine\|from pretrend.backtest\|from pretrend.p
 - `tests/observability/regime/horizon/` — axis_horizon_state 테스트 (P19 추출 완료)
 - `tests/observability/regime/rotation/` — group_transition 테스트 (P21 추출 완료)
 - `tests/observability/regime/transition/` — next_step 테스트 (P22 추출 완료)
-- `tests/observability/explainability/` — report analyzer 테스트 (P22 사전 추출 완료)
+- `tests/observability/explainability/` — legacy report analyzer + P27 LLM explainability 테스트
 - `tests/observability/similarity/` — multi-view similarity / canonical feature / backfill 테스트 (P26 완료)
 - Phase 1 후속 추출 시 남은 `tests/pipeline/strategy_engine/test_axis_*`는 해당 Observability 위치로 함께 이전한다.
 
@@ -153,3 +158,4 @@ grep -rn "from pretrend.strategy_engine\|from pretrend.backtest\|from pretrend.p
 - 2026-05-13: P24로 Gold layer Postgres mirror schema(`gold_macro_features`, `gold_eod_features`)와 SQLAlchemy 모델/Alembic revision 0002를 도입.
 - 2026-05-13: P25로 Gold Parquet → Postgres mirror sync runner와 `gold_postgres_sync_dag`를 도입.
 - 2026-05-14: P26으로 `src/pretrend/observability/similarity/`, similarity Postgres schema, canonical market-state feature producer, `similarity_build_dag`, historical `what_to_hold` backfill을 도입.
+- 2026-05-14: P27로 `src/pretrend/observability/explainability/` LLM layer, `explainability_cache`, `explainability_build_dag`를 도입.

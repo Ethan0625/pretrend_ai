@@ -1,4 +1,5 @@
 from pretrend.models.base import Base, BaseSchema
+from pretrend.models.explainability_cache import ExplainabilityCache
 from pretrend.models.gold_market_state_similarity_feature import (
     GoldMarketStateSimilarityFeature,
 )
@@ -10,6 +11,7 @@ from pretrend.models.similarity_regime import SimilarityRegime
 __all__ = [
     "Base",
     "BaseSchema",
+    "ExplainabilityCache",
     "GoldEodFeature",
     "GoldMacroFeature",
     "GoldMarketStateSimilarityFeature",

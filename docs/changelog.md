@@ -13,6 +13,16 @@
 
 > 참고: changelog 과거 섹션은 작성 시점 원문을 보존한다.
 
+## v2026.05.14 — P27 완료: Observability explainability LLM layer 도입
+
+### feat(observability/explainability): similarity / regime / macro 설명 layer 구축
+- `docs/architecture/explainability_design.md` 신설: LLM provider boundary, 3 use case report schema, prompt 정책, 관측 전용 invariant SOT
+- legacy Telegram report 코드를 `src/pretrend/observability/explainability/legacy_report/`로 분리하고 root shim 유지
+- Alembic revision `0004` 추가: `explainability_cache` 테이블과 SQLAlchemy 모델 도입
+- `VSCodeCodexProvider` 기반 LLM client, 3 explainer, cache I/O, invariant filter 구현
+- `dags/explainability_build_dag.py` 추가: 13:00 KST 독립 스케줄, similarity / regime / macro task 병렬 실행
+- 검증: mock provider cache 생성 4 use case 각각 1 row, 멱등 재실행 row 변동 0, active pytest `391 passed, 32 skipped, 11 warnings`
+
 ## v2026.05.14 — P26 완료: Observability similarity 도입
 
 ### feat(observability/similarity): multi-view historical similarity 기반 구축
