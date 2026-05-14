@@ -12,7 +12,6 @@ from pretrend.observability.explainability.macro_explainer import (
     PROMPT_VERSION,
     explain_macro,
 )
-from tests.observability.explainability.test_cache import clean_cache, pg_engine
 
 
 class FakeProvider:

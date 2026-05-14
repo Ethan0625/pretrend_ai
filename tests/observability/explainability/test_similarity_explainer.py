@@ -12,7 +12,6 @@ from pretrend.observability.explainability.similarity_explainer import (
     PROMPT_VERSION,
     explain_similarity,
 )
-from tests.observability.explainability.test_cache import clean_cache, pg_engine
 
 
 class FakeProvider:
