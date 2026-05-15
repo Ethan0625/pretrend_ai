@@ -1,5 +1,8 @@
 # Group Transition Signal — Contract (SOT)
 
+Markers: architecture, contract
+Status: active
+
 > 🔄 **Observability Track 자료 — "Tactical group 전환 관측" 컨텍스트로 재해석 (Phase 1 추출 완료 — 2026-05-13)**
 >
 > 본 문서는 2026Q2 방향 재정의 후 Observability Track의 시장 관측 자료로 재해석됩니다.

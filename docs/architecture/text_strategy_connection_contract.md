@@ -1,5 +1,8 @@
 # Text Strategy Connection — Contract (SOT, Frozen with reusable rules)
 
+Markers: architecture, contract, legacy
+Status: legacy
+
 > 🔒 **Frozen with reusable rules — 본 문서 자체는 동결, 일부 규칙은 Phase 3에서 추출 예정**
 >
 > 본 문서가 정의하는 "텍스트 → Strategy Engine 연결"은 Personal Track 매매 의사결정 영역에 속하므로 **동결 (2026-05-12~ 운영 중단)** 상태입니다. 본 문서의 본문 그대로 사용하지 않습니다.

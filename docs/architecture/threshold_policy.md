@@ -1,5 +1,8 @@
 # Long Engine z-score Threshold 가변화 정책 — 설계 문서 (v2)
 
+Markers: architecture, contract
+Status: reference
+
 > 🔄 **Observability Track 자료 — Regime 분류 임계값 정책**
 >
 > 본 문서는 2026Q2 방향 재정의 후 Observability Track의 regime 관측 자료로 재해석됩니다.

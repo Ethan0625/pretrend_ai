@@ -1,5 +1,8 @@
 # Walk-Forward Validation — Contract (SOT)
 
+Markers: architecture, contract
+Status: active
+
 > 🔄 **Observability Track 자료 — "구간별 관측 검증 도구" 컨텍스트로 재해석**
 >
 > 본 문서는 2026Q2 방향 재정의 후 Observability Track의 검증 자료로 재해석됩니다.

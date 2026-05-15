@@ -1,5 +1,8 @@
 # Gold Postgres Schema Contract
 
+Markers: architecture, contract
+Status: active
+
 ## 1. 목적 / 범위
 
 본 문서는 Gold Parquet layer를 SQL 조회 surface로 mirror하기 위한 Postgres + TimescaleDB schema 계약이다.

@@ -1,5 +1,8 @@
 # Text Observability — Contract (SOT)
 
+Markers: architecture, contract
+Status: active
+
 > 🔄 **Observability Track 자산 — 이름 그대로 observability**
 >
 > 본 문서는 2026Q2 방향 재정의 후 Observability Track의 핵심 자료로 그대로 유효합니다.

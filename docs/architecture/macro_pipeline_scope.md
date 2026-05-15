@@ -1,3 +1,6 @@
+Markers: architecture, contract
+Status: active
+
 v2026.03.12 (재분류: 2026-05-12)
 
 # macro_pipeline_dag Scope

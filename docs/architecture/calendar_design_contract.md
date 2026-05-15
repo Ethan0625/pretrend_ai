@@ -1,5 +1,8 @@
 # Calendar Pipeline v1 — Design Contract (문서 전용)
 
+Markers: architecture, contract
+Status: active
+
 > 🟢 **Infrastructure (공유) — 두 트랙 공통 자산**
 >
 > Calendar evidence는 Bronze/Silver/Gold 레이어의 PIT 정합성을 보장하는 Infrastructure 자산이며, Observability Track / Personal Track 양쪽이 read-only로 소비합니다.

@@ -1,5 +1,8 @@
 # Pretrend AI System Overview
 
+Markers: architecture, operation
+Status: active
+
 ## 1. 한 줄 요약
 
 Pretrend AI is a Market Structure Observability Runtime: a local system that turns PIT-safe macro and market features into regime, historical similarity, explanation, and read-only API views.
@@ -37,6 +40,7 @@ Primary references:
 | Phase 1 | Done | Regime observation modules extracted under `src/pretrend/observability/regime/` with compatibility shims. |
 | Phase 2 | Done | Gold Postgres mirror, sync DAG, similarity, explainability, FastAPI read-only API. |
 | P29 Stage Gate | Done | Code audit, operations audit, architecture docs, legacy consolidation, final checklist. |
+| P30 Runtime Preflight | Pending | Reproducible Docker runtime, DB volume/restore contract, dev/test image, agent docs publication safety. |
 | Phase 3 | Pending | React dashboard can start with P29 hotfix backlog tracked separately. |
 | Cloudflare Tunnel | Deferred | Only after local dashboard E2E is validated. |
 
@@ -131,8 +135,9 @@ Read in this order:
 4. [docs/architecture/boundary_contract.md](architecture/boundary_contract.md), for dependency and frozen-track boundaries.
 5. [docs/api/observability_api_contract.md](api/observability_api_contract.md), for API client work.
 6. [docs/testing/operational_invariant_test_contract.md](testing/operational_invariant_test_contract.md), for test markers and invariant checks.
-7. [docs/architecture/track_separation.md](architecture/track_separation.md), for the Two-Track decision.
-8. Area SOTs:
+7. [docs/operation/reproducible_runtime_contract.md](operation/reproducible_runtime_contract.md), for Docker runtime, DB volume, backup/restore, and new-machine verification.
+8. [docs/architecture/track_separation.md](architecture/track_separation.md), for the Two-Track decision.
+9. Area SOTs:
    - [docs/architecture/gold_postgres_schema.md](architecture/gold_postgres_schema.md)
    - [docs/architecture/gold_postgres_sync.md](architecture/gold_postgres_sync.md)
    - [docs/architecture/similarity_design.md](architecture/similarity_design.md)

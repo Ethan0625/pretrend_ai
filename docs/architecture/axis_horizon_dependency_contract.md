@@ -1,5 +1,8 @@
 # Axis-Horizon Dependency — Contract (SOT)
 
+Markers: architecture, contract
+Status: active
+
 > 🔄 **Observability Track 자료 — Phase 1 axis_features + axis_horizon_state 추출 완료**
 >
 > 본 문서는 2026Q2 방향 재정의 후 Observability Track의 시장 관측 자료로 재해석됩니다.

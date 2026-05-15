@@ -1,5 +1,8 @@
 # Market Structure Long-Term Phase — Contract (SOT)
 
+Markers: architecture, contract
+Status: active
+
 > 🔄 **Observability Track 자료 — "시장 구조 관측" 컨텍스트로 재해석**
 >
 > 본 문서는 2026Q2 방향 재정의 후 Observability Track의 시장 관측 자료로 재해석됩니다.

@@ -106,10 +106,27 @@ src/pretrend/**/debug_*.py
 scripts
 airflow_pretrend*
 
-# --- agent ---
-.agent
-CLAUDE.md
-AGENTS.md
+# --- agent docs publication whitelist ---
+.agent/*
+!.agent/
+!.agent/README.md
+!.agent/STABLE_CONTEXT.md
+!.agent/INVARIANTS.md
+!.agent/WORKFLOW.md
+!.agent/CHANGE_GATES.md
+!.agent/TASK_QUEUE.md
+!.agent/TASK_TEMPLATE.md
+!.agent/PARENTS_TASK_TEMPLATE.md
+!.agent/task/
+.agent/task/*
+!.agent/task/P30_parent_reproducible_runtime.md
+!.agent/task/P30-0_formalize_runtime_contract.md
+!.agent/task/P30-1_runtime_volume_contract.md
+!.agent/task/P30-2_docker_build_test_runtime.md
+!.agent/task/P30-3_data_bootstrap_db_restore_contract.md
+!.agent/task/P30-4_reproducibility_verification.md
+!.agent/task/P30-5_agent_docs_publication_safety.md
+!.agent/task/P30-6_docs_marker_classification.md
 
 # --- 백테스트 결과 (로컬 전용, 대용량) ---
 result/

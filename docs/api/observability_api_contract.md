@@ -1,5 +1,8 @@
 # Observability API Contract
 
+Markers: contract, architecture
+Status: active
+
 ## 1. API Purpose
 
 The Observability API is the read-only runtime interface between Postgres serving tables and the Phase 3 dashboard.

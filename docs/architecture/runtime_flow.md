@@ -1,5 +1,8 @@
 # Runtime Flow
 
+Markers: architecture, contract
+Status: active
+
 ## 1. Daily Runtime Order
 
 The Phase 2 runtime is a local, scheduled pipeline that produces read-only API data for a future dashboard.

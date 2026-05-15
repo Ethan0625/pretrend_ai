@@ -1,5 +1,8 @@
 # Boundary Contract
 
+Markers: architecture, contract
+Status: active
+
 ## 1. Track Classification
 
 This document is the dependency boundary contract for the 2026Q2 two-track architecture.

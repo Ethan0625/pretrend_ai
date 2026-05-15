@@ -1,5 +1,8 @@
 # Policy Config — Contract (SOT)
 
+Markers: architecture, contract, legacy
+Status: legacy
+
 > 🔒 **Personal Track (Frozen) — 자동매매·자산배분 정책 영역**
 >
 > 본 문서는 2026Q2 방향 재정의에 따라 Personal Track으로 분류되어 동결 상태입니다.

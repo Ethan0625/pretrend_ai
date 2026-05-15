@@ -83,6 +83,103 @@ Strategy Engine : Gold read-only consumer for WHAT / EXPOSURE / SELL
 - **Observability and validation**: lineage, evidence columns, contract tests로 "왜 이 값이 나왔는지"를 추적 가능하게 유지한다.
 - **Layer / strategy separation**: 전략 로직은 Gold를 read-only로 소비하며 상위 데이터 레이어를 다시 쓰지 않는다.
 
+## Reproducible Runtime
+
+Phase 3 dashboard 진입 전 P30에서 Docker runtime, Postgres volume path, DB backup/restore, dev/test image, 신규 clone 검증 기준을 고정한다.
+
+기본 실행은 repo-local path를 사용한다.
+
+```bash
+docker compose up -d postgres api
+```
+
+Postgres data와 backup 위치는 host env var로 바꿀 수 있다.
+
+Linux/macOS:
+
+```bash
+PRETREND_POSTGRES_DATA_DIR=/mnt/pretrend/postgres-data \
+PRETREND_BACKUP_DIR=/mnt/pretrend/backups \
+docker compose up -d postgres api
+```
+
+Windows PowerShell:
+
+```powershell
+$env:PRETREND_POSTGRES_DATA_DIR="E:\pretrend\postgres-data"
+$env:PRETREND_BACKUP_DIR="E:\pretrend\backups"
+docker compose up -d postgres api
+```
+
+Windows + WSL2:
+
+```bash
+PRETREND_POSTGRES_DATA_DIR=/mnt/e/pretrend/postgres-data \
+PRETREND_BACKUP_DIR=/mnt/e/pretrend/backups \
+docker compose up -d postgres api
+```
+
+Runtime contract:
+
+- [docs/operation/reproducible_runtime_contract.md](docs/operation/reproducible_runtime_contract.md)
+
+Docker image roles:
+
+```bash
+# API serving image
+docker build -t pretrend-api-test -f Dockerfile.api .
+
+# Dev/test image with tests and docs available
+docker build -t pretrend-dev -f Dockerfile.dev .
+docker run --rm pretrend-dev pytest -q --tb=short
+```
+
+`Dockerfile.api` uses `requirements_api.txt` and keeps serving runtime small. `Dockerfile.dev` uses `requirements_ci.txt` and includes `dags/`, `tests/`, plus required `docs/` for reproducibility checks. Data, logs, local DB volumes, `.env`, and other secrets remain excluded from Docker build contexts.
+
+P30 verification gate:
+
+```bash
+docker compose config --quiet
+docker compose build
+docker compose up -d postgres api
+docker compose ps
+docker build -t pretrend-dev -f Dockerfile.dev .
+docker run --rm pretrend-dev pytest -q --tb=short
+```
+
+Volume and sensitive-file checks:
+
+```bash
+docker compose exec -T postgres sh -c 'test -d /var/lib/postgresql/data'
+docker compose exec -T postgres sh -c 'test -d /backups'
+git status --ignored --short .env .env.airflow .local data logs result .agent
+```
+
+Data recovery is restore-first:
+
+```bash
+docker compose exec -T postgres sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc -f /backups/pretrend_obs_YYYYMMDD.dump'
+docker compose exec -T postgres sh -c 'test -s /backups/pretrend_obs_YYYYMMDD.dump'
+docker compose exec -T postgres sh -c 'pg_restore -l /backups/pretrend_obs_YYYYMMDD.dump' >/tmp/pretrend_obs_YYYYMMDD.list
+```
+
+Restore validation uses a separate DB:
+
+```bash
+docker compose exec -T postgres sh -c 'createdb -U "$POSTGRES_USER" pretrend_restore_check'
+docker compose exec -T postgres sh -c 'pg_restore -U "$POSTGRES_USER" -d pretrend_restore_check --no-owner --no-privileges /backups/pretrend_obs_YYYYMMDD.dump'
+docker compose exec -T postgres sh -c 'psql -U "$POSTGRES_USER" -d pretrend_restore_check -Atc "SELECT COUNT(*) FROM alembic_version;"'
+docker compose exec -T postgres sh -c 'dropdb -U "$POSTGRES_USER" pretrend_restore_check'
+```
+
+Use backfill only when a current dump is missing or stale. Backfill rebuilds the file data lake first, then Gold Parquet is synced into Postgres; it is not the first recovery path for serving DB state. Existing data lake jobs read `PRETREND_DATA_ROOT`, so Docker/backfill runs should set it to the same path as the mounted container data directory:
+
+```bash
+PRETREND_DATA_ROOT=/app/data
+```
+
+Restore validation must use a separate DB or separate volume and must not overwrite the active `pretrend_obs` DB.
+
 ## Explicit Non-Goals
 
 - 투자 추천 / 매수·매도 신호 / 수익률 예측 시스템

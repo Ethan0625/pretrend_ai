@@ -1,5 +1,8 @@
 # Operation Guide
 
+Markers: operation, security
+Status: active
+
 > ⚠️ **2026Q2 방향 재정의 안내**
 >
 > 본 프로젝트는 **Market Structure Observability Runtime**으로 재정의되었다.
@@ -21,6 +24,91 @@
   - Strategy / Backtest / Paper / Walk-Forward / Telegram 보고 상세는 legacy reference로 읽는다.
   - Personal Track 서비스 인스턴스는 stop/disable/paused 상태를 유지한다.
 
+## Reproducible Runtime Preflight (P30)
+
+Phase 3 dashboard 진입 전 Docker runtime, Postgres volume path, DB backup/restore, dev/test image, 신규 clone 검증, agent docs 공개 범위를 P30에서 고정한다.
+
+장기 계약 문서:
+
+- `docs/operation/reproducible_runtime_contract.md`
+
+핵심 원칙:
+
+- `PRETREND_POSTGRES_DATA_DIR`에 지정한 host path가 active Postgres volume 위치다.
+- 지정하지 않으면 기존 `./.local/postgres-data`를 기본값으로 사용한다.
+- 운영 복구 1순위는 `pg_dump -Fc` dump restore다.
+- restore 검증은 active DB가 아닌 별도 DB/volume에서 수행한다.
+- `docker compose down -v`는 운영 data volume 삭제 위험이 있으므로 사용하지 않는다.
+- README 공식 절차는 OS별 `docker compose` 원 명령을 기준으로 작성한다.
+
+기본 실행은 기존 repo-local path를 유지한다.
+
+```bash
+docker compose up -d postgres api
+```
+
+Linux/macOS 외장하드 또는 별도 mount path:
+
+```bash
+PRETREND_POSTGRES_DATA_DIR=/mnt/pretrend/postgres-data \
+PRETREND_BACKUP_DIR=/mnt/pretrend/backups \
+docker compose up -d postgres api
+```
+
+Windows PowerShell:
+
+```powershell
+$env:PRETREND_POSTGRES_DATA_DIR="E:\pretrend\postgres-data"
+$env:PRETREND_BACKUP_DIR="E:\pretrend\backups"
+docker compose up -d postgres api
+```
+
+Windows + WSL2:
+
+```bash
+PRETREND_POSTGRES_DATA_DIR=/mnt/e/pretrend/postgres-data \
+PRETREND_BACKUP_DIR=/mnt/e/pretrend/backups \
+docker compose up -d postgres api
+```
+
+### DB backup / restore-first recovery
+
+운영 복구는 serving DB dump restore를 1순위로 둔다. backfill은 dump가 없거나 오래된 경우에 파일 data lake를 재구성하는 fallback이다.
+
+백업:
+
+```bash
+docker compose exec -T postgres sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc -f /backups/pretrend_obs_YYYYMMDD.dump'
+```
+
+백업 파일 및 catalog 확인:
+
+```bash
+docker compose exec -T postgres sh -c 'test -s /backups/pretrend_obs_YYYYMMDD.dump'
+docker compose exec -T postgres sh -c 'pg_restore -l /backups/pretrend_obs_YYYYMMDD.dump' >/tmp/pretrend_obs_YYYYMMDD.list
+grep -E 'TABLE DATA public (alembic_version|gold_macro_features|gold_eod_features|similarity_regime|similarity_gold|gold_market_state_similarity_feature|explainability_cache)' /tmp/pretrend_obs_YYYYMMDD.list
+```
+
+restore 검증은 별도 DB 또는 별도 volume에서만 수행한다. active `pretrend_obs` DB를 검증 목적으로 덮어쓰지 않는다.
+
+별도 DB 검증 절차:
+
+```bash
+docker compose exec -T postgres sh -c 'createdb -U "$POSTGRES_USER" pretrend_restore_check'
+docker compose exec -T postgres sh -c 'pg_restore -U "$POSTGRES_USER" -d pretrend_restore_check --no-owner --no-privileges /backups/pretrend_obs_YYYYMMDD.dump'
+docker compose exec -T postgres sh -c 'psql -U "$POSTGRES_USER" -d pretrend_restore_check -Atc "SELECT COUNT(*) FROM alembic_version;"'
+docker compose exec -T postgres sh -c 'dropdb -U "$POSTGRES_USER" pretrend_restore_check'
+```
+
+Backfill fallback 순서:
+
+1. `PRETREND_DATA_DIR` volume이 mount되어 있는지 확인한다.
+2. 기존 pipeline 호환을 위해 `PRETREND_DATA_ROOT`가 같은 data path를 가리키게 한다.
+3. Macro/EOD data lake를 필요한 기간만 재생성한다.
+4. `gold_postgres_sync_dag`로 Gold Parquet을 serving DB에 UPSERT한다.
+5. `similarity_build_dag`는 명시한 `query_start`/`query_end` 범위로 재생성한다.
+6. `explainability_build_dag`는 latest/on-demand 범위만 사용한다. historical full LLM backfill은 Phase 3 dashboard의 scope/window/cache key 계약이 정해지기 전까지 수행하지 않는다.
+
 ## Observability Track 운영 명령 (Phase 0~3)
 
 ### Phase 0 — DB / Config / Models / Alembic (P17 진행 중)
@@ -40,9 +128,8 @@ docker compose exec postgres psql -U pretrend -d pretrend_obs
 # TimescaleDB 확장 확인
 docker compose exec postgres psql -U pretrend -d pretrend_obs -c "\dx"
 
-# 멱등성 (downgrade → upgrade)
-docker compose down -v
-docker compose up -d postgres
+# 멱등성 검증은 별도 test DB/volume에서 수행한다.
+# 운영 data volume이 연결된 compose project에서 `docker compose down -v`를 실행하지 않는다.
 ```
 
 환경 변수는 `.env`에 정의 (`.env.example` 참조):

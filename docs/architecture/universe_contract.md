@@ -1,5 +1,8 @@
 # Universe-ETF — Contract (SOT)
 
+Markers: architecture, contract
+Status: reference
+
 > 🔄 **Mixed (대부분 Observability Track 공유 자산)**
 >
 > 본 문서는 2026Q2 방향 재정의 후 다음과 같이 분리됩니다:

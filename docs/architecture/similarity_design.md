@@ -1,5 +1,8 @@
 # Historical Similarity Design
 
+Markers: architecture, contract
+Status: active
+
 > P26 SOT. Market structure historical similarity는 현재 시장 구조와 과거 시점의 유사성을 관측하기 위한 기능이다. 예측, 추천, 매매 신호 생성에 사용하지 않는다.
 
 ## 1. Purpose / Scope / Invariant

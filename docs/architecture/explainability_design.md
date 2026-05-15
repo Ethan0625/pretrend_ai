@@ -1,5 +1,8 @@
 # Explainability Design
 
+Markers: architecture, contract
+Status: active
+
 > Observability Track P27 SOT. This document defines the LLM explanation layer for cached market-structure reports.
 
 ## 1. Purpose And Scope

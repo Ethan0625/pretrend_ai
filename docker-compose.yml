@@ -10,7 +10,8 @@ services:
     ports:
       - "${POSTGRES_PORT:?POSTGRES_PORT is required}:5432"
     volumes:
-      - ./.local/postgres-data:/var/lib/postgresql/data
+      - ${PRETREND_POSTGRES_DATA_DIR:-./.local/postgres-data}:/var/lib/postgresql/data
+      - ${PRETREND_BACKUP_DIR:-./.local/backups}:/backups
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 10s
@@ -28,9 +29,14 @@ services:
       - "8000:8000"
     env_file:
       - .env
+    volumes:
+      - ${PRETREND_HOST_DATA_DIR:-./data}:/app/data
+      - ${PRETREND_HOST_LOG_DIR:-./logs}:/app/logs
     environment:
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
+      PRETREND_DATA_DIR: /app/data
+      PRETREND_LOG_DIR: /app/logs
       PRETREND_API_KEY: ${PRETREND_API_KEY:?PRETREND_API_KEY is required}
       PRETREND_API_CORS_ORIGINS: ${PRETREND_API_CORS_ORIGINS:-}
       PRETREND_API_TRUSTED_HOSTS: ${PRETREND_API_TRUSTED_HOSTS:-*}

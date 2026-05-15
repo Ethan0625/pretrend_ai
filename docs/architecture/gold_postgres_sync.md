@@ -1,5 +1,8 @@
 # Gold Postgres Sync Contract
 
+Markers: architecture, contract
+Status: active
+
 ## 1. 목적 / 범위
 
 본 문서는 Gold Parquet layer를 Postgres + TimescaleDB mirror로 동기화하는 정책 SOT다.

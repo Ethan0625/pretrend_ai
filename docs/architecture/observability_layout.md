@@ -1,5 +1,8 @@
 # Observability Layout
 
+Markers: architecture, contract
+Status: active
+
 > 🔄 **Observability Track 구현자용 레이아웃 참조**
 >
 > 본 문서는 2026Q2 방향 재정의 이후 구현자가 30초 안에 "어디에 둬야 하는가"를 판단하기 위한 구조 매트릭스다.

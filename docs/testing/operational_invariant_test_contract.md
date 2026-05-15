@@ -1,5 +1,8 @@
 # Operational Invariant Test Contract
 
+Markers: testing, contract
+Status: active
+
 ## 1. Testing Philosophy
 
 Tests in the Observability Track are not only feature checks. They are operational invariant monitors for the local runtime.
@@ -27,6 +30,7 @@ P29 separates verification into code audit, operations audit, documentation cont
 | `migration` | Alembic chain, SQLAlchemy models, and physical DB schema stay aligned | Serving DB cannot be rebuilt safely | Schema/model/migration changes and stage gates | `db`, `invariant` |
 | `dag` | DAGs import, schedule, and task graph shape remain valid | Scheduler runtime can silently break | DAG changes and operations audit | `dag`, `contract` |
 | `personal_archive` | Frozen Personal regression assets remain runnable on demand | Archived assets were accidentally broken or deleted | Manual regression only | `personal`, `slow` as needed |
+| `runtime_reproducibility` | Docker runtime, restore procedure, volume mounts, and sensitive-file excludes stay reproducible | New clone / OS migration / power-loss recovery procedures can drift silently | P30 and every runtime/Docker/docs change | `contract` |
 
 ## 3. Required Pytest Markers
 
@@ -80,6 +84,39 @@ Pre-dashboard check:
 
 ```bash
 conda run -n pytest-pretrend pytest -m "not personal" -q --tb=short
+```
+
+P30 reproducible runtime gate:
+
+```bash
+docker compose config --quiet
+docker compose build
+docker compose up -d postgres api
+docker compose ps
+docker build -t pretrend-dev -f Dockerfile.dev .
+docker run --rm pretrend-dev pytest -q --tb=short
+docker run --rm pretrend-dev pytest tests/ops/ -q --tb=short
+```
+
+P30 volume and sensitive-file gate:
+
+```bash
+docker compose exec -T postgres sh -c 'test -d /var/lib/postgresql/data'
+docker compose exec -T postgres sh -c 'test -d /backups'
+git status --ignored --short .env .env.airflow .local data logs result .agent
+docker run --rm --entrypoint sh pretrend-api-test -c 'test ! -e /app/.env && test ! -d /app/data && test ! -d /app/logs && test ! -d /app/result && test ! -d /app/tests && test ! -d /app/docs'
+docker run --rm --entrypoint sh pretrend-dev -c 'test ! -e /app/.env && test ! -d /app/data && test ! -d /app/logs && test ! -d /app/result && test -d /app/tests && test -d /app/docs'
+```
+
+P30 restore gate:
+
+```bash
+docker compose exec -T postgres sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc -f /backups/pretrend_test.dump'
+docker compose exec -T postgres sh -c 'test -s /backups/pretrend_test.dump'
+docker compose exec -T postgres sh -c 'createdb -U "$POSTGRES_USER" pretrend_restore_check'
+docker compose exec -T postgres sh -c 'pg_restore --exit-on-error -U "$POSTGRES_USER" -d pretrend_restore_check --no-owner --no-privileges /backups/pretrend_test.dump'
+docker compose exec -T postgres sh -c 'psql -U "$POSTGRES_USER" -d pretrend_restore_check -Atc "SELECT COUNT(*) FROM alembic_version;"'
+docker compose exec -T postgres sh -c 'dropdb -U "$POSTGRES_USER" pretrend_restore_check'
 ```
 
 Pre-Cloudflare check:
@@ -146,3 +183,4 @@ The following gaps were identified during P29 and should become explicit tests o
 
 - 2026-05-15: Initial draft. P29-3.
 - 2026-05-15: Added allowlist-aware forbidden-term guidance, boundary import test reference, shim export test reference, and Airflow project-env guard follow-up notes.
+- 2026-05-15: Added P30 reproducible runtime, volume/sensitive-file, and separate-DB restore gates.

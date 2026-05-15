@@ -1,5 +1,8 @@
 # Observability API 설계
 
+Markers: architecture, contract
+Status: active
+
 > P28 SOT. 본 문서는 Observability Track의 최소 read-only FastAPI 진입점을 정의한다.
 
 ## 1. 목적과 불변식

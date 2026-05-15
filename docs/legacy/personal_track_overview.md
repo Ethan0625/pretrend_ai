@@ -1,5 +1,8 @@
 # Pretrend AI — System Overview (Legacy / Personal Track 동결)
 
+Markers: legacy, architecture
+Status: legacy
+
 > ⚠️ **LEGACY — Personal Track 동결 자산 설명**
 >
 > 본 문서는 2026Q2 방향 재정의 이전의 Personal Track 자동매매 파이프라인 설명이다.

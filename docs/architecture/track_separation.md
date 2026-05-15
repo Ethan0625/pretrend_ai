@@ -1,5 +1,8 @@
 # Track Separation — Observability vs Personal Investing
 
+Markers: architecture, contract
+Status: active
+
 Version: 2026.05.12
 Status: 확정 (Phase 0 진입)
 

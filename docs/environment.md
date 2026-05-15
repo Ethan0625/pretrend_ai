@@ -1,5 +1,8 @@
 # 📄 개발 환경 구성 문서 (Environment Setup Guide)
 
+Markers: operation, security
+Status: active
+
 **Project:** Pretrend AI — Market Structure Observability Runtime\
 **Document:** Environment Setup\
 **Version:** 2026.05.12\
@@ -216,15 +219,27 @@ Phase 0 진입 시 Observability Track용 신규 인프라가 추가된다.
 - 이미지: `timescale/timescaledb:2.27.0-pg16`
 - 컨테이너 이름: `pretrend-postgres`
 - 포트: `${POSTGRES_PORT:-5432}`
-- 데이터 볼륨: `./.local/postgres-data/` (gitignored)
+- 데이터 볼륨 기본값: `${PRETREND_POSTGRES_DATA_DIR:-./.local/postgres-data}` (gitignored)
+- DB 백업 디렉토리 기본값: `${PRETREND_BACKUP_DIR:-./.local/backups}` (gitignored)
 - 환경 변수: `.env` (gitignored), 샘플은 `.env.example`
 - TimescaleDB 이미지는 `latest`를 사용하지 않는다. 기존 bind mount DB의 extension catalog가 특정 TimescaleDB shared library version을 참조하므로, 이미지 tag drift가 발생하면 `timescaledb-*-dev` 또는 version mismatch 에러가 날 수 있다.
-- `./.local/postgres-data/`는 bind mount 데이터 원본이다. 컨테이너/network 재생성은 허용하지만 `docker compose down -v`와 해당 디렉토리 삭제는 금지한다.
+- `./.local/postgres-data/`는 기본 bind mount 경로일 뿐 고정 경로가 아니다. 외장하드/WSL2/Windows 경로는 `PRETREND_POSTGRES_DATA_DIR`로 지정한다.
+- 컨테이너/network 재생성은 허용하지만 `docker compose down -v`와 데이터 디렉토리 삭제는 금지한다.
+- Docker container data mount target은 `PRETREND_DATA_DIR=/app/data`다. 기존 Bronze/Silver/Gold pipeline 구현은 `PRETREND_DATA_ROOT`를 읽으므로, backfill/runtime 실행 시 `PRETREND_DATA_ROOT`도 같은 data path를 가리켜야 한다.
+- serving DB 복구는 `pg_dump -Fc` dump restore를 우선하고, backfill은 dump가 없거나 오래된 경우에만 사용한다. restore 검증은 active `pretrend_obs`가 아닌 별도 DB/volume에서 수행한다.
+- 자세한 runtime/backup/restore 계약은 `docs/operation/reproducible_runtime_contract.md`를 따른다.
 
 ```bash
 docker compose up -d postgres
 docker compose ps postgres
 docker compose exec postgres psql -U pretrend -d pretrend_obs -c "\dx"
+```
+
+백업 catalog 확인:
+
+```bash
+docker compose exec -T postgres sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc -f /backups/pretrend_obs_YYYYMMDD.dump'
+docker compose exec -T postgres sh -c 'pg_restore -l /backups/pretrend_obs_YYYYMMDD.dump' >/tmp/pretrend_obs_YYYYMMDD.list
 ```
 
 ### 7.5.2 신규 Python 의존성

@@ -1,5 +1,8 @@
 # EOD Observability Contract v1
 
+Markers: architecture, contract
+Status: active
+
 > 🟢 **Infrastructure (공유) — 두 트랙 공통 자산**
 >
 > EOD Observability SOT(32 ETFs)는 Bronze/Silver/Gold 레이어의 입력 universe이며, Observability Track / Personal Track 양쪽이 read-only로 소비합니다.

@@ -1,5 +1,8 @@
 # System Map 2026Q2
 
+Markers: architecture, contract
+Status: active
+
 ## 1. One-line Definition
 
 Pretrend AI is a market structure observability runtime that turns PIT-safe macro and market features into regime, similarity, and explanation views for a read-only dashboard.
