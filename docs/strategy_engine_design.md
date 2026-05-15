@@ -391,9 +391,9 @@ mid_regime Top-N:
 | `pipeline/strategy_engine/config.py` | StrategyEngineConfig, PolicyProfile, DEFAULT_POLICY_V0 |
 | `pipeline/strategy_engine/registries.py` | 정책/코어홀드/전술그룹 레지스트리 |
 | `pipeline/strategy_engine/io.py` | Gold 로더, atomic snapshot writer |
-| `pipeline/strategy_engine/axis_features/` | 4축 feature 빌더 |
-| `pipeline/strategy_engine/axis_horizon_state/` | Long/Mid/Short engine, 3-state builder + detail JSON |
-| `pipeline/strategy_engine/market_position/` | 상태 벡터 결합 |
+| `observability/regime/axis/` | 4축 feature 빌더. 기존 `pipeline/strategy_engine/axis_features/`는 shim |
+| `observability/regime/horizon/` | Long/Mid/Short engine, 3-state builder + detail JSON. 기존 `pipeline/strategy_engine/axis_horizon_state/`는 shim |
+| `observability/regime/position/` | 상태 벡터 결합. 기존 `pipeline/strategy_engine/market_position/`는 shim |
 | `pipeline/strategy_engine/policy_selector/` | 정책 적용, `risk_gate`/`run_universe` 판정 |
 | `pipeline/strategy_engine/universe/` | ETF 후보 선별 |
 | `pipeline/strategy_engine/allocation/` | 총 투자 비율 조절 |

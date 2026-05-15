@@ -11,7 +11,7 @@ from .history_io import load_group_transition_history
 
 
 def load_group_transition_snapshot(strategy_root: Path) -> Optional[pd.DataFrame]:
-    from pretrend.pipeline.backtest._utils import load_strategy_snapshot
+    from pretrend.pipeline.utils.snapshot import load_strategy_snapshot
 
     return load_strategy_snapshot(strategy_root, "group_transition_signal")
 
@@ -61,7 +61,7 @@ def load_group_transition_for_runtime(
 
 def load_universe_for_group_transition(strategy_root: Path) -> pd.DataFrame:
     """Load what_to_hold snapshot history as group-transition source."""
-    from pretrend.pipeline.backtest._utils import load_strategy_snapshot
+    from pretrend.pipeline.utils.snapshot import load_strategy_snapshot
 
     df = load_strategy_snapshot(strategy_root, "what_to_hold")
     if df is None or df.empty:
@@ -71,4 +71,3 @@ def load_universe_for_group_transition(strategy_root: Path) -> pd.DataFrame:
     elif "rebalance_date" in df.columns:
         df["rebalance_date"] = pd.to_datetime(df["rebalance_date"], errors="coerce").dt.date
     return df
-

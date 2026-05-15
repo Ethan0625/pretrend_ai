@@ -12,7 +12,7 @@ from .history_io import load_next_step_history
 
 def load_next_step_snapshot(strategy_root: Path) -> Optional[pd.DataFrame]:
     """Load merged next_step_signal snapshot history from strategy root."""
-    from pretrend.pipeline.backtest._utils import load_strategy_snapshot
+    from pretrend.pipeline.utils.snapshot import load_strategy_snapshot
 
     return load_strategy_snapshot(strategy_root, "next_step_signal")
 

@@ -64,6 +64,12 @@ Provider selection:
 - `PRETREND_LLM_PROVIDER`: default `vscode_codex`
 - `PRETREND_CODEX_BIN`: optional explicit Codex binary path
 
+Caller policy:
+
+- Direct explainer calls use `get_provider()` when no provider is injected.
+- Airflow `explainability_build_dag` defaults to its in-DAG mock provider unless DAG conf explicitly sets a non-mock `provider`.
+- Real LLM DAG runs are manual verification only, for example `{"provider": "vscode_codex"}`.
+
 Retry and timeout:
 
 - call retry: 3 attempts
@@ -326,8 +332,16 @@ Default daily behavior:
 
 Manual backfill:
 
-- DAG conf `{"days_back": N, "provider": "mock"}` for mock provider integration
-- real VSCode Codex calls are optional manual verification
+- DAG conf `{"days_back": N}` uses the mock provider by default
+- DAG conf `{"days_back": N, "provider": "mock"}` is equivalent and explicit
+- real VSCode Codex calls are optional manual verification with explicit provider conf
+
+Historical full backfill policy:
+
+- Current cache identity is `use_case + query_date + model_id + prompt_version`.
+- It does not distinguish explanation scope/window, such as snapshot, rolling 20D, rolling 120D, or full-history-to-date.
+- Do not run historical full LLM backfill until the Phase 3 dashboard defines the explanation scope and the cache/API contract is updated if needed.
+- Phase 3 MVP should prefer latest snapshot explanation or on-demand generation over prefilled historical mock explanations.
 
 ## 10. Validation SQL
 

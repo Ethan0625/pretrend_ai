@@ -4,6 +4,7 @@
 >
 > 본 문서는 2026Q2 방향 재정의 후 Observability Track의 시장 관측 자료로 재해석됩니다.
 > "투자 의사결정"이 아닌 **"4축 × 3-horizon (Long/Mid/Short) 의존성 관측"** 컨텍스트로 활용됩니다.
+> P29-4 분류: **Observability Track 자산, Phase 1 추출 완료**.
 > `axis_features` 코드는 Phase 1 P18에서 `observability/regime/axis/`로 이전 완료되었습니다.
 > 기존 `strategy_engine/axis_features/` import path는 re-export shim으로 backward compat을 유지합니다.
 > `axis_horizon_state` 코드는 Phase 1 P19에서 `observability/regime/horizon/`으로 이전 완료되었습니다.

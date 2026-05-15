@@ -166,12 +166,15 @@ def _resolve_query_dates(context: dict[str, Any] | None = None) -> list[date]:
 def _resolve_provider(context: dict[str, Any] | None = None):
     conf = _dag_run_conf(context or {})
     provider_name = conf.get("provider")
-    if provider_name == "mock":
+    provider_key = str(provider_name).strip() if provider_name is not None else "mock"
+    if not provider_key:
+        provider_key = "mock"
+    if provider_key.lower() == "mock":
         provider = MockProvider()
     else:
         from pretrend.observability.explainability.llm_client import get_provider
 
-        provider = get_provider(provider_name)
+        provider = get_provider(provider_key)
 
     if not provider.health_check():
         raise RuntimeError(f"explainability provider health check failed: {provider.model_id}")

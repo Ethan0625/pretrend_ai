@@ -26,3 +26,11 @@ where = ["src"]
 pythonpath = ["src", "scripts"]
 testpaths = ["tests"]
 norecursedirs = [".*", "build", "dist", "CVS", "_darcs", "{arch}", "*.egg", "venv", ".git", "archive"]
+markers = [
+    "contract: API/schema/boundary contract tests",
+    "invariant: operational invariant tests",
+    "db: tests requiring Postgres/TimescaleDB",
+    "dag: Airflow DAG/scheduling tests",
+    "slow: slow integration tests",
+    "personal: frozen Personal Track tests",
+]

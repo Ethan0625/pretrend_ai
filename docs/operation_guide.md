@@ -515,6 +515,32 @@ systemctl is-active telegram-claude-bot.service  # → inactive
 airflow dags list-runs --dag-id paper_trading_dag --no-backfill | head  # 최근 run 없음 (paused)
 ```
 
+### Project Airflow CLI guard
+
+Airflow CLI는 반드시 프로젝트 Airflow home과 DAG folder를 명시해서 실행한다. 이 env 없이 실행하면 기본 `~/airflow` metadata DB를 조회해 example DAG만 보이거나 active DAG 상태를 잘못 판단할 수 있다.
+
+```bash
+env \
+  AIRFLOW_HOME=/home/redtable/Desktop/ethan/pretrend/pretrend_ai/airflow_pretrend \
+  PYTHONPATH=/home/redtable/Desktop/ethan/pretrend/pretrend_ai/src \
+  AIRFLOW__CORE__DAGS_FOLDER=/home/redtable/Desktop/ethan/pretrend/pretrend_ai/dags \
+  AIRFLOW__CORE__LOAD_EXAMPLES=False \
+  AIRFLOW__CORE__DEFAULT_TIMEZONE=Asia/Seoul \
+  conda run -n airflow-pretrend airflow dags list
+```
+
+Personal Track pause 상태 확인:
+
+```bash
+env \
+  AIRFLOW_HOME=/home/redtable/Desktop/ethan/pretrend/pretrend_ai/airflow_pretrend \
+  PYTHONPATH=/home/redtable/Desktop/ethan/pretrend/pretrend_ai/src \
+  AIRFLOW__CORE__DAGS_FOLDER=/home/redtable/Desktop/ethan/pretrend/pretrend_ai/dags \
+  AIRFLOW__CORE__LOAD_EXAMPLES=False \
+  AIRFLOW__CORE__DEFAULT_TIMEZONE=Asia/Seoul \
+  conda run -n airflow-pretrend airflow dags list | grep -E "strategy_engine_dag|paper_trading_dag|broker_mock_trading_dag"
+```
+
 서비스 파일 위치: `airflow_pretrend/airflow-scheduler.service`, `airflow_pretrend/airflow-webserver.service`
 시스템 등록 위치: `/etc/systemd/system/`
 환경변수 파일: `.env.airflow` (EnvironmentFile 지시자로 로드)
@@ -651,3 +677,21 @@ Telegram 표기 기준(혼동 방지):
 
 **10D-centric 원칙**: `다음 스텝 가설` 섹션에서 10D bias/hazard/expected를 1차(상단)로 표시하고,
 나머지 지평(5D·20D·60D·120D)은 한 줄 요약으로 압축한다. 10D는 요약 줄에 포함하지 않는다.
+
+## Cloudflare Tunnel 진입 조건
+
+Phase 3 dashboard 로컬 E2E 검증 완료 후 별도 운영 task로 진입할 때 아래 checklist를 충족한다.
+
+- [ ] Dashboard local E2E 검증 완료
+- [ ] API key auth 확인
+- [ ] `.env` gitignore 확인
+- [ ] DB port 외부 노출 없음
+- [ ] CORS 허용 범위 결정
+- [ ] read-only endpoint만 외부 노출
+- [ ] Swagger/OpenAPI 공개 여부 결정
+- [ ] 로그에 secret/DB URL 노출 없음
+- [ ] `cloudflared` config 문서화
+- [ ] local runtime runbook 작성
+- [ ] Cloudflare exposure checklist 작성
+
+**Status**: Phase 3 dashboard 진행 후 별도 운영 task에서 진입한다.

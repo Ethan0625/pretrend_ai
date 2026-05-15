@@ -12,8 +12,8 @@ from pretrend.observability.regime.transition.io import load_next_step_for_runti
 from pretrend.observability.similarity.producer import (
     build_market_state_similarity_features,
 )
-from pretrend.pipeline.backtest._utils import load_strategy_snapshot
 from pretrend.pipeline.config.eod_observability import LABEL_BY_SYMBOL_V1
+from pretrend.pipeline.utils.snapshot import load_strategy_snapshot
 
 
 DEFAULT_STRATEGY_ROOT = Path("data/strategy")

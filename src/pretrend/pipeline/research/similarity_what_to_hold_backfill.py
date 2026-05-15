@@ -15,9 +15,8 @@ from pretrend.observability.regime.rotation.io import load_universe_for_group_tr
 from pretrend.observability.similarity.runtime_source import (
     build_market_state_similarity_features_from_runtime,
 )
-from pretrend.pipeline.backtest._utils import load_strategy_snapshot
-from pretrend.pipeline.strategy_engine.io import write_snapshot_atomic
 from pretrend.pipeline.strategy_engine.universe.engine import build_universe
+from pretrend.pipeline.utils.snapshot import load_strategy_snapshot, write_snapshot_atomic
 
 
 DEFAULT_DATA_ROOT = Path("data")

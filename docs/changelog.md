@@ -13,6 +13,44 @@
 
 > 참고: changelog 과거 섹션은 작성 시점 원문을 보존한다.
 
+## v2026.05.15 — P29 완료: Phase 2 Stage Gate
+
+### docs(observability): 코드/운영/문서 stage gate 정합 검증 완료
+- P29-1 코드 정합 검증: live Alembic `0004 (head)`, shadow DB upgrade/downgrade/re-upgrade, 6 serving model/migration/feature schema 정합, forbidden prefix grep, shim import 점검을 완료했다.
+- P29-1 finding: 좁은 boundary grep은 통과했지만 broader boundary 기준에서 `observability` 내부의 `pretrend.pipeline.backtest` / `pretrend.pipeline.strategy_engine` 의존이 남아 있어 `hotfix-P29-1.A`로 분리했다.
+- P29-2 운영 정합 검증: 5 Observability DAG smoke, 6 serving table row/watermark, duplicate/CHECK 위반 0, 11 logical endpoint smoke, sync/similarity/explainability 멱등 재실행을 완료했다.
+- P29-2 finding: Personal Track DAG operational drift와 plain Airflow CLI 환경 혼선을 각각 `hotfix-P29-2.A`, `follow-up-P29-2.B`로 분리했다.
+- P29-3 신규 architecture 문서 5개를 추가했다: `system_map_2026q2.md`, `runtime_flow.md`, `boundary_contract.md`, `observability_api_contract.md`, `operational_invariant_test_contract.md`.
+- P29-4 entry point를 정리했다: `docs/system_overview.md`를 Observability entry point로 재작성하고 기존 Personal Track overview는 `docs/legacy/personal_track_overview.md`로 이동했다. pytest marker 6종도 등록했다.
+- P29-5에서 Phase 3 진입 checklist, Cloudflare Tunnel 진입 checklist, TASK_QUEUE, REFACTOR, task archive 정리를 완료했다.
+- **Phase 2 stage gate 종료. Phase 3 React Dashboard 진입 준비 완료.** 발견 사항은 별도 hotfix backlog로 추적한다.
+
+### fix(observability): P29 finding hotfix follow-up
+- Broader runtime Observability boundary를 정리했다. Shared snapshot load/write helper를 `src/pretrend/pipeline/utils/snapshot.py`로 추출하고, runtime Observability 모듈은 더 이상 `pretrend.pipeline.backtest._utils`를 import하지 않는다.
+- One-off historical `what_to_hold` backfill helper를 `src/pretrend/pipeline/research/similarity_what_to_hold_backfill.py`로 이동해 runtime Observability package에서 Personal/strategy dependency를 제거했다.
+- Strategy Engine compatibility shim package-level exports를 명시하고, `build_axis_features` aggregate helper를 추가했다.
+- Boundary import test와 shim export contract test를 추가했다.
+- Project Airflow metadata에서 `strategy_engine_dag`, `paper_trading_dag`, `broker_mock_trading_dag`를 paused로 전환했다.
+- Operation guide에 project Airflow CLI guard를 추가하고, testing contract에 allowlist-aware forbidden-term check 기준을 정리했다.
+
+## v2026.05.15 — P29 hotfix: Timescale catalog repair + explainability DAG provider default
+
+### fix(observability/explainability): DAG scheduled default provider를 mock으로 고정
+- `explainability_build_dag`는 DAG conf에 `provider`가 없거나 blank/mock이면 in-DAG mock provider를 사용한다.
+- 실 LLM provider는 manual conf에서 명시한 경우에만 사용한다. 이는 실 LLM 출력 schema/invariant drift가 scheduled retry loop를 만들지 않도록 하기 위한 운영 hotfix다.
+- 검증: DAG 단위 테스트 `10 passed`, explainability tests `21 passed, 13 skipped`, Airflow 수동 run 2회 success, `explainability_cache` 4 use case row 유지.
+
+### ops(db): TimescaleDB 2.27.0 catalog drift 복구 검증
+- `timescale/timescaledb:2.27.0-pg16` 환경에서 `pg_proc.probin`의 `timescaledb-2.27.0-dev` 참조를 `2.27.0`으로 정정한 상태를 재확인했다.
+- 백업 위치: host `/tmp/pretrend_before_timescale_catalog_repair_20260515.dump`, host `/tmp/pretrend_timescale_pg_proc_dev_refs_20260515.csv`, Postgres container `/tmp/pretrend_before_p29_backfill_20260515.dump`.
+- Parquet Gold SOT 기준 full upsert 후 serving DB coverage를 복구했다: `gold_eod_features` `179,037 rows`, `gold_macro_features` `26,106 rows`, both max `2026-05-13`.
+- Regime canonical feature와 similarity result를 full backfill했다: `gold_market_state_similarity_feature` `5,853 rows`, `similarity_regime` `576,566 rows`, `similarity_gold` `571,877 rows`.
+- 검증: stale catalog ref 0, extension version `2.27.0`, similarity min_gap/score/rank/duplicate violations 0.
+
+### docs(observability/explainability): historical LLM backfill 보류 조건 명시
+- 현재 `explainability_cache` key는 window/scope를 구분하지 않으므로, Phase 3 dashboard에서 `snapshot / rolling_Nd / full_history_to_date` 등 설명 단위를 먼저 결정해야 한다.
+- historical full LLM backfill은 cache/API contract 확정 전에는 진행하지 않는 기준을 `explainability_design.md`와 task queue backlog에 반영했다.
+
 ## v2026.05.14 — P28 완료: Observability FastAPI read-only API 도입
 
 ### feat(observability/api): Phase 2 조회 API와 로컬 docker-compose 서비스 구축

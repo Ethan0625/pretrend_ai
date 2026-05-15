@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from pretrend.observability.similarity.what_to_hold_backfill import (
+from pretrend.pipeline.research.similarity_what_to_hold_backfill import (
     backfill_what_to_hold_for_similarity,
     build_missing_what_to_hold,
     load_policy_selection_history,

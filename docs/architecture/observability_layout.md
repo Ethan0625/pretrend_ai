@@ -95,7 +95,19 @@ pretrend_ai/
 | `dags/explainability_build_dag.py` | Observability | Explainability build DAG (13:00 KST) | Phase 2 — P27 완료 |
 | `dags/strategy_engine_dag.py` | Personal | Strategy snapshot DAG | 동결 |
 
-### 3.1 API 환경 변수
+### 3.1 P29 Stage Gate 문서 색인
+
+P29 이후 신규 세션은 아래 문서를 우선 참조한다.
+
+| 문서 | 책임 |
+|---|---|
+| `docs/architecture/system_map_2026q2.md` | 전체 시스템 지도와 P24~P28 SOT 색인 |
+| `docs/architecture/runtime_flow.md` | DAG 실행 순서, freshness, failure propagation, manual recovery |
+| `docs/architecture/boundary_contract.md` | Track dependency / frozen boundary contract |
+| `docs/api/observability_api_contract.md` | Phase 3 dashboard용 read-only API contract |
+| `docs/testing/operational_invariant_test_contract.md` | pytest marker와 운영 invariant 검증 contract |
+
+### 3.2 API 환경 변수
 
 | 변수 | 필수 여부 | 책임 |
 |---|---|---|

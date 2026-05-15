@@ -79,3 +79,19 @@ def test_mock_provider_health_check() -> None:
     provider = module._resolve_provider(context)
     assert provider.model_id == "mock"
     assert provider.health_check()
+
+
+def test_default_provider_is_mock() -> None:
+    module = _dag_module()
+    context = {"dag_run": SimpleNamespace(conf={})}
+    provider = module._resolve_provider(context)
+    assert provider.model_id == "mock"
+    assert provider.health_check()
+
+
+def test_blank_provider_is_mock() -> None:
+    module = _dag_module()
+    context = {"dag_run": SimpleNamespace(conf={"provider": " "})}
+    provider = module._resolve_provider(context)
+    assert provider.model_id == "mock"
+    assert provider.health_check()

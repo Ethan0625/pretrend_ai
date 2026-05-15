@@ -4,6 +4,7 @@
 >
 > 본 문서는 2026Q2 방향 재정의 후 Observability Track의 시장 관측 자료로 재해석됩니다.
 > "투자 의사결정"이 아닌 **"Short-term PANIC/RELIEF 관측"** 컨텍스트로 활용됩니다.
+> P29-4 분류: **Observability Track 자산, Phase 1 추출 완료**.
 > 코드 모듈은 Phase 1 P19에서 `observability/regime/horizon/short_engine.py`로 이전 완료되었습니다.
 > 기존 `strategy_engine/axis_horizon_state/short_engine.py` import path는 shim으로 backward compat을 유지합니다.
 > 참조: [`track_separation.md`](./track_separation.md), [`REFACTOR_2026Q2.md`](../../.agent/REFACTOR_2026Q2.md)

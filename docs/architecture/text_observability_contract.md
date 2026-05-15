@@ -1,6 +1,6 @@
 # Text Observability — Contract (SOT)
 
-> 🔄 **Observability Track 자료 — 이름 그대로 observability**
+> 🔄 **Observability Track 자산 — 이름 그대로 observability**
 >
 > 본 문서는 2026Q2 방향 재정의 후 Observability Track의 핵심 자료로 그대로 유효합니다.
 > Text feature(FOMC, SEC, 거시 리포트 텍스트)는 시장 관측·해석 컨텍스트로 활용되며, **observer-only 원칙**(직접 매매 연결 금지)은 유지됩니다.
