@@ -1,0 +1,15 @@
+.agent/
+.git/
+.pytest_cache/
+__pycache__/
+*.pyc
+
+.env
+.env.*
+
+airflow_pretrend/logs/
+dags/__pycache__/
+data/
+docs/
+result/
+tests/

@@ -63,6 +63,9 @@ pretrend_ai/
 | `src/pretrend/observability/explainability/llm_client.py` | Observability | LLM provider 추상화 (`VSCodeCodexProvider`) + invariant filter | Phase 2 — P27 완료 |
 | `src/pretrend/observability/explainability/{similarity,regime,macro}_explainer.py` | Observability | similarity / regime / macro 3 use case 설명 report builder | Phase 2 — P27 완료 |
 | `src/pretrend/observability/explainability/cache.py` | Observability | `explainability_cache` lookup / UPSERT / invalidate | Phase 2 — P27 완료 |
+| `src/pretrend/api/` | Observability | FastAPI 골격, 설정, auth, async DB session, Pydantic schema | Phase 2 — P28 완료 |
+| `src/pretrend/api/routers/` | Observability | 7 router(health, meta, regime, similarity, macro, eod, explain) | Phase 2 — P28 완료 |
+| `tests/api/` | Observability | API auth / health / router 단위 테스트 | Phase 2 — P28 완료 |
 | `src/pretrend/models/` | Observability | SQLAlchemy + Pydantic | Phase 2 — Gold mirror (P24 완료) |
 | `src/pretrend/config.py` | Observability | 환경/DB 설정 | Phase 0 |
 | `postgres:gold_macro_features` | Observability | Gold Macro Postgres + TimescaleDB hypertable mirror | Phase 2 — P24 완료 |
@@ -80,8 +83,10 @@ pretrend_ai/
 | `src/pretrend/pipeline/strategy_engine/{allocation, policy_selector, sell_advisor, universe}` | Personal | 투자 판단 | 동결 |
 | `src/pretrend/backtest/` | Personal | 백테스트 | 동결 |
 | `src/pretrend/paper/`, `src/pretrend/broker/` | Personal | 페이퍼/브로커 | 동결 |
-| `apps/api/` | Observability | FastAPI | Phase 2 |
 | `apps/web/` | Observability | React Dashboard | Phase 3 |
+| `Dockerfile.api` | Observability | FastAPI container image | Phase 2 — P28 완료 |
+| `requirements_api.txt` | Observability | FastAPI container 전용 최소 Python runtime dependency | Phase 2 — P28 완료 |
+| `docker-compose.yml` (`api` 서비스) | Observability | 로컬 FastAPI 운영 컨테이너 | Phase 2 — P28 완료 |
 | `migrations/` | Observability | Alembic | Phase 2 — Gold schema revision 0002 (P24 완료) |
 | `dags/paper_trading_dag.py`, `dags/broker_mock_trading_dag.py` | Personal | 페이퍼/모의 거래 DAG | 동결 |
 | `dags/macro_pipeline_dag.py`, `dags/eod_pipeline_dag.py` | Infrastructure | 데이터 수집 DAG | 운영 |
@@ -89,6 +94,14 @@ pretrend_ai/
 | `dags/similarity_build_dag.py` | Observability | Similarity build DAG (12:00 KST) | Phase 2 — P26 완료 |
 | `dags/explainability_build_dag.py` | Observability | Explainability build DAG (13:00 KST) | Phase 2 — P27 완료 |
 | `dags/strategy_engine_dag.py` | Personal | Strategy snapshot DAG | 동결 |
+
+### 3.1 API 환경 변수
+
+| 변수 | 필수 여부 | 책임 |
+|---|---|---|
+| `PRETREND_API_KEY` | 필수 | `/api/v1/*` 요청의 `X-API-Key` 인증 기준값. `/health`는 인증 예외 |
+| `PRETREND_API_CORS_ORIGINS` | 선택 | Phase 3 dashboard 대비 CORS origin 목록 |
+| `PRETREND_API_TRUSTED_HOSTS` | 선택 | FastAPI TrustedHostMiddleware 허용 host 목록 |
 
 ## 4. Import 규칙
 
@@ -159,3 +172,4 @@ grep -rn "from pretrend.strategy_engine\|from pretrend.backtest\|from pretrend.p
 - 2026-05-13: P25로 Gold Parquet → Postgres mirror sync runner와 `gold_postgres_sync_dag`를 도입.
 - 2026-05-14: P26으로 `src/pretrend/observability/similarity/`, similarity Postgres schema, canonical market-state feature producer, `similarity_build_dag`, historical `what_to_hold` backfill을 도입.
 - 2026-05-14: P27로 `src/pretrend/observability/explainability/` LLM layer, `explainability_cache`, `explainability_build_dag`를 도입.
+- 2026-05-14: P28로 `src/pretrend/api/` FastAPI read-only API, API key auth, 로컬 docker-compose `api` 서비스를 도입. Phase 2 코드/데이터 layer를 완료하고 외부 노출 운영은 Phase 3 dashboard 이후 별도 task로 분리.

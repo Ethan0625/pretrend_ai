@@ -77,13 +77,86 @@ conda run -n pytest-pretrend python -c "from pretrend.config import get_settings
 conda run -n pytest-pretrend python -c "from pretrend.models import Base, BaseSchema; print(Base.metadata.tables)"
 ```
 
-### Phase 2 — FastAPI + Postgres sync DAG (계획)
+### Phase 2 — FastAPI 서비스 (P28)
 
-(P19 시리즈 진입 시 본 섹션 갱신)
+FastAPI 서비스는 `src/pretrend/api/`에 있으며, Postgres mirror와 explainability cache를 read-only로 조회한다.
+로컬 운영 기준은 docker-compose `api` 서비스다.
 
-- `uvicorn apps.api.main:app --reload --port 8000`
-- Parquet → Postgres sync DAG (Airflow)
-- Cloudflare Tunnel: `cloudflared tunnel run pretrend-obs`
+필수 환경 변수는 `.env`에 둔다.
+
+| 변수 | 필수 여부 | 설명 |
+| --- | --- | --- |
+| `PRETREND_API_KEY` | 필수 | `/api/v1/*` 요청의 `X-API-Key` 헤더와 비교한다. `/health`는 예외다. |
+| `PRETREND_API_CORS_ORIGINS` | 선택 | Phase 3 React dashboard 대비용 CORS origin 목록. 기본값은 빈 목록이다. |
+| `PRETREND_API_TRUSTED_HOSTS` | 선택 | TrustedHostMiddleware 허용 host 목록. 기본값은 `*`다. |
+
+기동:
+
+```bash
+docker compose up -d postgres api
+docker compose ps api
+docker compose logs api --tail 30
+```
+
+종료:
+
+```bash
+docker compose stop api
+```
+
+기본 확인:
+
+```bash
+curl -s http://localhost:8000/health
+curl -s http://localhost:8000/docs -o /tmp/pretrend-api-docs.html
+```
+
+인증이 필요한 endpoint는 `X-API-Key` 헤더를 사용한다.
+
+```bash
+export PRETREND_API_KEY="$(grep '^PRETREND_API_KEY=' .env | cut -d= -f2-)"
+curl -s -H "X-API-Key: $PRETREND_API_KEY" \
+  "http://localhost:8000/api/v1/meta"
+```
+
+11 endpoint / 12 smoke call 기준:
+
+```bash
+curl -s -o /dev/null -w "%{http_code}\n" "http://localhost:8000/health"
+curl -s -o /dev/null -w "%{http_code}\n" -H "X-API-Key: $PRETREND_API_KEY" "http://localhost:8000/api/v1/meta"
+curl -s -o /dev/null -w "%{http_code}\n" -H "X-API-Key: $PRETREND_API_KEY" "http://localhost:8000/api/v1/regime?trade_date=2024-06-03"
+curl -s -o /dev/null -w "%{http_code}\n" -H "X-API-Key: $PRETREND_API_KEY" "http://localhost:8000/api/v1/similarity?query_date=2024-06-03&view=regime&top_n=5"
+curl -s -o /dev/null -w "%{http_code}\n" -H "X-API-Key: $PRETREND_API_KEY" "http://localhost:8000/api/v1/similarity?query_date=2024-06-03&view=gold&top_n=5"
+curl -s -o /dev/null -w "%{http_code}\n" -H "X-API-Key: $PRETREND_API_KEY" "http://localhost:8000/api/v1/macro?trade_date=2024-06-03&indicator_id=CPIAUCSL"
+curl -s -o /dev/null -w "%{http_code}\n" -H "X-API-Key: $PRETREND_API_KEY" "http://localhost:8000/api/v1/macro/timeline?indicator_id=CPIAUCSL&start=2024-01-01&end=2024-06-03"
+curl -s -o /dev/null -w "%{http_code}\n" -H "X-API-Key: $PRETREND_API_KEY" "http://localhost:8000/api/v1/eod?symbol=SPY&trade_date=2024-06-03"
+curl -s -o /dev/null -w "%{http_code}\n" -H "X-API-Key: $PRETREND_API_KEY" "http://localhost:8000/api/v1/eod/timeline?symbol=SPY&start=2024-01-01&end=2024-06-03"
+curl -s -o /dev/null -w "%{http_code}\n" -H "X-API-Key: $PRETREND_API_KEY" "http://localhost:8000/api/v1/regime/explain?trade_date=2024-06-03"
+curl -s -o /dev/null -w "%{http_code}\n" -H "X-API-Key: $PRETREND_API_KEY" "http://localhost:8000/api/v1/similarity/explain?query_date=2024-06-03&view=regime"
+curl -s -o /dev/null -w "%{http_code}\n" -H "X-API-Key: $PRETREND_API_KEY" "http://localhost:8000/api/v1/macro/explain?trade_date=2024-06-03"
+```
+
+smoke call은 200 또는 정상적인 404를 허용한다. 401은 `PRETREND_API_KEY` / `X-API-Key` 불일치, 500은 API 로그와 DB 연결 설정을 우선 확인한다.
+
+트러블슈팅:
+
+- `PRETREND_API_KEY is required`: `.env`에 `PRETREND_API_KEY`가 없다.
+- `API key invalid`: 요청 헤더의 `X-API-Key`가 `.env` 값과 다르다.
+- DB 연결 실패: 컨테이너 내부에서는 `POSTGRES_HOST=postgres`, `POSTGRES_PORT=5432`로 override되어야 한다.
+- `api` healthcheck 실패: `docker compose logs api --tail 50`로 startup error를 먼저 확인한다.
+- `cannot stop container ... permission denied`: snap Docker와 system Docker가 동시에 남아 있거나 Docker socket이 꼬인 상태일 수 있다. `ps -ef | grep -E "dockerd|containerd" | grep -v grep`, `snap list docker`, `which docker`로 중복 설치를 확인하고, 하나의 Docker daemon만 남긴 뒤 `sudo systemctl restart docker.socket docker`를 실행한다.
+- `could not access file "$libdir/timescaledb-2.27.0-dev"` 또는 `TimescaleDB version mismatch`: `latest-pg16` 이미지와 기존 DB catalog의 TimescaleDB version 문자열이 어긋난 상태다. `docker-compose.yml`은 `timescale/timescaledb:2.27.0-pg16`처럼 고정 tag를 사용한다. 이미 catalog가 `2.27.0-dev`로 남았으면 preload를 끈 repair 컨테이너에서 `pg_extension.extversion`을 `2.27.0`으로 정정한 뒤 compose postgres를 force recreate한다.
+- `api -> postgres:5432` TCP timeout: host port 문제가 아니라 Docker bridge forwarding 문제일 수 있다. `docker compose down --remove-orphans`로 compose network를 재생성한 뒤 `docker compose up -d postgres api`를 실행한다. `docker compose down -v`는 데이터 볼륨 삭제 위험이 있으므로 사용하지 않는다.
+
+운영 점검 명령:
+
+```bash
+docker compose exec -T api python -c "import socket; print(socket.gethostbyname('postgres')); s=socket.create_connection(('postgres', 5432), timeout=3); print('tcp-ok'); s.close()"
+docker compose exec -T postgres psql -U pretrend -d pretrend_obs -c "SELECT extname, extversion FROM pg_extension;"
+docker compose exec -T api sh -c "timeout 10 alembic current; echo exit=\$?"
+```
+
+외부 노출은 P28 범위가 아니다. Phase 3 dashboard가 로컬에서 검증된 뒤 별도 운영 task로 분리한다.
 
 ### Phase 3 — React Dashboard (계획)
 

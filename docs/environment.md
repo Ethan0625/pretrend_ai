@@ -213,11 +213,13 @@ Phase 0 진입 시 Observability Track용 신규 인프라가 추가된다.
 
 ### 7.5.1 PostgreSQL + TimescaleDB (Docker Compose)
 
-- 이미지: `timescale/timescaledb:latest-pg16`
+- 이미지: `timescale/timescaledb:2.27.0-pg16`
 - 컨테이너 이름: `pretrend-postgres`
 - 포트: `${POSTGRES_PORT:-5432}`
 - 데이터 볼륨: `./.local/postgres-data/` (gitignored)
 - 환경 변수: `.env` (gitignored), 샘플은 `.env.example`
+- TimescaleDB 이미지는 `latest`를 사용하지 않는다. 기존 bind mount DB의 extension catalog가 특정 TimescaleDB shared library version을 참조하므로, 이미지 tag drift가 발생하면 `timescaledb-*-dev` 또는 version mismatch 에러가 날 수 있다.
+- `./.local/postgres-data/`는 bind mount 데이터 원본이다. 컨테이너/network 재생성은 허용하지만 `docker compose down -v`와 해당 디렉토리 삭제는 금지한다.
 
 ```bash
 docker compose up -d postgres

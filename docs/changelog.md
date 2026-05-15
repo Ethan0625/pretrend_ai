@@ -13,6 +13,19 @@
 
 > 참고: changelog 과거 섹션은 작성 시점 원문을 보존한다.
 
+## v2026.05.14 — P28 완료: Observability FastAPI read-only API 도입
+
+### feat(observability/api): Phase 2 조회 API와 로컬 docker-compose 서비스 구축
+- `docs/architecture/api_design.md` 신설: 11 endpoint, API key auth, CORS, error response, `src/pretrend/api/` 위치 결정 사유를 정리
+- `src/pretrend/api/` 신설: `main`, `settings`, `db`, `auth`, `schemas`, 7 router(health, meta, regime, similarity, macro, eod, explain)
+- 11 read-only GET endpoint 구현: health, meta, regime, similarity(regime/gold view), macro, macro timeline, eod, eod timeline, regime explain, similarity explain, macro explain
+- API key auth(`X-API-Key`)와 `/health` 인증 예외, CORS pre-wire, TrustedHostMiddleware, 표준 JSON error response 도입
+- `Dockerfile.api`, `requirements_api.txt`, `.dockerignore`, docker-compose `api` 서비스 추가. API 컨테이너는 전체 개발/LLM 의존성 대신 API runtime 최소 의존성만 설치
+- Postgres 이미지는 TimescaleDB extension catalog 재현성을 위해 `timescale/timescaledb:2.27.0-pg16`으로 고정
+- `docs/operation_guide.md`에 FastAPI 서비스 운영 명령, 11 endpoint / 12 smoke call, 트러블슈팅을 추가
+- 운영 검증 중 확인된 Docker 이슈를 문서화: snap/system Docker daemon 충돌, TimescaleDB `latest-pg16` tag drift에 따른 `2.27.0-dev` catalog mismatch, compose bridge network forwarding timeout
+- 검증: API tests `38 passed`, active pytest `429 passed, 32 skipped, 11 warnings`, archive personal pytest `521 passed, 3 skipped`, docker compose `api` healthy, 컨테이너 내부 12 smoke call 정상(200 또는 정상 404)
+
 ## v2026.05.14 — P27 완료: Observability explainability LLM layer 도입
 
 ### feat(observability/explainability): similarity / regime / macro 설명 layer 구축
