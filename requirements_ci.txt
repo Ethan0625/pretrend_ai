@@ -1,12 +1,6 @@
 pytest
-pandas
-numpy
 requests
 httpx==0.28.1
 pyarrow
 yfinance
-pydantic-settings>=2.0
-SQLAlchemy>=2.0
-alembic>=1.13
-psycopg2-binary>=2.9
-asyncpg>=0.30
+-r requirements_api.txt
