@@ -19,11 +19,18 @@ def anyio_backend() -> str:
 def monkeypatch_api_key(monkeypatch: pytest.MonkeyPatch) -> str:
     key = "test-key-xxx"
     monkeypatch.setenv("PRETREND_API_KEY", key)
+    monkeypatch.setenv("POSTGRES_HOST", "localhost")
+    monkeypatch.setenv("POSTGRES_PORT", "1234")
+    monkeypatch.setenv("POSTGRES_USER", "pretrend")
+    monkeypatch.setenv("POSTGRES_PASSWORD", "CHANGE_ME")
+    monkeypatch.setenv("POSTGRES_DB", "pretrend_obs")
     return key
 
 
 @pytest.fixture()
 def api_app(monkeypatch_api_key: str):
+    config_module = importlib.import_module("pretrend.config")
+    config_module.get_settings.cache_clear()
     settings_module = importlib.import_module("pretrend.api.settings")
     settings_module.get_api_settings.cache_clear()
     main_module = importlib.import_module("pretrend.api.main")
