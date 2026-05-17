@@ -8,7 +8,7 @@ v2026.02.24
 - 에이전트 행동 규칙은 본 문서와 `.agent/WORKFLOW.md`를 단일 기준으로 유지한다.
 
 Source:
-- `docs/strategy_architecture.md (#1-문서-목적)`
+- `docs/architecture/strategy_architecture.md (#1-문서-목적)`
 - `docs/changelog.md (#현재-유효-규칙-as-is)`
 
 ## 2) STOP RULES (강제)
@@ -22,7 +22,7 @@ Source:
 Source:
 - `docs/architecture/gold_design_contract.md §9`
 - `docs/architecture/calendar_design_contract.md (#5-idempotent-write-strategy)`
-- `docs/data_ingest_datasources.md (#9-텍스트-데이터-소스-text-ingest)`
+- `docs/data/data_ingest_datasources.md (#9-텍스트-데이터-소스-text-ingest)`
 
 ## 3) 변경 유형별 게이트
 
@@ -84,4 +84,4 @@ Source:
 
 Source:
 - `docs/operation_guide.md (#agent-assisted-development-codex)`
-- `docs/strategy_engine_design.md (#section-f--invariants-core-contracts)`
+- `docs/architecture/strategy_engine_design.md (#section-f--invariants-core-contracts)`

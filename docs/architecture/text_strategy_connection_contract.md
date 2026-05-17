@@ -3,22 +3,22 @@
 Markers: architecture, contract, legacy
 Status: legacy
 
-> 🔒 **Frozen with reusable rules — 본 문서 자체는 동결, 일부 규칙은 Phase 3에서 추출 예정**
+> 🔒 **Legacy Reference with reusable rules — 본문은 보관, 일부 규칙만 재사용**
 >
-> 본 문서가 정의하는 "텍스트 → Strategy Engine 연결"은 Personal Track 매매 의사결정 영역에 속하므로 **동결 (2026-05-12~ 운영 중단)** 상태입니다. 본 문서의 본문 그대로 사용하지 않습니다.
+> 본 문서가 정의하는 "텍스트 → Strategy Engine 연결"은 과거 실행 실험 문맥이므로 **동결 (2026-05-12~ 운영 중단)** 상태입니다. 본문 그대로 현재 platform 운영에 사용하지 않습니다.
 >
-> 단, 다음 규칙은 **Phase 3 Dashboard report 구성 시 차용 대상**입니다 (본 문서에서 발췌해 Observability Track용 `report_layout_contract.md` (가칭)로 분리할 계획):
+> 단, 다음 규칙은 **Dashboard/report 구성 시 차용 대상**입니다:
 > - observer-only 원칙 (텍스트 LLM 출력이 매매 / 예측에 직접 연결 금지)
 > - fact control (`llm_summary` 내 raw 값 노출 제한)
 > - interpretation rendering 규칙 (textual + structured 병행)
 >
 > 본 문서 본문의 "Strategy Engine 연결" 표현은 **legacy 문맥**으로 읽고, 위 reusable rules만 신규 작업에서 참조합니다.
 >
-> P22(2026-05-13)에서 legacy `report_context_*` / `report_analyzer` 구현은 `src/pretrend/observability/explainability/`로 사전 추출되었습니다. 이는 Phase 3 전체 report layout 계약 완료가 아니라, 기존 report 렌더링 구현의 위치 이동과 shim 유지 범위입니다.
+> P22(2026-05-13)에서 legacy `report_context_*` / `report_analyzer` 구현은 `src/pretrend/observability/explainability/`로 정리되었습니다.
 >
-> 참조: [`track_separation.md`](./track_separation.md), [`REFACTOR_2026Q2.md`](../../.agent/REFACTOR_2026Q2.md)
+> 참조: [`track_separation.md`](./track_separation.md)
 
-## Document Status
+## 문서 상태
 | Item | Value |
 | --- | --- |
 | Status | **Frozen with reusable rules** — 본문 동결, 위 3개 규칙만 Phase 3 차용 예정. P22에서 구현 일부(`report_context_*`, `report_analyzer`)만 explainability로 사전 추출 |
@@ -325,7 +325,7 @@ P3-3a 진단에서 `RISK_ON` overlay가 MDD 악화의 주범임을 확인한 후
   - `compute_allocation_v2_text()`: 제거
 - **재검토 조건**: 차별화된 신호원(실시간 뉴스, 컨센서스 서프라이즈 등)이 추가될 경우 재실험
 
-## 12. Change History
+## 12. 변경 이력
 | Date | Summary |
 | --- | --- |
 | 2026-03-04 | P3-2 설계 초안 작성. Overlay Signal 방안 확정, 집계/3-state/fail-open/AB 비교 프로토콜 고정 |

@@ -3,9 +3,9 @@
 Markers: architecture, contract
 Status: active
 
-> 🟢 **Infrastructure (공유) — 두 트랙 공통 자산**
+> 🟢 **Data Platform PIT Evidence**
 >
-> Calendar evidence는 Bronze/Silver/Gold 레이어의 PIT 정합성을 보장하는 Infrastructure 자산이며, Observability Track / Personal Track 양쪽이 read-only로 소비합니다.
+> Calendar evidence는 Bronze/Silver/Gold 레이어의 PIT 정합성을 보장하는 data platform 자산이며, 현재 운영에서는 Gold feature layer가 read-only로 소비합니다.
 > 참조: [`track_separation.md`](./track_separation.md)
 
 This document is the SOT for: Calendar evidence tables (`calendar.econ_events`, `calendar.fred_vintages`) used by Gold Layer v1 release-date derivation.
@@ -16,13 +16,13 @@ This document is the SOT for: Calendar evidence tables (`calendar.econ_events`, 
 - 범위: Bronze→Silver 파이프라인 패턴을 따르는 `calendar.econ_events`, `calendar.fred_vintages` 두 테이블의 계약을 고정한다.
 - 용어 기준(본 문서): `release_ts_utc`(UTC timestamp), `release_date_utc`(UTC date), Gold 소비 키는 `release_date`, `trade_date`를 사용하며 정의/불변식은 `docs/architecture/gold_design_contract.md` §9를 따른다.
 
-## 2) Scope & Non-Goals
+## 2) 범위와 제외 범위
 ### Scope
 - 거시 지표 5종에 대한 릴리즈 캘린더 증거 제공 (PIT 안전성 확보 목적).
 - 두 테이블:
   - `calendar.econ_events` — 실시간(일 단위 이상) 릴리즈 타임스탬프 기반 캘린더, 신뢰도 최고.
   - `calendar.fred_vintages` — FRED 빈티지(재무제표 버전) 기록, 날짜 단위, 신뢰도 중간.
-### Non-Goals
+### 제외 범위
 | 제외 항목 | 사유 |
 | --- | --- |
 | 실시간/스트리밍 ingest | v1은 배치 전용 |

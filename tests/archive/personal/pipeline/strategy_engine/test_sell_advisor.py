@@ -1,7 +1,7 @@
 """
 Sell Advisor 계약 테스트.
 
-SOT: docs/strategy_engine_design.md §D3, §F
+SOT: docs/architecture/strategy_engine_design.md §D3, §F
 Advisory 역할: sell_budget_ratio / sell_priority_list 는 참고값이며
 실제 매도 실행은 Backtest runner(_execute_sell_tranche)가 담당한다.
 """

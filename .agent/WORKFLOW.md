@@ -9,7 +9,7 @@ v2026.05.12
 - 에이전트 규칙은 본 문서와 `CHANGE_GATES.md`를 단일 기준으로 유지한다.
 
 Source:
-- `docs/agent_adoption_notes.md (#4-운영-규칙-고정-agentsmd)`
+- `docs/operation/agent_adoption_notes.md (#4-운영-규칙-고정-agentsmd)`
 - `docs/operation_guide.md (#agent-assisted-development-codex)`
 
 ## 2) 표준 실행 커맨드
@@ -74,7 +74,7 @@ Source:
 - 세션별 실행 결과는 `.agent/RUN_LOG.md`에 날짜 단위로 기록한다.
 
 Source:
-- `docs/agent_adoption_notes.md (#5-사람이-개입한-핵심-지점)`
+- `docs/operation/agent_adoption_notes.md (#5-사람이-개입한-핵심-지점)`
 
 ## 5) 브랜치/리뷰 체크
 - 기본 브랜치 전략: `dev` 기반 작업

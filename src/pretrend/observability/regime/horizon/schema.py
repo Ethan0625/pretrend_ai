@@ -1,7 +1,7 @@
 """
 Axis × Horizon State schema — ENUM 상수 및 출력 컬럼 정의.
 
-SOT: docs/strategy_engine_design.md §A3, §F
+SOT: docs/architecture/strategy_engine_design.md §A3, §F
 Contract:
   - docs/architecture/market_structure_long_v1_contract.md
   - docs/architecture/market_structure_mid_v1_contract.md

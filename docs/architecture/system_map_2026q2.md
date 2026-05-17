@@ -1,66 +1,67 @@
-# System Map 2026Q2
+# 시스템 맵 2026Q2
 
 Markers: architecture, contract
 Status: active
 
-## 1. One-line Definition
+## 1. 한 줄 정의
 
-Pretrend AI is a market structure observability runtime that turns PIT-safe macro and market features into regime, similarity, and explanation views for a read-only dashboard.
+Pretrend는 금융·거시 데이터를 재현 가능한 방식으로 수집·정제하고, PIT-safe macro/market feature layer를 구축하는 market data platform이다. Regime, similarity, explanation view, read-only dashboard는 이 feature layer를 소비하는 관측 표면이다.
 
-## 2. Why Observability Runtime
+## 2. Market Data Platform의 목적
 
-The current system is not an investment recommendation engine. Its purpose is to make the current and historical market structure observable, reproducible, and explainable.
+현재 시스템은 investment recommendation engine이 아니다. 목적은 시장 판단 이전 단계에서 데이터 정합성, 시점 안전성, 재처리 가능성, 운영 재현성을 확보하고, 그 위에서 현재와 과거의 시장 구조를 관측 가능하고 설명 가능하게 만드는 것이다.
 
-Core runtime responsibilities:
+핵심 runtime 책임:
 
-- Build canonical Bronze, Silver, and Gold feature layers.
-- Mirror dashboard-serving Gold and Observability data into Postgres.
-- Compare current market structure against historical states.
-- Cache bounded Korean-language explanations from existing evidence.
-- Expose read-only API responses for local dashboard use.
+- Bronze, Silver, Gold feature layer를 canonical 형태로 생성한다.
+- Point-in-time 안전성과 재처리 가능성을 data contract와 pytest gate로 검증한다.
+- Dashboard serving에 필요한 Gold/Observability data를 Postgres로 mirror한다.
+- 현재 시장 구조를 과거 상태와 비교한다.
+- 기존 evidence에서 벗어나지 않는 한국어 설명을 cache한다.
+- Local dashboard가 사용할 read-only API response를 제공한다.
 
-Non-goals:
+명시적 제외 범위:
 
-- Predicting future returns.
-- Creating buy, sell, hold, target price, or allocation guidance.
-- Feeding LLM output into strategy, paper trading, or broker execution.
+- 미래 수익률 예측.
+- buy, sell, hold, target price, allocation guidance 생성.
+- LLM output을 strategy, paper trading, broker execution에 입력하는 것.
 
-## 3. Track Boundary
+## 3. 운영 영역 경계
 
-Pretrend is operated as three explicit areas.
+Pretrend는 세 영역으로 운영한다.
 
-| Track | Role | Primary locations | Status |
+| 영역 | 역할 | 주요 위치 | 상태 |
 | --- | --- | --- | --- |
-| Shared Infrastructure | Data ingestion, calendar, Bronze/Silver/Gold feature generation, Parquet SOT | `src/pretrend/pipeline/ingest/`, `src/pretrend/pipeline/features/`, `src/pretrend/pipeline/calendar/`, `data/` | Operational |
-| Observability Track | Regime, similarity, explainability, API, dashboard, Postgres serving schema | `src/pretrend/observability/`, `src/pretrend/api/`, `src/pretrend/models/`, `migrations/`, `Dockerfile.api`, `apps/web/` | Main track |
-| Personal Track Frozen | Strategy, backtest, paper, broker, Telegram automation assets | `src/pretrend/pipeline/strategy_engine/`, `src/pretrend/backtest/`, `src/pretrend/paper/`, `src/pretrend/broker/`, personal DAGs | Frozen and service-stopped by contract |
+| Shared Infrastructure | Data ingestion, calendar, Bronze/Silver/Gold feature generation, Parquet SOT | `src/pretrend/pipeline/ingest/`, `src/pretrend/pipeline/features/`, `src/pretrend/pipeline/calendar/`, `data/` | 운영 |
+| Observability Runtime | Regime, similarity, explainability, API, dashboard, Postgres serving schema | `src/pretrend/observability/`, `src/pretrend/api/`, `src/pretrend/models/`, `migrations/`, `docker/Dockerfile.api`, `apps/web/` | 현재 메인 |
+| 보관된 전략 실험 | Strategy, backtest, paper, broker, Telegram automation asset | `src/pretrend/pipeline/strategy_engine/`, `src/pretrend/backtest/`, `src/pretrend/paper/`, `src/pretrend/broker/`, personal DAGs | 현재 공개 운영 표면 아님 |
 
-Boundary rule:
+경계 규칙:
 
-- Observability can consume Shared Infrastructure.
-- Personal can consume Shared Infrastructure.
-- Observability and Personal must not import or depend on each other directly.
+- Observability Runtime은 Shared Infrastructure를 소비할 수 있다.
+- 보관된 strategy experiment는 Shared Infrastructure를 소비할 수 있다.
+- Observability Runtime과 archived strategy execution module은 서로 직접 import/depend하지 않는다.
 
-Known P29 audit note:
+P29 audit 참고:
 
-- P29-1 found broader Observability imports of `pretrend.pipeline.backtest._utils` and `pretrend.pipeline.strategy_engine.*` in some regime/similarity helper paths. This is a hotfix candidate, not a new allowed dependency.
+- P29-1에서 일부 regime/similarity helper path에 `pretrend.pipeline.backtest._utils`, `pretrend.pipeline.strategy_engine.*` import가 남아 있음을 확인했다. 이는 hotfix 후보이며 새로 허용된 dependency가 아니다.
 
-## 4. System Components
+## 4. 시스템 구성요소
 
-| Component | Role | Input | Output | Track | SOT | Notes |
+| 구성요소 | 역할 | 입력 | 출력 | 영역 | SOT 여부 | 비고 |
 | --- | --- | --- | --- | --- | --- | --- |
-| Source adapters | Pull public market and macro inputs | External data sources | Raw source records | Shared Infrastructure | No | External API and rate-limit policy belongs to source-specific docs. |
-| Bronze/Silver Pipeline | Normalize raw inputs | Source records | Cleaned Parquet layers | Shared Infrastructure | No | Shared by Observability and frozen Personal assets. |
-| Gold Parquet | Canonical PIT-safe feature layer | Silver data | Gold macro and EOD Parquet | Shared Infrastructure | Yes | Feature SOT. Postgres mirrors this, not the reverse. |
-| Postgres Mirror | Query serving layer | Gold Parquet and Observability outputs | Timescale/Postgres tables | Observability | No | Read-optimized for API, similarity, and dashboard. |
-| Regime Feature Builder | Build fixed-width market state features | Regime axis, horizon, position, transition, rotation observations | `gold_market_state_similarity_feature` | Observability | No | Canonical regime similarity input. |
-| Similarity Builder | Compute historical neighbors | `gold_market_state_similarity_feature`, `gold_macro_features`, `gold_eod_features` | `similarity_regime`, `similarity_gold` | Observability | No | Historical comparison only. |
-| Explainability Cache | Store bounded explanation JSON | Postgres evidence tables | `explainability_cache` | Observability | No | Cache key is `use_case + query_date + model_id + prompt_version`. |
-| FastAPI | Read-only runtime API | Postgres serving tables | JSON responses under `/api/v1/` | Observability | No | `/health` is unauthenticated; data endpoints require `X-API-Key`. |
-| Dashboard | Human market observability UI | FastAPI | Local visual views | Observability | No | Phase 3. Must not present trading decisions. |
-| Personal Track | Preserved investing experiment assets | Gold and strategy snapshots | Backtest, paper, broker, Telegram outputs | Personal Frozen | No | No new features. Operational services should remain stopped. |
+| Source adapters | 공개 market/macro input 수집 | 외부 data source | Raw source record | Shared Infrastructure | 아니오 | 외부 API와 rate-limit 정책은 source별 문서에서 관리. |
+| Bronze/Silver Pipeline | Raw input 정규화 | Source record | 정제된 Parquet layer | Shared Infrastructure | 아니오 | Observability와 archived strategy context가 공유. |
+| Gold Parquet | Canonical PIT-safe feature layer | Silver data | Gold macro/EOD Parquet | Shared Infrastructure | 예 | Feature SOT. Postgres는 이를 mirror하며 역방향이 아니다. |
+| Postgres Mirror | Query serving layer | Gold Parquet과 Observability output | Timescale/Postgres table | Observability Runtime | 아니오 | API, similarity, dashboard 조회 최적화. |
+| Regime Feature Builder | Fixed-width market state feature 생성 | Regime axis, horizon, position, transition, rotation observations | `gold_market_state_similarity_feature` | Observability Runtime | 아니오 | Canonical regime similarity input. |
+| Similarity Builder | Historical neighbor 계산 | `gold_market_state_similarity_feature`, `gold_macro_features`, `gold_eod_features` | `similarity_regime`, `similarity_gold` | Observability Runtime | 아니오 | 과거 비교 전용. |
+| Explainability Cache | Bounded explanation JSON 저장 | Postgres evidence table | `explainability_cache` | Observability Runtime | 아니오 | Cache key는 `use_case + query_date + model_id + prompt_version`. |
+| FastAPI | Read-only runtime API | Postgres serving table | `/api/v1/` JSON response | Observability Runtime | 아니오 | `/health`는 unauthenticated, data endpoint는 `X-API-Key` 필요. |
+| Dashboard | 사람이 보는 market observability UI | FastAPI | Local visual view | Observability Runtime | 아니오 | Phase 3. Trading decision을 표시하면 안 된다. |
+| 보관된 Strategy | 보관된 investing experiment asset | Gold와 strategy snapshot | Backtest, paper, broker, Telegram output | 보관 영역 | 아니오 | 신규 feature 추가 대상이 아니다. |
 
-## 5. Data Flow
+## 5. 데이터 흐름
 
 Runtime data flow:
 
@@ -78,16 +79,16 @@ Source
 
 Storage ownership:
 
-- Gold Parquet remains the canonical feature SOT.
-- Postgres stores serving copies and Observability outputs.
-- API reads Postgres only.
-- Dashboard reads API only.
+- Gold Parquet은 canonical feature SOT다.
+- Postgres는 serving copy와 Observability output을 저장한다.
+- API는 Postgres만 읽는다.
+- Dashboard는 API만 읽는다.
 
-## 6. Runtime Jobs
+## 6. Runtime Job
 
-Daily order, KST:
+KST 기준 일일 순서:
 
-| Order | DAG | Schedule | Main output |
+| 순서 | DAG | Schedule | 주요 출력 |
 | ---: | --- | --- | --- |
 | 1 | `eod_pipeline_dag` | `0 8 * * *` | Gold EOD Parquet |
 | 2 | `macro_pipeline_dag` | `0 9 * * *` | Gold macro Parquet |
@@ -95,57 +96,57 @@ Daily order, KST:
 | 4 | `similarity_build_dag` | `0 12 * * *` | `gold_market_state_similarity_feature`, `similarity_regime`, `similarity_gold` |
 | 5 | `explainability_build_dag` | `0 13 * * *` | `explainability_cache` |
 
-See [runtime_flow.md](./runtime_flow.md) for freshness, failure propagation, and recovery commands.
+Freshness, failure propagation, recovery command는 [runtime_flow.md](./runtime_flow.md)를 참조한다.
 
-## 7. Storage Boundary
+## 7. 저장소 경계
 
-| Store | Role | Write owner | Read consumers | Contract |
+| Store | 역할 | Write owner | Read consumer | 계약 |
 | --- | --- | --- | --- | --- |
-| Gold Parquet | Feature SOT | Shared Infrastructure DAGs/jobs | Postgres sync, legacy consumers | `gold_design_contract.md`, `eod_observability_contract.md` |
-| Postgres Gold mirror | SQL serving mirror | `gold_postgres_sync_dag` and sync runner | API, similarity | `gold_postgres_schema.md`, `gold_postgres_sync.md` |
+| Gold Parquet | Feature SOT | Shared Infrastructure DAG/job | Postgres sync, legacy consumer | `gold_design_contract.md`, `eod_observability_contract.md` |
+| Postgres Gold mirror | SQL serving mirror | `gold_postgres_sync_dag`와 sync runner | API, similarity | `gold_postgres_schema.md`, `gold_postgres_sync.md` |
 | Postgres similarity tables | Historical neighbor serving data | `similarity_build_dag` | API, explainability, dashboard | `similarity_design.md` |
 | Postgres explainability cache | Bounded report cache | `explainability_build_dag`, explainer modules | API, dashboard | `explainability_design.md` |
 
-Postgres is not allowed to become a competing feature SOT unless a future contract explicitly changes ownership.
+향후 계약에서 ownership을 명시적으로 변경하지 않는 한, Postgres가 competing feature SOT가 되어서는 안 된다.
 
-## 8. API Boundary
+## 8. API 경계
 
-The FastAPI service is a read-only runtime interface.
+FastAPI service는 read-only runtime interface다.
 
-Rules:
+규칙:
 
-- Only `GET` endpoints are in scope for Phase 2.
-- All `/api/v1/*` endpoints require `X-API-Key`.
-- `/health`, `/docs`, and `/openapi.json` are auth exceptions.
-- API responses must not include Personal Track decision fields.
-- Explainability responses are sanitized before return.
+- Phase 2 범위의 endpoint는 `GET`만 허용한다.
+- 모든 `/api/v1/*` endpoint는 `X-API-Key`가 필요하다.
+- `/health`, `/docs`, `/openapi.json`은 auth exception이다.
+- API response는 archived strategy decision field를 포함하면 안 된다.
+- Explainability response는 반환 전 sanitize한다.
 
-Endpoint inventory and dashboard mapping live in [../api/observability_api_contract.md](../api/observability_api_contract.md).
+Endpoint inventory와 dashboard mapping은 [../api/observability_api_contract.md](../api/observability_api_contract.md)를 참조한다.
 
-## 9. LLM Boundary
+## 9. LLM 경계
 
-The LLM layer explains evidence that already exists in Postgres.
+LLM layer는 Postgres에 이미 존재하는 evidence를 설명한다.
 
-Allowed:
+허용:
 
-- Current observed market structure.
+- 현재 관측된 market structure.
 - Historical neighbor comparison.
 - Macro condition narration.
-- Evidence-bound Korean JSON reports.
+- Evidence-bound Korean JSON report.
 
-Forbidden:
+금지:
 
-- Return forecasts.
-- Recommend trades.
-- Generate target prices or target returns.
-- Create buy, sell, or trading signal semantics.
-- Feed explanations back into strategy, paper, broker, or backtest execution.
+- Forecast 반환.
+- Trade recommendation.
+- Target price 또는 target return 생성.
+- Buy, sell, trading signal semantic 생성.
+- Explanation을 strategy, paper, broker, backtest execution에 다시 입력하는 것.
 
-Historical full LLM backfill is deferred until Phase 3 defines whether explanations are snapshot, rolling-window, or full-history-to-date scoped.
+Historical full LLM backfill은 Phase 3에서 explanation scope/window/cache key 계약을 정하기 전까지 보류한다.
 
-## 10. Frozen Areas
+## 10. 보관 영역
 
-Frozen Personal Track areas:
+보관된 strategy execution 영역:
 
 - `src/pretrend/pipeline/strategy_engine/{allocation, policy_selector, sell_advisor, universe}`
 - `src/pretrend/backtest/`
@@ -156,42 +157,43 @@ Frozen Personal Track areas:
 - `dags/broker_mock_trading_dag.py`
 - Telegram bot orchestration scripts.
 
-Rules:
+규칙:
 
-- No new Personal Track feature work.
-- Preserve archived personal tests.
-- Fix only unavoidable compatibility or safety issues.
-- Operational state should match `track_separation.md`: frozen and service-stopped.
+- 신규 strategy execution feature를 추가하지 않는다.
+- Archived personal test는 보존한다.
+- 불가피한 compatibility 또는 safety issue만 수정한다.
+- Operational state는 service-stopped 상태를 유지한다.
 
-Known P29 audit note:
+P29 audit 참고:
 
-- P29-2 found Personal DAGs registered as `is_paused=False`; paper and broker DAGs also resolve to the same `09:40` weekday slot when `.env.airflow` is sourced. This is an operational hotfix candidate.
+- P29-2에서 일부 archived DAG가 `is_paused=False`로 등록되어 있음을 확인했다. 이는 운영 hotfix 대상이었다.
 
-## 11. Extension Rules
+## 11. 확장 규칙
 
-| New work | Location |
+| 신규 작업 | 위치 |
 | --- | --- |
 | New market state observation | `src/pretrend/observability/regime/` |
-| New similarity view or similarity operation | `src/pretrend/observability/similarity/` plus explicit contract update |
-| New explanation prompt/use case | `src/pretrend/observability/explainability/` plus prompt version policy |
-| New read-only API route | `src/pretrend/api/routers/` plus API contract update |
-| New dashboard page | `apps/web/` after Phase 3 starts |
-| New Postgres serving table | `src/pretrend/models/` and `migrations/versions/` only after contract and migration plan |
-| New operational DAG | `dags/`, with track ownership and recovery notes |
-| New investing decision logic | Not allowed in Observability; Personal Track is frozen |
+| New similarity view 또는 operation | `src/pretrend/observability/similarity/` + contract update |
+| New explanation prompt/use case | `src/pretrend/observability/explainability/` + prompt version policy |
+| New read-only API route | `src/pretrend/api/routers/` + API contract update |
+| New dashboard page | Phase 3 시작 후 `apps/web/` |
+| New Postgres serving table | contract/migration plan 이후 `src/pretrend/models/`, `migrations/versions/` |
+| New operational DAG | ownership과 recovery note를 포함해 `dags/` |
+| New investing decision logic | Observability Runtime에서는 금지. 보관된 strategy execution 영역은 신규 기능 대상이 아니다. |
 
-If a change touches grain, key, invariant, schema, or public API, stop and update the contract first.
+Grain, key, invariant, schema, public API를 건드리는 변경은 먼저 contract를 갱신해야 한다.
 
-## 12. Current Phase Status
+## 12. 현재 Phase 상태
 
-| Area | Status |
+| 영역 | 상태 |
 | --- | --- |
-| Phase 0 foundation | Done |
-| Phase 1 Observability extraction | Done with compatibility shims |
-| Phase 2 code/data layer | Done |
-| P29 Stage Gate | In progress |
-| Phase 3 dashboard | Pending P29 completion |
-| Cloudflare Tunnel | Deferred until local dashboard E2E is verified |
+| Phase 0 foundation | 완료 |
+| Phase 1 Observability extraction | 완료, compatibility shim 유지 |
+| Phase 2 code/data layer | 완료 |
+| P29 Stage Gate | 완료 |
+| P30 Runtime Preflight | 완료 |
+| Phase 3 dashboard | 대기 |
+| Cloudflare Tunnel | Local dashboard E2E 검증 전까지 보류 |
 
 P24-P28 SOT index:
 
@@ -203,13 +205,13 @@ P24-P28 SOT index:
 | P27 Explainability layer | [explainability_design.md](./explainability_design.md) |
 | P28 Observability API | [api_design.md](./api_design.md) |
 
-P29 audit outputs that should influence Phase 3:
+Phase 3에 영향을 주는 audit 산출물:
 
-- Broader Observability to Personal/legacy pipeline boundary cleanup is still needed.
-- Strategy Engine compatibility shim exports need clarification.
-- Personal Track Airflow operational state needs repair.
-- Airflow audit commands must use the project `AIRFLOW_HOME`, project `PYTHONPATH`, and project `DAGS_FOLDER`.
+- Observability와 archived strategy execution 사이의 broad boundary cleanup은 계속 보호해야 한다.
+- Strategy Engine compatibility shim export는 compatibility 범위로만 해석한다.
+- Airflow audit command는 project `AIRFLOW_HOME`, project `PYTHONPATH`, project `DAGS_FOLDER`를 사용해야 한다.
 
-## 13. Change History
+## 13. 변경 이력
 
-- 2026-05-15: Initial draft. P29-3.
+- 2026-05-15: 초안 작성. P29-3.
+- 2026-05-16: 한국어 기준 문서로 정리하고 P30 상태 반영.

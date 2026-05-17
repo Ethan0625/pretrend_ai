@@ -1,7 +1,7 @@
 """
 Strategy Engine E2E Runner 테스트.
 
-SOT: docs/strategy_engine_design.md
+SOT: docs/architecture/strategy_engine_design.md
 DoD:
   - E2E smoke: 합성 데이터로 전체 파이프라인 실행
   - 각 단계 결과 존재 확인

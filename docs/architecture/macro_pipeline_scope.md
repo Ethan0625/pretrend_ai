@@ -5,9 +5,9 @@ v2026.03.12 (재분류: 2026-05-12)
 
 # macro_pipeline_dag Scope
 
-> 🟢 **Infrastructure (공유) — 두 트랙 공통 자산**
+> 🟢 **Data Platform Pipeline Scope**
 >
-> Macro pipeline DAG (`macro_pipeline_dag`)은 Bronze/Silver/Gold 레이어의 Macro feature 운영 자산이며, Observability Track / Personal Track 양쪽이 read-only로 소비합니다. Personal Track 운영 중단(2026-05-12~) 후에도 본 DAG는 **운영 유지** 대상입니다.
+> Macro pipeline DAG (`macro_pipeline_dag`)은 Bronze/Silver/Gold 레이어의 Macro feature 운영 자산이며, 현재 market data platform의 **운영 유지** 대상입니다.
 > 참조: [`track_separation.md`](./track_separation.md)
 
 

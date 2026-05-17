@@ -3,15 +3,15 @@
 Markers: architecture, contract
 Status: active
 
-> 🔄 **Observability Track 자료 — "전이 관측" 컨텍스트로 재해석**
+> 🟢 **Market Data Platform 관측 계약**
 >
-> 본 문서는 2026Q2 방향 재정의 후 Observability Track의 시장 관측 자료로 재해석됩니다.
-> "매매 신호"가 아닌 **"5/10/20/60/120거래일 sojourn / transition hazard 관측"** 컨텍스트로 활용됩니다.
+> 본 문서는 Gold feature layer를 소비해 **5/10/20/60/120거래일 sojourn / transition hazard**를 관측하는 계약입니다.
+> 매매 신호가 아니라 read-only observation context로 활용됩니다.
 > 코드 모듈은 P22(2026-05-13)에서 `observability/regime/transition/` 하위로 이전 완료되었습니다.
 > 기존 `strategy_engine/next_step/` 경로는 backward compatibility re-export shim으로 유지됩니다.
-> 참조: [`track_separation.md`](./track_separation.md), [`REFACTOR_2026Q2.md`](../../.agent/REFACTOR_2026Q2.md)
+> 참조: [`track_separation.md`](./track_separation.md)
 
-## Document Status
+## 문서 상태
 | Item | Value |
 | --- | --- |
 | Status | **Active (Observability 자료, 전이 관측 컨텍스트, Phase 1 추출 완료 — 2026-05-13)** |
@@ -19,16 +19,16 @@ Status: active
 | Effective Date | 2026-02-24 |
 | Change Tracking | docs/changelog.md |
 
-## Capability Matrix
-| Capability | Status | Notes |
+## 기능 매트릭스
+| 기능 | 상태 | 비고 |
 | --- | --- | --- |
 | Core scope | Active | 본 문서의 계약/설계 범위 |
 | Extension ports | Reserved | v1+ 확장 포트는 인터페이스만 정의 |
 | Numeric scoring/tuning | Not supported | 본 문서 범위에서 금지 |
 
-## TOC
+## 목차
 - [1. 문서 목적](#1-문서-목적)
-- [2. Scope & Non-Goals](#2-scope--non-goals)
+- [2. 범위와 제외 범위](#2-scope--non-goals)
 - [3. Inputs](#3-inputs)
 - [4. Outputs](#4-outputs)
 - [5. Axis×Horizon Evidence Matrix (4x3)](#5-axishorizon-evidence-matrix-4x3)
@@ -40,7 +40,7 @@ Status: active
 - [11. DoD](#11-dod)
 
 참조:
-- `docs/strategy_engine_design.md`
+- `docs/architecture/strategy_engine_design.md`
 - `docs/architecture/axis_horizon_dependency_contract.md`
 - `docs/architecture/market_structure_long_contract.md`
 - `docs/architecture/market_structure_mid_contract.md`
@@ -56,18 +56,18 @@ Status: active
 - 12셀(4축×3horizon)을 실행 신호가 아닌 진단 KPI 계층으로 정의한다.
 - Strategy/Paper/Backtest가 공통 소비하는 **운용 게이트 입력(snapshot)** 인터페이스를 고정한다.
 
-### Non-goals
+### 제외 범위
 - 실거래 주문/집행 판단 직접 생성
 - ML 모델 학습/튜닝 기준 정의
 
-## 2. Scope & Non-Goals
+## 2. 범위와 제외 범위
 ### Scope
 - 입력 상태(long_phase, mid_regime, short_signal) 기반 다음 스텝 가설 생성
 - 4축(매크로/가격/수급/심리) 근거 문구 생성
 - 12셀 진단 KPI(coverage, unknown_ratio) 계산
 - 시장 3-state 전이예측 전용 인터페이스 고정
 
-### Non-goals
+### 제외 범위
 - 12셀 개별 셀을 독립 실행 신호로 승격
 - 가설 정확도 성능 보장
 - 전술 그룹 전이 예측(별도 계약: `group_transition_signal_contract.md`)
@@ -76,7 +76,7 @@ Status: active
 ### 책임
 - Next Step Signal의 최소 입력을 고정한다.
 
-### Non-goals
+### 제외 범위
 - Axis 엔진 내부 산출식 정의
 
 | 컬럼 | 타입 | 필수 | 설명 |
@@ -96,7 +96,7 @@ Status: active
 ### 책임
 - 다음 스텝 가설 + 근거 + 진단 인터페이스를 고정한다.
 
-### Non-goals
+### 제외 범위
 - 포트폴리오 비중 조정 명령 생성
 
 | 컬럼 | 타입 | 필수 | 설명 |
@@ -176,7 +176,7 @@ History Grain/Key:
 ### 책임
 - 12셀의 역할을 진단 계층으로 명시한다.
 
-### Non-goals
+### 제외 범위
 - 12셀 전부를 실행 신호로 사용
 
 - 12셀은 독립 실행 신호가 아니라 **evidence diagnostics layer**다.
@@ -199,7 +199,7 @@ History Grain/Key:
 ### 책임
 - v3.2의 월간 lock + shock override 실험 확장을 기존 계약 내부에서 관리한다.
 
-### Non-goals
+### 제외 범위
 - 신규 계약 파일 생성
 - ML 기반 전이예측 튜닝
 
@@ -217,7 +217,7 @@ History Grain/Key:
 ### 책임
 - 국면 지속기간/전환시점 추정을 규칙 기반 확률로 추가한다.
 
-### Non-goals
+### 제외 범위
 - ML 학습/튜닝 도입
 - v3.2 soft gate 대체
 
@@ -231,7 +231,7 @@ History Grain/Key:
 ### 책임
 - `bias_20d` 실행축에 phase-aware 상태머신을 추가해 회복기 참여/하락기 방어 균형을 보강한다.
 
-### Non-goals
+### 제외 범위
 - 5/10/60/120D bias까지 상태머신으로 확장
 - 하드게이트 의미 변경
 
@@ -261,7 +261,7 @@ v3.4.2a (체류 완화 실험, 소비자 적용):
 ### 책임
 - 설명 가능성과 fail-open 동작을 보장한다.
 
-### Non-goals
+### 제외 범위
 - 미래 성과 보장
 
 - 4축 근거 서술 필드는 항상 생성되어야 한다.
@@ -277,7 +277,7 @@ v3.4.2a (체류 완화 실험, 소비자 적용):
 ### 책임
 - 계약 기반 검증 기준을 제공한다.
 
-### Non-goals
+### 제외 범위
 - 백테스트 수익성 검증
 
 - **NSS1**: 입력 필수 컬럼/ENUM 검증
@@ -300,8 +300,8 @@ v3.4.2a (체류 완화 실험, 소비자 적용):
 
 ---
 
-## Change History
-| Date | Summary | References |
+## 변경 이력
+| 날짜 | 요약 | 참조 |
 | --- | --- | --- |
 | 2026-02-25 | v3.3 Duration/Transition MVP 확장 포트(5/10/20d) 추가 | docs/changelog.md |
 | 2026-02-25 | v3.1/v3.2 운영 반영: v3.2를 기존 계약의 확장 가설로 추가하고 extension fields(nullable) 정의 | docs/changelog.md |

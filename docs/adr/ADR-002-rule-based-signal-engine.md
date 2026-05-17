@@ -1,16 +1,19 @@
 # ADR-002: Rule-based Signal Engine (ML 모델 대신 상태 기반 규칙 엔진)
 
-> 🔄 **Observability Track 자료** — Rule-based engine은 "시장 관측" 컨텍스트로 재해석. 분류: [`README.md`](README.md)
+Markers: architecture, contract
+Status: reference
 
-## Status
-Accepted
+> 🔄 **시장 관측 참고 기록** — Rule-based engine은 시장 관측 컨텍스트의 과거 설계 기록으로 해석합니다. 분류: [`README.md`](../../README.md)
 
-## Date
+## 상태
+채택
+
+## 날짜
 2026-01-15 (초기 설계), 2026-02-13 (구조 확정)
 
 ---
 
-## Context
+## 배경
 
 전략 신호(Long/Mid/Short 시장 상태 판단)를 생성하는 방법으로
 ML 모델과 규칙 기반 엔진 중 하나를 선택해야 했다.
@@ -25,7 +28,7 @@ ML 모델과 규칙 기반 엔진 중 하나를 선택해야 했다.
 
 ---
 
-## Decision
+## 결정
 
 **Long/Mid/Short 시장 상태 판단을 ML 모델이 아닌 규칙 기반 상태 기계(State Machine)로 구현한다.**
 
@@ -37,7 +40,7 @@ ML 모델과 규칙 기반 엔진 중 하나를 선택해야 했다.
 
 ---
 
-## Rationale
+## 근거
 
 **1. 데이터 부족 문제**
 금융 시계열에서 Regime 변환은 드물고 비선형적이다.
@@ -66,7 +69,7 @@ ML 모델은 입력 분포가 학습 범위를 벗어날 때 예측 불안정성
 
 ---
 
-## Alternatives Considered
+## 검토한 대안
 
 | 대안 | 거부 이유 |
 |---|---|
@@ -77,7 +80,7 @@ ML 모델은 입력 분포가 학습 범위를 벗어날 때 예측 불안정성
 
 ---
 
-## Consequences
+## 영향
 
 **수용한 트레이드오프**
 - 새로운 시장 패턴에 자동 적응하지 못함. 임계값 조정은 수동 연구 과정 필요.

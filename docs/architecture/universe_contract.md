@@ -3,16 +3,15 @@
 Markers: architecture, contract
 Status: reference
 
-> 🔄 **Mixed (대부분 Observability Track 공유 자산)**
+> ⚠️ **Reference — ETF SOT는 유효, 후보 선택 로직은 보관**
 >
-> 본 문서는 2026Q2 방향 재정의 후 다음과 같이 분리됩니다:
-> - **ETF Universe 정의** (SOT 32 ETFs, asset_group, asset_subtype 등): **Observability Track 공유 자산** — 시장 관측의 입력 universe로 그대로 활용.
-> - **Execution Universe picking 로직** (RS 기반 상위 N 선정 등): **Personal Track Frozen** — 투자 의사결정 영역.
+> 본 문서는 두 성격을 함께 가진다:
+> - **ETF Universe 정의** (SOT 32 ETFs, asset_group, asset_subtype 등): 현재 market data platform의 read-only 관측 입력으로 유효.
+> - **Execution Universe picking 로직** (RS 기반 상위 N 선정 등): 과거 실행 실험 reference.
 >
-> Phase 1+ 진입 시 본 문서에서 picking 로직 부분을 분리해 `universe_observation_contract.md` (가칭)로 재정리할 계획입니다.
-> 참조: [`track_separation.md`](./track_separation.md), [`REFACTOR_2026Q2.md`](../../.agent/REFACTOR_2026Q2.md)
+> 참조: [`track_separation.md`](./track_separation.md), [`eod_observability_contract.md`](eod_observability_contract.md)
 
-## Document Status
+## 문서 상태
 | Item | Value |
 | --- | --- |
 | Status | **Mixed (Observability-shared + Frozen picking)** — 헤더 참조 |
@@ -20,16 +19,16 @@ Status: reference
 | Effective Date | 2026-02-21 (재분류: 2026-05-12) |
 | Change Tracking | docs/changelog.md |
 
-## Capability Matrix
-| Capability | Status | Notes |
+## 기능 매트릭스
+| 기능 | 상태 | 비고 |
 | --- | --- | --- |
 | Core scope | Active | 본 문서의 계약/설계 범위 |
 | Extension ports | Reserved | v1+ 확장 포트는 인터페이스만 정의 |
 | Numeric scoring/tuning | Not supported | 본 문서 범위에서 금지 |
 
-## TOC
+## 목차
 - [1. 문서 목적](#1-문서-목적)
-- [2. Scope & Non-Goals](#2-scope--non-goals)
+- [2. 범위와 제외 범위](#2-scope--non-goals)
 - [3. 입력 계약](#3-입력-계약)
 - [4. 출력 계약](#4-출력-계약)
 - [5. Grain / Key](#5-grain--key)
@@ -38,7 +37,7 @@ Status: reference
 - [8. Universe-Stock(U0~U3) Extension Port (Research)](#8-universe-stocku0u3-extension-port-research)
 
 연계 문서:
-- `docs/strategy_architecture.md`
+- `docs/architecture/strategy_architecture.md`
 - `docs/architecture/market_structure_composer_contract.md`
 - `docs/architecture/gold_design_contract.md`
 - `docs/architecture/calendar_design_contract.md`
@@ -49,15 +48,15 @@ Status: reference
 - Universe-ETF(v1)의 입력/출력 인터페이스를 SOT로 고정한다.
 - Market Structure Composer와 Allocation Engine 사이의 계약 경계를 명확히 한다.
 
-### Non-goals
+### 제외 범위
 - 자산별 상세 점수식, 가중치, 랭킹 로직을 정의하지 않는다.
 
-## 2. Scope & Non-Goals
+## 2. 범위와 제외 범위
 ### 책임
 - Observability ETF 대상의 후보 선별 계약을 정의한다(Execution Universe 범위).
 - Composer 차단 상태에서 결과 제약을 명시한다.
 
-### Non-goals
+### 제외 범위
 - 대상: 개별 종목 제외, Observability ETF만
 - Universe-Stock(U0~U3) 파이프라인은 본 계약 범위 밖(별도 로드맵)
 - 주문 실행/포지션 사이징 포함하지 않음
@@ -66,7 +65,7 @@ Status: reference
 ### 책임
 - Universe-ETF 입력 소스와 필수 컬럼을 고정한다.
 
-### Non-goals
+### 제외 범위
 - 입력 테이블 재계산/보정
 
 입력 소스:
@@ -94,7 +93,7 @@ Status: reference
 ### 책임
 - Allocation Engine이 소비 가능한 `candidate_etf_list` 스키마를 고정한다.
 
-### Non-goals
+### 제외 범위
 - 후보 개수 제한/정렬 규칙 확정
 
 필수 출력 컬럼:
@@ -121,7 +120,7 @@ is_candidate: true
 ### 책임
 - 출력 grain과 유일성 기준을 명시한다.
 
-### Non-goals
+### 제외 범위
 - 동일일 다중 버전 관리 전략
 
 - Grain: `(decision_date, symbol)`
@@ -132,7 +131,7 @@ is_candidate: true
 ### 책임
 - Universe-ETF 출력의 무결성 제약을 명시한다.
 
-### Non-goals
+### 제외 범위
 - 후보 우선순위 알고리즘 정의
 
 - Observability 라벨은 read-only (입력 라벨 수정 금지)
@@ -166,7 +165,7 @@ is_candidate: true
 ### 책임
 - 구현 검증 최소 기준을 제공한다.
 
-### Non-goals
+### 제외 범위
 - 테스트 데이터셋 고정
 
 - **UV1**: 차단 상태(`run_universe=false`) 입력 시 candidate 0개 검증
@@ -181,7 +180,7 @@ is_candidate: true
 - 본 절은 `Universe-Stock(U0~U3)` 연구 파이프라인의 인터페이스 경계만 정의한다.
 - Strategy Engine `Universe-ETF(Execution)`와 충돌하지 않도록 입력/출력 분리를 명시한다.
 
-### Non-goals
+### 제외 범위
 - U0~U3 계산 로직, 점수식, 외부 API 스펙을 확정하지 않는다.
 - 본 문서 범위에서 개별 종목 실행/주문 로직을 정의하지 않는다.
 
@@ -214,9 +213,9 @@ is_candidate: true
 
 ---
 
-## Change History
-| Date | Summary | References |
+## 변경 이력
+| 날짜 | 요약 | 참조 |
 | --- | --- | --- |
 | 2026-02-21 | Universe-ETF v1 규칙 반영: phase eligible pool, mid_regime Top-N, RS 정의 및 CORE 예외 명시 | docs/changelog.md |
 | 2026-02-21 | Universe 용어 이원화 반영: Universe-ETF(Execution) 계약으로 명시, Universe-Stock(U0~U3) 범위 분리 | docs/changelog.md |
-| 2026-02-13 | 파일명 버전 제거 및 문서 표준 블록(Document Status/Capability Matrix) 적용 | docs/changelog.md |
+| 2026-02-13 | 파일명 버전 제거 및 문서 표준 블록(문서 상태/기능 매트릭스) 적용 | docs/changelog.md |

@@ -48,6 +48,11 @@ except ModuleNotFoundError:  # pragma: no cover - pytest env smoke import fallba
                     upstream_task_ids=set(),
                     downstream_task_ids=set(),
                 )
+                for upstream in _args:
+                    upstream_task_id = getattr(upstream, "task_id", None)
+                    if upstream_task_id:
+                        task_obj.upstream_task_ids.add(upstream_task_id)
+                        upstream.downstream_task_ids.add(task_id)
                 _FALLBACK_TASKS[task_id] = task_obj
                 return task_obj
 
@@ -87,20 +92,27 @@ def _start_date():
     tags=TAGS,
 )
 def gold_postgres_sync():
+    @task(task_id="ensure_data_lake_bootstrap")
+    def ensure_data_lake_bootstrap_task() -> dict[str, Any]:
+        from pretrend.ops.backfill_once import run_backfill_once
+
+        return run_backfill_once()
+
     @task(task_id="sync_macro")
-    def sync_macro_task() -> dict[str, Any]:
+    def sync_macro_task(_bootstrap_summary: dict[str, Any]) -> dict[str, Any]:
         from pretrend.pipeline.sync.gold_postgres import sync_gold_macro
 
         return sync_gold_macro()
 
     @task(task_id="sync_eod")
-    def sync_eod_task() -> dict[str, Any]:
+    def sync_eod_task(_bootstrap_summary: dict[str, Any]) -> dict[str, Any]:
         from pretrend.pipeline.sync.gold_postgres import sync_gold_eod
 
         return sync_gold_eod()
 
-    sync_macro_task()
-    sync_eod_task()
+    bootstrap_summary = ensure_data_lake_bootstrap_task()
+    sync_macro_task(bootstrap_summary)
+    sync_eod_task(bootstrap_summary)
 
 
 gold_postgres_sync_dag = gold_postgres_sync()

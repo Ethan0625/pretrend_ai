@@ -20,11 +20,12 @@ mid_regime Top-N:
 CORE(SPY, TLT, IAU)는 phase 필터·Top-N 적용 제외, 항상 is_candidate=True.
 
 Contract: docs/architecture/universe_contract.md
-SOT: docs/strategy_engine_design.md §D1
+SOT: docs/architecture/strategy_engine_design.md §D1
 """
 from __future__ import annotations
 
 import logging
+import math
 from typing import Dict, FrozenSet
 
 import pandas as pd
@@ -53,6 +54,22 @@ _MID_TOP_N: Dict[str, int] = {
     "RISK_ON":  9,
     "UNKNOWN":  7,  # fallback
 }
+
+
+def _finite_ret_20d(values: pd.Series) -> pd.Series:
+    ret = pd.to_numeric(values, errors="coerce")
+    finite_mask = ret.map(lambda value: pd.notna(value) and math.isfinite(float(value)))
+    return ret.where(finite_mask)
+
+
+def _optional_float(value: object) -> float | None:
+    if pd.isna(value):
+        return None
+    try:
+        out = float(value)
+    except (TypeError, ValueError):
+        return None
+    return out if math.isfinite(out) else None
 
 
 def build_universe(
@@ -109,12 +126,20 @@ def build_universe(
             continue
 
         # ── RS 산출: ret_20d(symbol) - ret_20d(SPY) ──────────
+        eod_filtered["ret_20d"] = _finite_ret_20d(eod_filtered["ret_20d"])
         spy_ret = eod_filtered.loc[
             eod_filtered["symbol"] == "SPY", "ret_20d"
-        ]
-        spy_ret_val = float(spy_ret.iloc[0]) if not spy_ret.empty else 0.0
-
-        eod_filtered["rs_vs_spy"] = eod_filtered["ret_20d"] - spy_ret_val
+        ].dropna()
+        if spy_ret.empty:
+            logger.warning(
+                "[Universe] SPY ret_20d missing for trade_date=%s; "
+                "tactical RS ranking disabled for this date",
+                td,
+            )
+            eod_filtered["rs_vs_spy"] = pd.NA
+        else:
+            spy_ret_val = float(spy_ret.iloc[0])
+            eod_filtered["rs_vs_spy"] = eod_filtered["ret_20d"] - spy_ret_val
 
         # ── Phase eligible pool: 제외 종목 필터 ──────────────
         exclude = _PHASE_EXCLUDE.get(long_phase, frozenset())
@@ -125,6 +150,7 @@ def build_universe(
         tactical_eligible = eod_filtered[
             eod_filtered["symbol"].isin(tactical_symbols)
             & ~eod_filtered["symbol"].isin(exclude)
+            & eod_filtered["rs_vs_spy"].notna()
         ].sort_values("rs_vs_spy", ascending=False)
 
         top_tactical = set(tactical_eligible.head(top_n)["symbol"].tolist())
@@ -147,7 +173,7 @@ def build_universe(
                 "decision_date": td,
                 "symbol": sym,
                 "asset_group": ag,
-                "relative_strength": eod_row.get("rs_vs_spy", eod_row.get("ret_20d")),
+                "relative_strength": _optional_float(eod_row.get("rs_vs_spy")),
                 "is_candidate": is_candidate,
             })
 

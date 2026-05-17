@@ -1,7 +1,7 @@
 """
 Strategy Engine registries — 정적 레지스트리 정의.
 
-SOT: docs/strategy_engine_design.md §A3
+SOT: docs/architecture/strategy_engine_design.md §A3
 Contract: docs/architecture/policy_config_contract.md
 """
 from __future__ import annotations

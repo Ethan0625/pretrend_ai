@@ -3,30 +3,30 @@
 Markers: architecture, contract, legacy
 Status: legacy
 
-> 🔒 **Personal Track (Frozen) — 자동매매·매매 리포팅 영역**
+> 🔒 **Legacy Execution Reference — 자동매매·매매 리포팅 영역**
 >
-> 본 문서는 2026Q2 방향 재정의에 따라 Personal Track으로 분류되어 동결 상태입니다.
-> Personal Track은 2026-05-12부터 운영 중단되었으며, 본 문서가 정의하는 기능 또한 추가 개발이 없습니다.
-> 참조: [`track_separation.md`](./track_separation.md), [`REFACTOR_2026Q2.md`](../../.agent/REFACTOR_2026Q2.md)
+> 본 문서는 과거 실행 실험 계약을 보존하기 위한 reference입니다.
+> 2026-05-12부터 운영 중단 상태이며, 현재 market data platform의 공개 운영 표면이 아닙니다.
+> 참조: [`track_separation.md`](./track_separation.md)
 
-## Document Status
+## 문서 상태
 | Item | Value |
 | --- | --- |
-| Status | **Frozen (Personal Track 운영 중단, 2026-05-12~)** |
+| Status | **Frozen (legacy execution 운영 중단, 2026-05-12~)** |
 | Structure Policy | 구조는 고정, 기능은 확장 |
 | Effective Date | 2026-02-25 |
 | Change Tracking | docs/changelog.md |
 
-## Capability Matrix
-| Capability | Status | Notes |
+## 기능 매트릭스
+| 기능 | 상태 | 비고 |
 | --- | --- | --- |
 | Core scope | Active | 본 문서의 계약/설계 범위 |
 | Extension ports | Reserved | 체결 모델 고도화 포트만 정의 |
 | Numeric scoring/tuning | Not supported | 본 문서 범위에서 금지 |
 
-## TOC
+## 목차
 - [1. 문서 목적](#1-문서-목적)
-- [2. Scope & Non-Goals](#2-scope--non-goals)
+- [2. 범위와 제외 범위](#2-scope--non-goals)
 - [3. Inputs](#3-inputs)
 - [4. Output Tables](#4-output-tables)
 - [5. Grain / Key](#5-grain--key)
@@ -41,7 +41,7 @@ Status: legacy
 - `docs/architecture/allocation_engine_contract.md`
 - `docs/architecture/next_step_signal_contract.md`
 - `docs/architecture/group_transition_signal_contract.md`
-- `docs/strategy_engine_design.md`
+- `docs/architecture/strategy_engine_design.md`
 
 ## 1. 문서 목적
 ### 책임
@@ -49,18 +49,18 @@ Status: legacy
 - NAV 기반 `daily_pnl`, `cumulative_pnl` 산출 규칙을 고정한다.
 - 종목별 포지션 상세(평단/현재가/수량/평가금액/손익률) 인터페이스를 고정한다.
 
-### Non-goals
+### 제외 범위
 - 실거래 주문 집행
 - 인트라데이 체결 모델
 
-## 2. Scope & Non-Goals
+## 2. 범위와 제외 범위
 ### Scope
 - strategy `exposure` 신호 기반 EOD 가상 체결
 - `execution_ledger`, `positions_daily`, `portfolio_daily` 산출
 - 운영 조건(초기자금/DCA/요일 규칙/SCHD 매도 금지) 적용
 - SIM/MOCK 동시 운영 시 mode 분리 저장/조회 규칙
 
-### Non-goals
+### 제외 범위
 - 실전(Level 3) 자동 주문 연동
 - 체결 슬리피지/수수료 모델 최적화
 
@@ -238,8 +238,8 @@ Status: legacy
 
 ---
 
-## Change History
-| Date | Summary | References |
+## 변경 이력
+| 날짜 | 요약 | 참조 |
 | --- | --- | --- |
 | 2026-02-27 | v3.4.2a 실험 규칙 추가: cooldown 조건부 압축 + hard-gate exit assist(soft-only) | docs/changelog.md |
 | 2026-02-26 | v3.4.1 재진입 규칙 추가: WEAK>=2 진입 + RELIEF 2연속/MID RISK_ON 해제 | docs/changelog.md |

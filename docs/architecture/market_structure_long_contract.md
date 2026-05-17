@@ -3,16 +3,15 @@
 Markers: architecture, contract
 Status: active
 
-> 🔄 **Observability Track 자료 — "시장 구조 관측" 컨텍스트로 재해석**
+> 🟢 **Market Data Platform 관측 계약**
 >
-> 본 문서는 2026Q2 방향 재정의 후 Observability Track의 시장 관측 자료로 재해석됩니다.
-> "투자 의사결정"이 아닌 **"Long-cycle regime 관측"** 컨텍스트로 활용됩니다.
-> P29-4 분류: **Observability Track 자산, Phase 1 추출 완료**.
+> 본 문서는 Gold feature layer를 소비해 **Long-cycle regime**을 관측하는 계약입니다.
+> 투자 의사결정이나 매매 지시가 아니라 read-only observation context로 활용됩니다.
 > 코드 모듈은 Phase 1 P19에서 `observability/regime/horizon/long_engine.py`로 이전 완료되었습니다.
 > 기존 `strategy_engine/axis_horizon_state/long_engine.py` import path는 shim으로 backward compat을 유지합니다.
-> 참조: [`track_separation.md`](./track_separation.md), [`REFACTOR_2026Q2.md`](../../.agent/REFACTOR_2026Q2.md)
+> 참조: [`track_separation.md`](./track_separation.md)
 
-## Document Status
+## 문서 상태
 | Item | Value |
 | --- | --- |
 | Status | **Active (Observability 자료, 시장 관측 컨텍스트)** |
@@ -20,16 +19,16 @@ Status: active
 | Effective Date | 2026-02-13 |
 | Change Tracking | docs/changelog.md |
 
-## Capability Matrix
-| Capability | Status | Notes |
+## 기능 매트릭스
+| 기능 | 상태 | 비고 |
 | --- | --- | --- |
 | Core scope | Active | 본 문서의 계약/설계 범위 |
 | Extension ports | Reserved | v1+ 확장 포트는 인터페이스만 정의 |
 | Numeric scoring/tuning | Not supported | 본 문서 범위에서 금지 |
 
-## TOC
+## 목차
 - [1. 문서 목적](#1-문서-목적)
-- [2. Scope & Non-Goals](#2-scope--non-goals)
+- [2. 범위와 제외 범위](#2-scope--non-goals)
 - [3. Inputs (Gold Macro 중심)](#3-inputs-gold-macro-중심)
 - [4. Outputs](#4-outputs)
 - [5. Grain/Key (trade_date 기준)](#5-grainkey-trade_date-기준)
@@ -47,15 +46,15 @@ Status: active
 - 장기 국면 모듈(`ms_long_term_phase`)의 입력/출력 계약을 고정한다.
 - Composer가 소비하는 표준 long-term 상태 인터페이스를 정의한다.
 
-### Non-goals
+### 제외 범위
 - long_phase 판정식의 수치화(가중치/컷오프) 정의
 
-## 2. Scope & Non-Goals
+## 2. 범위와 제외 범위
 ### Scope
 - Gold Macro 중심 입력을 사용해 장기 phase를 산출한다.
 - 결측 입력 처리 규칙(`UNKNOWN`)을 명시한다.
 
-### Non-goals
+### 제외 범위
 - Universe/Allocation 직접 제어
 - 단기 신호 생성
 
@@ -63,7 +62,7 @@ Status: active
 ### 책임
 - Gold Macro 기반 장기 판단 입력 컬럼을 고정한다.
 
-### Non-goals
+### 제외 범위
 - Macro 원천 보정/리샘플링
 
 Source:
@@ -88,7 +87,7 @@ Source:
 ### 책임
 - Composer가 소비하는 long-term 상태 필드를 고정한다.
 
-### Non-goals
+### 제외 범위
 - confidence 수치 기준 정의
 
 출력 컬럼:
@@ -104,7 +103,7 @@ Source:
 ### 책임
 - 장기 모듈 출력 grain을 고정한다.
 
-### Non-goals
+### 제외 범위
 - 다중 버전 출력 관리 규칙
 
 - Grain: `trade_date`
@@ -114,7 +113,7 @@ Source:
 ### 책임
 - 출력 무결성 규칙을 명시한다.
 
-### Non-goals
+### 제외 범위
 - 성능 KPI 보장
 
 - `long_phase`는 ENUM 외 값 금지
@@ -133,7 +132,7 @@ Source:
 ### 책임
 - 구현 검증 기준을 고정한다.
 
-### Non-goals
+### 제외 범위
 - 테스트 프레임워크 강제
 
 - **ML1**: 필수 입력/출력 컬럼 검증
@@ -143,9 +142,9 @@ Source:
 
 ---
 
-## Change History
-| Date | Summary | References |
+## 변경 이력
+| 날짜 | 요약 | 참조 |
 | --- | --- | --- |
 | 2026-02-21 | Inputs 계약 정합화: indicator_id를 fail-open 정책에 맞춰 N(권장)으로 조정 | docs/changelog.md |
 | 2026-02-20 | v1 rolling z-score 로직 반영 — z_threshold=0.3 채택, indicator_id 필수 명시, Invariants §6 상세화 | docs/changelog.md |
-| 2026-02-13 | 파일명 버전 제거 및 문서 표준 블록(Document Status/Capability Matrix) 적용 | docs/changelog.md |
+| 2026-02-13 | 파일명 버전 제거 및 문서 표준 블록(문서 상태/기능 매트릭스) 적용 | docs/changelog.md |

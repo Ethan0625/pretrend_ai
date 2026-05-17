@@ -3,30 +3,30 @@
 Markers: architecture, contract, legacy
 Status: legacy
 
-> 🔒 **Personal Track (Frozen) — 자동매매·자산배분 영역**
+> 🔒 **Legacy Execution Reference — 자동매매·자산배분 영역**
 >
-> 본 문서는 2026Q2 방향 재정의에 따라 Personal Track으로 분류되어 동결 상태입니다.
-> Personal Track은 2026-05-12부터 운영 중단되었으며, 본 문서가 정의하는 기능 또한 추가 개발이 없습니다.
-> 참조: [`track_separation.md`](./track_separation.md), [`REFACTOR_2026Q2.md`](../../.agent/REFACTOR_2026Q2.md)
+> 본 문서는 과거 실행 실험 계약을 보존하기 위한 reference입니다.
+> 2026-05-12부터 운영 중단 상태이며, 현재 market data platform의 공개 운영 표면이 아닙니다.
+> 참조: [`track_separation.md`](./track_separation.md)
 
-## Document Status
+## 문서 상태
 | Item | Value |
 | --- | --- |
-| Status | **Frozen (Personal Track 운영 중단, 2026-05-12~)** |
+| Status | **Frozen (legacy execution 운영 중단, 2026-05-12~)** |
 | Structure Policy | 구조는 고정, 기능은 확장 |
 | Effective Date | 2026-02-25 |
 | Change Tracking | docs/changelog.md |
 
-## Capability Matrix
-| Capability | Status | Notes |
+## 기능 매트릭스
+| 기능 | 상태 | 비고 |
 | --- | --- | --- |
 | Core scope | Active | 본 문서의 계약/설계 범위 |
 | Extension ports | Reserved | v1+ 확장 포트는 인터페이스만 정의 |
 | Numeric scoring/tuning | Not supported | 본 문서 범위에서 금지 |
 
-## TOC
+## 목차
 - [1. 문서 목적](#1-문서-목적)
-- [2. Scope & Non-Goals](#2-scope--non-goals)
+- [2. 범위와 제외 범위](#2-scope--non-goals)
 - [3. Inputs](#3-inputs)
 - [4. Rules](#4-rules)
 - [5. Outputs](#5-outputs)
@@ -35,7 +35,7 @@ Status: legacy
 - [8. DoD](#8-dod)
 
 참조:
-- `docs/strategy_architecture.md`
+- `docs/architecture/strategy_architecture.md`
 - `docs/architecture/market_structure_composer_contract.md`
 - `docs/architecture/policy_config_contract.md`
 - `docs/architecture/universe_contract.md`
@@ -50,17 +50,17 @@ Status: legacy
 - Allocation Engine(v0/v1/v2/v3/v3.1/v3.2/v3.3/v3.4/v3.4.1/v3.4.2-phase/v3.4.2a)의 입력/출력/불변식을 고정한다.
 - 총 투자 비율 조절(`invested_ratio`)을 계약 형태로 명확히 한다.
 
-### Non-goals
+### 제외 범위
 - Universe 내부 종목 가중치 조절
 - 수치 튜닝(가중치/컷오프/최적화)
 
-## 2. Scope & Non-Goals
+## 2. 범위와 제외 범위
 ### Scope
 - 주기 기반 총 투자 비율 조절
 - `adjustment_limit` 기반 분할 조정
 - `risk_gate`/`run_universe` 기반 증감 허용 규칙
 
-### Non-goals
+### 제외 범위
 - 즉시 올인/올아웃 실행
 - v3+ 고도화(`volatility-aware`, `regime-weighted`) 구현
   - 단, v3 인터페이스 포트(`next_step_bias`)는 본 계약에 정의
@@ -69,7 +69,7 @@ Status: legacy
 ### 책임
 - Allocation 판단에 필요한 최소 입력 스키마를 고정한다.
 
-### Non-goals
+### 제외 범위
 - 입력 생성 파이프라인 구현
 
 입력 소스:
@@ -116,7 +116,7 @@ current_invested_ratio: 0.62
 ### 책임
 - allocation mode별 조정 규칙을 수치 튜닝 없이 형태로 고정한다.
 
-### Non-goals
+### 제외 범위
 - 목표 범위/조정폭 최적값 정의
 
 - 공통:
@@ -181,7 +181,7 @@ current_invested_ratio: 0.62
 ### 책임
 - 실행 가능한 action plan 형식을 정의한다.
 
-### Non-goals
+### 제외 범위
 - 절대 금액/종목별 주문 수량 산출
 
 | 컬럼 | 타입 | 필수 | 설명 |
@@ -197,7 +197,7 @@ current_invested_ratio: 0.62
 ### 책임
 - 출력 유일성 기준을 명시한다.
 
-### Non-goals
+### 제외 범위
 - 멀티 포트폴리오 동시 관리
 
 - Grain: `(trade_date)`
@@ -207,7 +207,7 @@ current_invested_ratio: 0.62
 ### 책임
 - mode 공존 시에도 핵심 제약을 강제한다.
 
-### Non-goals
+### 제외 범위
 - 투자 성과 보장
 
 - `next_invested_ratio`는 `[0.0, 1.0]` 범위를 벗어나지 않는다.
@@ -227,7 +227,7 @@ current_invested_ratio: 0.62
 ### 책임
 - 계약 기반 검증 기준을 제공한다.
 
-### Non-goals
+### 제외 범위
 - 백테스트 성능 검증
 
 - **AE1**: 입력/출력 필수 컬럼 및 타입 검증
@@ -246,8 +246,8 @@ current_invested_ratio: 0.62
 
 ---
 
-## Change History
-| Date | Summary | References |
+## 변경 이력
+| 날짜 | 요약 | 참조 |
 | --- | --- | --- |
 | 2026-02-26 | v3.4.1 규칙 추가: WEAK>=2 진입, RELIEF 2연속/MID RISK_ON 재진입(soft gate 상태 유지) | docs/changelog.md |
 | 2026-02-26 | v3.4(group transition gate) 규칙 추가: tactical 그룹 강도/우선순위 조절, 결측 fail-open(v3.3 유지) | docs/changelog.md |
@@ -257,4 +257,4 @@ current_invested_ratio: 0.62
 | 2026-02-25 | v3.1 monthly lock 정식화 + v3.2(Hypothesis) shock override/cooldown 규칙 추가 | docs/changelog.md |
 | 2026-02-25 | v3 예약 포트 확정: `f(long_phase, mid_regime, next_step_bias_20d)` + snapshot 소비 원칙 명시 | docs/changelog.md |
 | 2026-02-23 | v0/v1/v2 공존 계약으로 확장: mode별 risk_gate 규칙과 DoD 분리 명시 | docs/changelog.md |
-| 2026-02-13 | 파일명 버전 제거 및 문서 표준 블록(Document Status/Capability Matrix) 적용 | docs/changelog.md |
+| 2026-02-13 | 파일명 버전 제거 및 문서 표준 블록(문서 상태/기능 매트릭스) 적용 | docs/changelog.md |

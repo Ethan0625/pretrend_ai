@@ -1,16 +1,19 @@
 # ADR-005: LLM을 해석 계층으로만 한정 (의사결정 엔진 배제)
 
-> 🔄 **Observability Track 자료** — explainability layer 원칙 (관측 only, 예측 금지). 분류: [`README.md`](README.md)
+Markers: architecture, contract
+Status: reference
 
-## Status
-Accepted
+> 🔄 **현재 유효한 설명 계층 참고 기록** — explainability layer 원칙 (관측 only, 예측 금지). 분류: [`README.md`](../../README.md)
 
-## Date
+## 상태
+채택
+
+## 날짜
 2026-02-01 (설계 원칙 확정)
 
 ---
 
-## Context
+## 배경
 
 LLM(Large Language Model)을 이 시스템에 통합할 때 역할을 어떻게 정의할 것인지 결정해야 했다.
 
@@ -24,7 +27,7 @@ LLM을 활용할 수 있는 범위는 크게 세 가지였다.
 
 ---
 
-## Decision
+## 결정
 
 **LLM은 해석 계층(Interpretation Layer)으로만 사용한다. 매매 신호 생성이나 의사결정에 관여하지 않는다.**
 
@@ -42,7 +45,7 @@ LLM은 전략 판단의 결과물(Action, Phase, Regime 등)을 입력받아
 
 ---
 
-## Rationale
+## 근거
 
 **1. 재현성 보장 불가**
 LLM 출력은 동일 입력에 대해서도 확률적으로 다른 출력을 낼 수 있다.
@@ -74,7 +77,7 @@ LLM이 실제로 강한 영역은 자연어 생성과 정보 요약이다.
 
 ---
 
-## Alternatives Considered
+## 검토한 대안
 
 | 대안 | 거부 이유 |
 |---|---|
@@ -84,7 +87,7 @@ LLM이 실제로 강한 영역은 자연어 생성과 정보 요약이다.
 
 ---
 
-## Consequences
+## 영향
 
 **수용한 트레이드오프**
 - 뉴스/공시 기반 단기 이벤트 대응 불가. 현재 구조에서 LLM은 사후 설명만 가능.

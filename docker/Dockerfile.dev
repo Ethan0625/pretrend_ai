@@ -8,14 +8,15 @@ ENV PRETREND_LOG_DIR=/app/logs
 
 WORKDIR /app
 
-COPY README.md pyproject.toml requirements_api.txt requirements_ci.txt ./
-COPY docker-compose.yml Dockerfile.api Dockerfile.dev ./
-COPY .dockerignore Dockerfile.api.dockerignore Dockerfile.dev.dockerignore .env.example ./
-RUN pip install --no-cache-dir -r requirements_ci.txt
+COPY requirements/ ./requirements/
+RUN pip install --no-cache-dir -r requirements/ci.txt
 
+COPY README.md pyproject.toml requirements.txt conftest.py reproduce.py ./
+COPY .github/ ./.github/
+COPY docker-compose.yml .dockerignore .env.example ./
+COPY docker/ ./docker/
 COPY alembic.ini ./
 COPY migrations/ ./migrations/
-COPY scripts/ ./scripts/
 COPY dags/ ./dags/
 COPY src/ ./src/
 COPY tests/ ./tests/
@@ -23,4 +24,4 @@ COPY docs/ ./docs/
 
 RUN pip install --no-cache-dir -e .
 
-CMD ["pytest", "-q", "--tb=short"]
+CMD ["pytest", "--gate", "fast", "-q", "--tb=short"]

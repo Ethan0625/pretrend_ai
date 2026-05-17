@@ -8,7 +8,7 @@ v2026.02.24
 - 변동 수치(예: 테스트 통과 건수)는 기록하지 않고 최신 pytest/CI 로그를 참조한다.
 
 Source:
-- `docs/agent_adoption_notes.md (#4-운영-규칙-고정-agentsmd)`
+- `docs/operation/agent_adoption_notes.md (#4-운영-규칙-고정-agentsmd)`
 - `docs/operation_guide.md (#agent-assisted-development-codex)`
 
 ## 2) 프로젝트 정체성
@@ -19,9 +19,9 @@ Source:
   - Level 3: Live broker (현재 범위 밖)
 
 Source:
-- `docs/strategy_architecture.md (#2-전체-전략-아키텍처)`
-- `docs/strategy_engine_design.md (#section-a--one-page-summary)`
-- `docs/milestones.md (#6-전략-아키텍처-로드맵-risk-control)`
+- `docs/architecture/strategy_architecture.md (#2-전체-전략-아키텍처)`
+- `docs/architecture/strategy_engine_design.md (#section-a--one-page-summary)`
+- `docs/roadmap/milestones.md (#6-전략-아키텍처-로드맵-risk-control)`
 
 ## 3) 용어 사전 (혼동 방지)
 - `mid_regime`: 중기 성향 라벨 (`RISK_ON/NEUTRAL/RISK_OFF/UNKNOWN`)
@@ -30,7 +30,7 @@ Source:
 - 사용자 표시 별칭: `is_panic = not risk_gate`
 
 Source:
-- `docs/strategy_engine_design.md (#section-f--invariants-core-contracts)`
+- `docs/architecture/strategy_engine_design.md (#section-f--invariants-core-contracts)`
 - `docs/operation_guide.md (#telegram-알림-설정)`
 - `docs/architecture/market_structure_composer_contract.md (#4-outputs-필수)`
 
@@ -47,15 +47,15 @@ Source:
 Source:
 - `docs/architecture/gold_design_contract.md §9`
 - `docs/architecture/calendar_design_contract.md (#5-idempotent-write-strategy)`
-- `docs/strategy_engine_design.md (#section-e--snapshot-storage)`
-- `docs/strategy_engine_design.md (#section-a--one-page-summary)`
+- `docs/architecture/strategy_engine_design.md (#section-e--snapshot-storage)`
+- `docs/architecture/strategy_engine_design.md (#section-a--one-page-summary)`
 - `docs/architecture/universe_contract.md (#2-scope--non-goals)`
-- `docs/milestones.md (#m2-universe-stock-pipelineu0u3-구현-68주)`
+- `docs/roadmap/milestones.md (#m2-universe-stock-pipelineu0u3-구현-68주)`
 - `docs/operation_guide.md (#backtest-engine-실행)`
 - `docs/architecture/text_observability_contract.md (#14-운영-경계-정책-v1)`
 
 ## 5) SOT 우선순위 맵
-- 전략 단일 SOT: `docs/strategy_engine_design.md`
+- 전략 단일 SOT: `docs/architecture/strategy_engine_design.md`
 - 계약 단일 SOT: `docs/architecture/*_contract.md`
 - 운영 실행 SOT: `docs/operation_guide.md`
 - 변경 이력 SOT: `docs/changelog.md` (과거 원문 보존)
@@ -93,7 +93,7 @@ Paper/Broker 운영 원칙:
 
 Source:
 - `docs/changelog.md (#현재-유효-규칙-as-is)`
-- `docs/strategy_architecture.md (#1-문서-목적)`
+- `docs/architecture/strategy_architecture.md (#1-문서-목적)`
 - `docs/operation_guide.md (#agent-assisted-development-codex)`
 - `docs/architecture/text_observability_contract.md (#13-llm-observer-layer--v1-계약-gate-d)`
 

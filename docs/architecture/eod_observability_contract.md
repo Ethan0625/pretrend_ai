@@ -3,13 +3,13 @@
 Markers: architecture, contract
 Status: active
 
-> 🟢 **Infrastructure (공유) — 두 트랙 공통 자산**
+> 🟢 **Data Platform 입력 자산**
 >
-> EOD Observability SOT(32 ETFs)는 Bronze/Silver/Gold 레이어의 입력 universe이며, Observability Track / Personal Track 양쪽이 read-only로 소비합니다.
+> EOD Observability SOT는 Bronze/Silver/Gold 레이어의 입력 universe이며, 현재 운영에서는 시장 상태 관측을 위한 read-only data asset으로 소비합니다.
 > 참조: [`track_separation.md`](./track_separation.md)
 
 ## 1. 문서 목적
-본 문서는 Pretrend AI의 EOD 관측용 ETF 세트(Observability Set)와 분류/라벨 계약을 고정하기 위한 계약 문서다.
+본 문서는 Pretrend의 EOD 관측용 ETF 세트(Observability Set)와 분류/라벨 계약을 고정하기 위한 계약 문서다.
 이 계약은 EOD Pipeline, Universe-ETF(Execution Universe), Universe-Stock(U0~U3), Gold Layer가 공통으로 참조하는 단일 기준(SOT)으로 사용된다.
 
 ## 2. 용어 정의
@@ -28,13 +28,13 @@ Status: active
   - Universe-ETF(현재): Observability ETF 내부 후보 선택
   - Universe-Stock(확장): U0~U3 결과 기반 종목 Universe 변경
 
-## 3. 계약 범위 (Scope & Non-Goals)
+## 3. 계약 범위와 제외 범위
 ### Scope
 - Base EOD Observability Set v1 심볼/분류/라벨 계약 고정
 - Bronze에서 분류를 1회 확정하고 Silver/Gold로 전파하는 규칙 고정
 - Universe-ETF/Universe-Stock/Gold의 read-only 소비 규칙 고정
 
-### Non-Goals
+### 제외 범위
 - 신규 ETF 추천/제거 정책 제안
 - 전략 알파/매수매도 판단 로직 정의
 - 기존 데이터의 일괄 재라벨링 수행

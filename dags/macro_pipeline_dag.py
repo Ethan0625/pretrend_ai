@@ -52,7 +52,7 @@ def _macro_start_date():
     description="FRED Macro Bronze→Silver E2E 파이프라인 (매일, 누락 대비 롤링 재수집)",
     default_args=DEFAULT_ARGS,
     start_date=_macro_start_date(),
-    schedule_interval="0 9 * * *",  # 매일 09:00 KST
+    schedule="0 9 * * *",  # 매일 09:00 KST
     catchup=False,          # 과거 월들도 필요하면 backfill 가능
     max_active_runs=1,     # 한 번에 하나만 실행
     tags=["pretrend", "macro", "bronze", "silver"],
@@ -72,8 +72,17 @@ def macro_pipeline():
       - end_date:   anchor_date - 1일(= 어제)
     """
 
+    @task(task_id="ensure_data_lake_bootstrap")
+    def ensure_data_lake_bootstrap_task() -> Dict[str, Any]:
+        from pretrend.ops.backfill_once import run_backfill_once
+
+        return run_backfill_once()
+
     @task(task_id="run_macro_job")
-    def run_macro_job_task(**context: Any) -> Dict[str, Any]:
+    def run_macro_job_task(
+        _bootstrap_summary: Dict[str, Any],
+        **context: Any,
+    ) -> Dict[str, Any]:
         # Airflow에서 넘겨주는 logical data interval
         data_interval_start = context.get("data_interval_start")
         data_interval_end = context.get("data_interval_end")
@@ -105,7 +114,8 @@ def macro_pipeline():
         
         return summary
 
-    run_macro_job_task()
+    bootstrap_summary = ensure_data_lake_bootstrap_task()
+    run_macro_job_task(bootstrap_summary)
 
 
 macro_pipeline_dag = macro_pipeline()

@@ -5,6 +5,7 @@ Pure functions — no I/O, no external dependencies.
 from __future__ import annotations
 
 import json
+import math
 from typing import Any, Dict, List, Optional
 
 
@@ -77,7 +78,7 @@ def _pct_str(v: Any) -> str:
         if v is None:
             return "N/A"
         fv = float(v)
-        if fv != fv:
+        if not math.isfinite(fv):
             return "N/A"
         return f"{fv:.0%}"
     except Exception:
@@ -89,7 +90,7 @@ def _safe_float(v: Any) -> Optional[float]:
         if v is None:
             return None
         fv = float(v)
-        if fv != fv:
+        if not math.isfinite(fv):
             return None
         return fv
     except Exception:

@@ -14,5 +14,8 @@ airflow_pretrend/
 data/
 logs/
 result/
+state/
+codex-bin/
+codex-home/
 
 dags/__pycache__/

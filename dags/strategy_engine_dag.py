@@ -26,6 +26,7 @@ import pendulum
 from airflow.decorators import dag, task
 from pretrend.pipeline.notify.telegram_sender import send_telegram_fail_open
 from pretrend.pipeline.strategy_engine.io import load_gold_text
+from pretrend.pipeline.strategy_engine.json_safety import make_json_safe
 from pretrend.pipeline.strategy_engine.report_delivery import (
     compose_strategy_report_messages as _compose_strategy_report_messages,
 )
@@ -38,7 +39,6 @@ from pretrend.pipeline.strategy_engine.report_context import (
     build_diagnostic_lines as _build_diagnostic_lines,
     build_evidence_lines as _build_evidence_lines,
     build_text_window_lines as _build_text_window_lines,
-    generate_llm_analysis as _generate_llm_analysis,
     format_next_step_hazard_lines as _format_next_step_hazard_lines,
     format_bias_state_line as _format_bias_state_line,
     format_group_transition_lines as _format_group_transition_lines,
@@ -125,6 +125,56 @@ def _load_snapshot(strategy_root: Path, stage: str, decision_date: date) -> "pd.
     return pd.read_parquet(files[0])
 
 
+def _env_int(name: str, default: int) -> int:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        return int(raw.split("#", 1)[0].strip())
+    except (TypeError, ValueError):
+        return default
+
+
+def _generate_report_analysis_via_api(
+    analysis_payload: Dict[str, Any],
+    *,
+    model: str,
+    base_url: str,
+    timeout: int,
+    logger: Any,
+) -> Optional[str]:
+    import requests
+
+    api_url = os.getenv(
+        "PRETREND_REPORT_API_URL",
+        "http://api:8000/api/v1/report/strategy/analyze",
+    ).strip()
+    api_key = os.getenv("PRETREND_API_KEY", "").strip()
+    if not api_url or not api_key:
+        logger.warning("[SIGNAL] report API skipped: PRETREND_REPORT_API_URL or PRETREND_API_KEY missing")
+        return None
+
+    try:
+        response = requests.post(
+            api_url,
+            json={
+                "payload": make_json_safe(analysis_payload),
+                "model": model,
+                "base_url": base_url,
+                "timeout": timeout,
+            },
+            headers={"X-API-Key": api_key},
+            timeout=timeout + 5,
+        )
+        response.raise_for_status()
+        data = response.json()
+        analysis_text = str(data.get("analysis_text") or "").strip()
+        return analysis_text or None
+    except Exception as exc:
+        logger.warning("[SIGNAL] report API analysis failed: %s", exc, exc_info=True)
+        return None
+
+
 # ── Telegram 메시지 구성 상수 ────────────────────────────
 
 # v2 목표 비율 룩업 (allocation_mode="v2" 기준, SE allocation/engine.py 와 동기화)
@@ -180,7 +230,7 @@ _ASSET_NAME_KO: Dict[str, str] = {
     description="Strategy Engine 7단계 파이프라인 + Telegram 리포트 (매일 10:00 KST)",
     default_args=DEFAULT_ARGS,
     start_date=pendulum.datetime(2026, 1, 1, tz="Asia/Seoul"),
-    schedule_interval="0 10 * * *",  # EOD(08:00 KST) + Macro(09:00 KST) 완료 후
+    schedule="0 10 * * *",  # EOD(08:00 KST) + Macro(09:00 KST) 완료 후
     catchup=False,
     max_active_runs=1,
     tags=["pretrend", "strategy", "telegram"],
@@ -492,11 +542,13 @@ def strategy_engine_pipeline():
             risk_struct=risk_struct,
             confidence_struct=confidence_struct,
         )
-        analysis_text = _generate_llm_analysis(
+        report_timeout = _env_int("REPORT_LLM_TIMEOUT", int(report_cfg.ollama_timeout))
+        analysis_text = _generate_report_analysis_via_api(
             analysis_payload,
             model=os.getenv("REPORT_LLM_MODEL", report_cfg.ollama_model),
             base_url=os.getenv("REPORT_LLM_BASE_URL", report_cfg.ollama_base_url),
-            timeout=int(os.getenv("REPORT_LLM_TIMEOUT", str(report_cfg.ollama_timeout))),
+            timeout=report_timeout,
+            logger=logger,
         )
         if analysis_text:
             main_lines += [

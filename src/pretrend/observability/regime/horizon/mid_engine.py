@@ -5,7 +5,7 @@ REQUIRED axis: price_volatility
 OPTIONAL axis: macro_policy, flow_structure, sentiment
 
 Contract: docs/architecture/market_structure_mid_v1_contract.md
-SOT: docs/strategy_engine_design.md §A3
+SOT: docs/architecture/strategy_engine_design.md §A3
 
 v1 라벨 로직:
   3-signal majority vote (price_vol + macro + flow) → RISK_ON / NEUTRAL / RISK_OFF

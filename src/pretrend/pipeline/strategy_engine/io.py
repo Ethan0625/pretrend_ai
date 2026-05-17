@@ -1,7 +1,7 @@
 """
 Strategy Engine I/O — Gold loaders + snapshot writer.
 
-SOT: docs/strategy_engine_design.md §C, §E
+SOT: docs/architecture/strategy_engine_design.md §C, §E
 """
 from __future__ import annotations
 
@@ -144,7 +144,7 @@ def write_snapshot_atomic(
 
     경로: output_root/{stage_name}/decision_date=YYYY-MM-DD/{stage_name}_YYYYMMDD.parquet
 
-    SOT: docs/strategy_engine_design.md §E
+    SOT: docs/architecture/strategy_engine_design.md §E
     - _tmp_run={run_id} 경유
     - 동일 파티션 overwrite
     - idempotent (재실행 동일 결과)

@@ -1,7 +1,7 @@
 """
 Axis × Horizon State (3-state + detail) 통합 테스트.
 
-SOT: docs/strategy_engine_design.md §A3, §F
+SOT: docs/architecture/strategy_engine_design.md §A3, §F
 DoD: 상태/근거 컬럼 존재 검증, ENUM 유효성, 결측→UNKNOWN
 """
 from __future__ import annotations

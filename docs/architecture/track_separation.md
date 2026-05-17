@@ -1,10 +1,10 @@
-# Track Separation — Observability vs Personal Investing
+# 런타임 경계 계약 — Data Platform vs Legacy Execution
 
 Markers: architecture, contract
 Status: active
 
-Version: 2026.05.12
-Status: 확정 (Phase 0 진입)
+Version: 2026.05.17
+Status: active
 
 ---
 
@@ -14,15 +14,15 @@ Status: 확정 (Phase 0 진입)
 
 투자 영역에서는 "거시경제 흐름이 중요하다"는 말을 자주 하지만, 실제로 거시 이벤트와 시장 구조 변화가 어떤 방식으로 연결되는지를 반복적으로 확인할 수 있는 개인용 도구는 많지 않다. 본 프로젝트는 투자 전망을 제시하기보다, 무료로 접근 가능한 거시·ETF 데이터를 기반으로 시장 상태를 구조화하고, 특정 시점의 시장 구조가 과거 어떤 구간과 유사하거나 다른지를 재현 가능한 방식으로 관측하는 시스템을 만든다.
 
-### 1.0.1 전환 이유
+### 1.0.1 설계 기준
 
-초기 Pretrend는 로컬 기반 매매 실험 구조였으나, 프로젝트 목적을 예측에서 시장 구조 관측으로 전환하면서 공개 운영 가능한 데이터 시스템으로 재설계하고 있다. 이에 따라 로컬 의존 배치 구조를 정리하고, 자동화된 스케줄러 기반 수집, Bronze/Silver/Gold 데이터 레이어, market state feature 생성, dashboard serving, freshness monitoring 구조로 전환하고 있다.
+Pretrend의 공개 운영 기준은 예측 모델이나 자동매매 시스템이 아니라, 시장 판단 이전 단계의 데이터 정합성, 시점 안전성, 재처리 가능성, 운영 재현성이다. 이를 위해 자동화된 스케줄러 기반 수집, Bronze/Silver/Gold 데이터 레이어, Postgres serving mirror, read-only API, freshness monitoring 구조를 운영 기준으로 둔다.
 
 ### 1.1 우리가 만들려는 것
 
-> "설명 가능한 시장 구조 관측(Market Structure Observability) 시스템"
+> "재현 가능한 Market Data Platform"
 
-핵심 목표는 미래 예측(prediction)이 아니라, **과거와 현재의 시장 상태(state)를 구조적으로 설명 가능하게(reproducible + explainable) 관측(observable)하는 것**이다.
+핵심 목표는 미래 예측(prediction)이 아니라, **금융·거시 데이터를 재현 가능한 방식으로 수집·정제하고 point-in-time 안전한 feature layer를 유지하는 것**이다. 시장 구조 관측, 유사도 비교, 설명 레이어는 이 데이터 플랫폼을 read-only로 소비하는 활용 표면이다.
 
 ### 1.2 우리가 만드는 것이 아닌 것
 
@@ -46,13 +46,13 @@ Status: 확정 (Phase 0 진입)
 
 ---
 
-## 2. Two-Track 운영 원칙
+## 2. 운영 경계 원칙
 
-본 프로젝트는 두 트랙을 명시적으로 분리하여 운영한다.
+본 프로젝트는 현재 운영 영역과 보관된 실행 실험 영역을 명시적으로 분리하여 운영한다.
 
-### 2.1 Observability Track (메인, production-grade)
+### 2.1 Data Platform / Observability Surface (메인)
 
-**목적**: 시장 구조 관측 시스템.
+**목적**: 재현 가능한 market data platform과 read-only 관측 표면.
 
 **범위**:
 - ingestion (Medallion 공유: Bronze / Silver / Gold)
@@ -74,9 +74,9 @@ Status: 확정 (Phase 0 진입)
 
 AI/LLM 기능은 항상 후순위다.
 
-### 2.2 Personal Track (Investing, **동결 + 운영 중단**)
+### 2.2 Legacy Execution Reference (**동결 + 운영 중단**)
 
-**목적**: 기존 6개월 자산 보존. 코드는 동결, **서비스는 운영 중단 (2026-05-12~)**.
+**목적**: 과거 실행 실험 구현 보존. 코드는 동결, **서비스는 운영 중단 (2026-05-12~)**.
 
 **범위**:
 - `strategy_engine/{allocation, policy_selector, sell_advisor, universe}`
@@ -101,21 +101,21 @@ AI/LLM 기능은 항상 후순위다.
 ### 3.1 코드 의존성 방향
 
 ```
-[Observability Track]                 [Personal Track]
+[Observability Runtime]               [Legacy Execution]
         ↓                                    ↓
         └──────────→ [Infrastructure] ←──────┘
                      (Medallion + PIT)
 ```
 
-- Observability Track은 Personal Track 코드를 **import 하지 않는다**.
-- Personal Track은 Observability Track 코드를 **import 하지 않는다**.
-- 두 트랙 모두 Infrastructure (Bronze/Silver/Gold, Calendar) 위에서 동작한다.
+- Observability Runtime은 Legacy Execution 코드를 **import 하지 않는다**.
+- Legacy Execution은 Observability Runtime 코드를 **import 하지 않는다**.
+- 두 영역 모두 Infrastructure (Bronze/Silver/Gold, Calendar) 위에서 동작한다.
 
 ### 3.2 신규 작업 라우팅 규칙
 
-새 기능을 추가할 때 어느 트랙에 속하는지 다음 기준으로 판정:
+새 기능을 추가할 때 어느 영역에 속하는지 다음 기준으로 판정:
 
-| 질문 | YES → 어느 트랙? |
+| 질문 | YES → 어느 영역? |
 |---|---|
 | 시장 상태를 관측/설명하기 위한 기능인가? | Observability |
 | 매수/매도 결정에 사용되는가? | Personal (그러나 동결이므로 거의 추가 안 함) |
@@ -127,9 +127,9 @@ AI/LLM 기능은 항상 후순위다.
 
 ### 3.3 데이터 의존성
 
-- 두 트랙 모두 **Gold snapshot까지만 공유**한다.
-- Personal Track의 strategy snapshot / paper ledger는 Observability가 읽지 않는다.
-- Observability Track의 similarity index / dashboard cache는 Personal Track이 읽지 않는다.
+- 현재 운영 영역과 legacy execution 영역은 **Gold snapshot까지만 공유**한다.
+- Legacy Execution의 strategy snapshot / paper ledger는 Observability Runtime이 읽지 않는다.
+- Observability Runtime의 similarity index / dashboard cache는 Legacy Execution이 읽지 않는다.
 
 ---
 
@@ -146,7 +146,7 @@ AI/LLM 기능은 항상 후순위다.
 | `strategy_engine/next_step/` | Observation | `observability/regime/transition/`로 이전 완료 | Phase 1 — 5/10/20/60/120D 전이 관측, 기존 위치는 shim 유지 |
 | `strategy_engine/group_transition/` | Observation | `observability/regime/rotation/`로 이전 완료 | Phase 1 — Tactical group rotation 관측, 기존 위치는 shim 유지 |
 | `strategy_engine/universe/` | Mixed | ETF 정의는 공유, picking은 frozen | 32 ETFs SOT는 Observability 입력, picking 로직만 frozen |
-| `strategy_engine/{allocation, policy_selector, sell_advisor}` | Investment (Frozen) | 위치 유지 | Personal Track 자동매매 의사결정 |
+| `strategy_engine/{allocation, policy_selector, sell_advisor}` | Investment (Frozen) | 위치 유지 | legacy execution 자동매매 의사결정 |
 | `backtest/` | Investment (Frozen) | 위치 유지 | historical replay 필요 시 view만 추가 |
 | `paper/`, `broker/` | Investment (Frozen) | 위치 유지 | 손 안 댐 |
 | `strategy_engine/report_context*`, `report_analyzer` | Mixed → Explainability | `observability/explainability/`로 사전 이전 완료 | P22에서 next_step boundary 해소를 위해 선행. Phase 3 전체 완료 아님, 기존 위치는 shim 유지 |
@@ -196,7 +196,7 @@ AI/LLM 기능은 항상 후순위다.
 - FastAPI (`apps/api/`)
 - PostgreSQL + TimescaleDB (Docker Compose)
 - Parquet (Bronze/Silver/Gold raw layer)
-- Airflow (기존 유지, Personal Track DAG는 paused)
+- Airflow (기존 유지, legacy execution DAG는 paused)
 - React + Vite (`apps/web/`)
 - Docker Compose
 - **Cloudflare Tunnel (Phase 2~)** — 로컬 머신을 외부에 노출, 도메인+HTTPS 무료
@@ -212,7 +212,7 @@ AI/LLM 기능은 항상 후순위다.
 
 ---
 
-## 7. Phase 1 핵심 기능 (Observability Track)
+## 7. 핵심 관측 기능
 
 ### 7.1 Fixed ETF Universe
 - 정해진 ETF만 사용 (SPY, QQQ, IWM, TLT, IAU, XLK, XLF, XLV, XLE, XLU, ...)
@@ -262,19 +262,21 @@ production-grade runtime ownership을 위한 운영 항목:
 
 ## 9. 참조 문서
 
-- 리팩토링 계획: `.agent/REFACTOR_2026Q2.md`
+- 시스템 개요: `docs/system_overview.md`
+- 데이터 모델: `docs/data/data_model.md`
+- 운영 재현성 계약: `docs/operation/reproducible_runtime_contract.md`
 - DB 결정: Postgres + TimescaleDB
 - 기존 Medallion 계약: `docs/architecture/gold_design_contract.md`, `eod_observability_contract.md`
-- 기존 strategy 계약 (Personal Track용, 동결): `docs/architecture/market_structure_*_contract.md`
+- 기존 strategy 계약 (legacy reference): `docs/architecture/market_structure_*_contract.md`
 
 ---
 
 ## 10. 변경 이력
 
-- 2026-05-12: 초안. Two-Track 분리 결정. Personal Track 동결 + Observability Track 신규 작업 본진.
-- 2026-05-12: Personal Track **운영 중단** 결정 (코드는 보존, 서비스는 정지). Cloud roadmap: Phase 2 Cloudflare Tunnel 도입.
+- 2026-05-12: 초안. 현재 운영 영역과 legacy execution 영역의 경계 결정.
+- 2026-05-12: Legacy Execution **운영 중단** 결정 (코드는 보존, 서비스는 정지). Cloud roadmap: Phase 2 Cloudflare Tunnel 도입.
 - 2026-05-12: §4 추출 대상 표 세분화 — strategy 영역 전체 frozen이 아니라 Observation(market_structure/axis/horizon/next_step/group_transition)과 Investment(allocation/policy/sell/picking)를 분리. next_step, group_transition 모듈 추가. 문서 분류 매트릭스 추가.
-- 2026-05-13: P23으로 Personal Track 테스트를 `tests/archive/personal/`로 이동하고, default pytest surface에서 archive를 제외.
+- 2026-05-13: P23으로 legacy execution 테스트를 `tests/archive/personal/`로 이동하고, default pytest surface에서 archive를 제외.
 
 ---
 
@@ -282,7 +284,7 @@ production-grade runtime ownership을 위한 운영 항목:
 
 ### 11.1 Active Surface
 
-기본 pytest(`conda run -n pytest-pretrend pytest -q --tb=short`)는 active surface만 검증한다.
+기본 pytest(`conda run -n pytest-pretrend pytest -q --tb=short`)는 현재 운영 표면만 검증한다.
 
 - 포함:
   - `tests/observability/`
@@ -291,11 +293,11 @@ production-grade runtime ownership을 위한 운영 항목:
   - `tests/test_*.py`
 - 제외:
   - `tests/archive/`
-  - Personal Track frozen 테스트(`tests/archive/personal/`로 이동)
+  - Legacy execution frozen 테스트(`tests/archive/personal/`로 이동)
 
 ### 11.2 Archive Surface
 
-`tests/archive/personal/`은 Personal Track frozen 자산의 회귀 검증 보관소다.
+`tests/archive/personal/`은 legacy execution frozen 자산의 회귀 검증 보관소다.
 
 - 포함:
   - Backtest / Paper / Broker 테스트
@@ -311,6 +313,6 @@ conda run -n pytest-pretrend pytest tests/archive/personal/ -q --tb=short
 
 ### 11.3 실행 책임
 
-- Observability / Infrastructure 작업: active surface 기본 pytest 실행.
-- Personal Track frozen 영역 변경: archive surface 수동 pytest를 함께 실행.
-- Personal Track은 신규 기능 추가 금지 상태이므로 archive 테스트는 삭제하지 않고 보존한다.
+- Observability / Infrastructure 작업: 현재 운영 표면 기본 pytest 실행.
+- Legacy execution frozen 영역 변경: archive surface 수동 pytest를 함께 실행.
+- Legacy execution은 신규 기능 추가 금지 상태이므로 archive 테스트는 삭제하지 않고 보존한다.

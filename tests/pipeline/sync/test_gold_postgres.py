@@ -9,7 +9,6 @@ from pydantic import ValidationError
 from sqlalchemy import Engine, create_engine, text
 from sqlalchemy.exc import SQLAlchemyError
 
-from pretrend.config import get_settings
 from pretrend.pipeline.sync.gold_postgres import (
     _get_watermark,
     sync_gold_eod,
@@ -19,6 +18,11 @@ from pretrend.pipeline.sync.gold_postgres import (
 
 @pytest.fixture(scope="module")
 def pg_engine() -> Engine:
+    try:
+        from pretrend.config import get_settings
+    except ModuleNotFoundError as exc:
+        pytest.skip(f"postgres settings dependency unavailable: {exc}")
+
     try:
         database_url = get_settings().database_url
     except ValidationError as exc:

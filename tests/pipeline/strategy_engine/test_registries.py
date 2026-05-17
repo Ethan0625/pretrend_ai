@@ -1,7 +1,7 @@
 """
 Registries 계약 테스트.
 
-SOT: docs/strategy_engine_design.md §A3
+SOT: docs/architecture/strategy_engine_design.md §A3
 Contract: docs/architecture/policy_config_contract.md
 """
 from __future__ import annotations

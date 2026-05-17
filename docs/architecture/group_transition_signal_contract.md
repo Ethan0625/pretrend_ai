@@ -3,16 +3,16 @@
 Markers: architecture, contract
 Status: active
 
-> 🔄 **Observability Track 자료 — "Tactical group 전환 관측" 컨텍스트로 재해석 (Phase 1 추출 완료 — 2026-05-13)**
+> 🟢 **Market Data Platform 관측 계약**
 >
-> 본 문서는 2026Q2 방향 재정의 후 Observability Track의 시장 관측 자료로 재해석됩니다.
-> "투자 의사결정"이 아닌 **"섹터/자산군 rotation 관측"** 컨텍스트로 활용됩니다.
+> 본 문서는 Gold feature layer를 소비해 **섹터/자산군 rotation**을 관측하는 계약입니다.
+> 투자 의사결정이나 매매 지시가 아니라 read-only observation context로 활용됩니다.
 > `group_transition` 코드는 P21에서 `observability/regime/rotation/`로 이전 완료되었습니다.
 > 기존 `strategy_engine/group_transition/`는 re-export shim으로 backward compat을 유지합니다.
 > 디렉토리 명은 `rotation`이지만 코드 심볼(`GROUP_TRANSITION_SIGNAL_COLUMNS`, `build_group_transition_signal`)은 그대로 유지합니다.
-> 참조: [`track_separation.md`](./track_separation.md), [`REFACTOR_2026Q2.md`](../../.agent/REFACTOR_2026Q2.md)
+> 참조: [`track_separation.md`](./track_separation.md)
 
-## Document Status
+## 문서 상태
 | Item | Value |
 | --- | --- |
 | Status | **Active (Observability 자료, Phase 1 추출 완료 — 2026-05-13)** |
@@ -20,9 +20,9 @@ Status: active
 | Effective Date | 2026-02-26 |
 | Change Tracking | docs/changelog.md |
 
-## TOC
+## 목차
 - [1. 문서 목적](#1-문서-목적)
-- [2. Scope & Non-Goals](#2-scope--non-goals)
+- [2. 범위와 제외 범위](#2-scope--non-goals)
 - [3. Inputs](#3-inputs)
 - [4. Outputs](#4-outputs)
 - [5. Grain / Key](#5-grain--key)
@@ -34,24 +34,24 @@ Status: active
 - `docs/architecture/next_step_signal_contract.md`
 - `docs/architecture/allocation_engine_contract.md`
 - `docs/architecture/paper_execution_ledger_contract.md`
-- `docs/strategy_engine_design.md`
+- `docs/architecture/strategy_engine_design.md`
 
 ## 1. 문서 목적
 ### 책임
 - 전술 자산군(SECTOR/COMMODITY/BOND/COUNTRY) 전이예측 계약을 고정한다.
 - Strategy/Paper/Backtest가 공통 소비하는 그룹 전이 snapshot 인터페이스를 고정한다.
 
-### Non-goals
+### 제외 범위
 - 하드게이트(`run_universe`, `risk_gate`) 대체
 - 종목 단위 실행 신호 생성
 
-## 2. Scope & Non-Goals
+## 2. 범위와 제외 범위
 ### Scope
 - 그룹 현재 상태(`STRONG/NEUTRAL/WEAK/UNKNOWN`) 산출
 - 5/10/20 거래일 sojourn/hazard/expected 출력
 - snapshot/history 저장 및 소비 규칙
 
-### Non-goals
+### 제외 범위
 - ML 학습/튜닝
 - 그룹 상태 기반 하드 차단 로직
 
@@ -111,8 +111,8 @@ Status: active
 
 ---
 
-## Change History
-| Date | Summary | References |
+## 변경 이력
+| 날짜 | 요약 | 참조 |
 | --- | --- | --- |
 | 2026-02-26 | tactical asset-group 전이예측 계약 신규 추가 | docs/changelog.md |
 | 2026-05-13 | P21로 `group_transition`을 `observability/regime/rotation/`으로 추출, 기존 경로는 shim 유지 | docs/changelog.md |

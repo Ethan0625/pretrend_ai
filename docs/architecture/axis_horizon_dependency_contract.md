@@ -3,18 +3,17 @@
 Markers: architecture, contract
 Status: active
 
-> 🔄 **Observability Track 자료 — Phase 1 axis_features + axis_horizon_state 추출 완료**
+> 🟢 **Market Data Platform 관측 계약**
 >
-> 본 문서는 2026Q2 방향 재정의 후 Observability Track의 시장 관측 자료로 재해석됩니다.
-> "투자 의사결정"이 아닌 **"4축 × 3-horizon (Long/Mid/Short) 의존성 관측"** 컨텍스트로 활용됩니다.
-> P29-4 분류: **Observability Track 자산, Phase 1 추출 완료**.
+> 본 문서는 Gold feature layer를 소비해 **4축 × 3-horizon (Long/Mid/Short) 의존성**을 관측하는 계약입니다.
+> 투자 의사결정이나 매매 지시가 아니라 read-only observation context로 활용됩니다.
 > `axis_features` 코드는 Phase 1 P18에서 `observability/regime/axis/`로 이전 완료되었습니다.
 > 기존 `strategy_engine/axis_features/` import path는 re-export shim으로 backward compat을 유지합니다.
 > `axis_horizon_state` 코드는 Phase 1 P19에서 `observability/regime/horizon/`으로 이전 완료되었습니다.
 > 기존 `strategy_engine/axis_horizon_state/` import path는 re-export shim으로 backward compat을 유지합니다.
-> 참조: [`track_separation.md`](./track_separation.md), [`REFACTOR_2026Q2.md`](../../.agent/REFACTOR_2026Q2.md)
+> 참조: [`track_separation.md`](./track_separation.md)
 
-## Document Status
+## 문서 상태
 | Item | Value |
 | --- | --- |
 | Status | **Active (Observability 자료, Phase 1 axis_features + axis_horizon_state 추출 완료 — 2026-05-13)** |
@@ -22,16 +21,16 @@ Status: active
 | Effective Date | 2026-02-13 |
 | Change Tracking | docs/changelog.md |
 
-## Capability Matrix
-| Capability | Status | Notes |
+## 기능 매트릭스
+| 기능 | 상태 | 비고 |
 | --- | --- | --- |
 | Core scope | Active | 본 문서의 계약/설계 범위 |
 | Extension ports | Reserved | v1+ 확장 포트는 인터페이스만 정의 |
 | Numeric scoring/tuning | Not supported | 본 문서 범위에서 금지 |
 
-## TOC
+## 목차
 - [1. 문서 목적](#1-문서-목적)
-- [2. Scope & Non-Goals](#2-scope--non-goals)
+- [2. 범위와 제외 범위](#2-scope--non-goals)
 - [3. Axis Feature Contract (Inputs)](#3-axis-feature-contract-inputs)
 - [4. Horizon Engine Dependency Matrix](#4-horizon-engine-dependency-matrix)
 - [5. Data Freshness / Coverage 규칙](#5-data-freshness--coverage-규칙)
@@ -39,14 +38,14 @@ Status: active
 - [7. DoD](#7-dod)
 
 참조:
-- `docs/strategy_architecture.md`
+- `docs/architecture/strategy_architecture.md`
 - `docs/architecture/market_structure_long_contract.md`
 - `docs/architecture/market_structure_mid_contract.md`
 - `docs/architecture/market_structure_short_contract.md`
 - `docs/architecture/market_structure_composer_contract.md`
 - `docs/architecture/universe_contract.md`
 - `docs/architecture/allocation_engine_contract.md`
-- `docs/market_structure_data_inventory.md`
+- `docs/data/market_structure_data_inventory.md`
 
 ## 1. 문서 목적
 ### 책임
@@ -61,17 +60,17 @@ Status: active
 - 동일 Axis라도 Horizon마다 REQUIRED/OPTIONAL이 달라질 수 있다.
 - Horizon은 raw feature를 직접 계산하지 않는다.
 
-### Non-goals
+### 제외 범위
 - 상태 판정식 정의
 - 임계값/가중치/스코어링 정의
 
-## 2. Scope & Non-Goals
+## 2. 범위와 제외 범위
 ### Scope
 - Axis Feature 입력 소스/그레인/키/필수 컬럼 표준화
 - Horizon(long_phase, mid_regime, short_signal)별 입력 의존성 매핑
 - 결측/coverage/freshness 표현 규칙
 
-### Non-goals
+### 제외 범위
 - 상태 전이 로직 상세
 - 신규 데이터 ingest 정의(VIX/Flow/뉴스/설문)
 
@@ -160,7 +159,7 @@ Status: active
 
 ---
 
-## Change History
-| Date | Summary | References |
+## 변경 이력
+| 날짜 | 요약 | 참조 |
 | --- | --- | --- |
-| 2026-02-13 | 파일명 버전 제거 및 문서 표준 블록(Document Status/Capability Matrix) 적용 | docs/changelog.md |
+| 2026-02-13 | 파일명 버전 제거 및 문서 표준 블록(문서 상태/기능 매트릭스) 적용 | docs/changelog.md |

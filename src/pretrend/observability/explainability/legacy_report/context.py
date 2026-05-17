@@ -89,6 +89,31 @@ from pretrend.observability.explainability.legacy_report.formatter import (  # n
 
 logger = logging.getLogger(__name__)
 
+
+def _env_clean(name: str, default: str) -> str:
+    value = os.getenv(name, default)
+    return value.split("#", 1)[0].strip()
+
+
+def _env_bool(name: str, default: str) -> bool:
+    return _env_clean(name, default).lower() not in {"0", "false", "no"}
+
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(_env_clean(name, str(default)))
+    except (TypeError, ValueError):
+        logger.warning("Invalid integer env %s=%r; using %s", name, os.getenv(name), default)
+        return default
+
+
+def _env_float(name: str, default: float) -> float:
+    try:
+        return float(_env_clean(name, str(default)))
+    except (TypeError, ValueError):
+        logger.warning("Invalid float env %s=%r; using %s", name, os.getenv(name), default)
+        return default
+
 def _get_report_ollama_client(base_url: str):
     import ollama  # type: ignore
 
@@ -122,11 +147,11 @@ def _call_gemini(
 
 
 def _report_llm_enabled() -> bool:
-    return os.getenv("REPORT_LLM_ENABLED", "1").strip().lower() not in {"0", "false", "no"}
+    return _env_bool("REPORT_LLM_ENABLED", "1")
 
 
 def _report_analyzer_enabled() -> bool:
-    return os.getenv("REPORT_ANALYZER_ENABLED", "1").strip().lower() not in {"0", "false", "no"}
+    return _env_bool("REPORT_ANALYZER_ENABLED", "1")
 
 
 def generate_llm_analysis(
@@ -160,10 +185,10 @@ def generate_llm_analysis(
         except Exception as exc:
             logger.warning("report analyzer failed; falling back to provider path: %s", exc, exc_info=True)
 
-    provider = os.getenv("REPORT_LLM_PROVIDER", "gemini").strip().lower()
-    temperature = float(os.getenv("REPORT_LLM_TEMPERATURE", "0.4"))
-    num_predict = int(os.getenv("REPORT_LLM_NUM_PREDICT", "2048"))
-    retries = int(os.getenv("REPORT_LLM_RETRY", "3"))
+    provider = _env_clean("REPORT_LLM_PROVIDER", "gemini").lower()
+    temperature = _env_float("REPORT_LLM_TEMPERATURE", 0.4)
+    num_predict = _env_int("REPORT_LLM_NUM_PREDICT", 2048)
+    retries = max(1, _env_int("REPORT_LLM_RETRY", 3))
 
     if provider == "gemini":
         for attempt in range(retries):
@@ -176,7 +201,7 @@ def generate_llm_analysis(
                     time.sleep(2 ** attempt)
 
         # Gemini 전체 실패 → Ollama fallback
-        if os.getenv("REPORT_LLM_FALLBACK_ENABLED", "1").strip().lower() not in {"0", "false", "no"}:
+        if _env_bool("REPORT_LLM_FALLBACK_ENABLED", "1"):
             try:
                 fallback_model = os.getenv("OLLAMA_MODEL", "llama3.1:latest")
                 client = _get_report_ollama_client(base_url)

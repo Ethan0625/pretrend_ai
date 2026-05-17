@@ -1,16 +1,19 @@
 # ADR-001: Medallion Data Architecture (Bronze / Silver / Gold)
 
-> 🟢 **Infrastructure 결정 (두 트랙 공유, 유효)** — 분류 컨텍스트: [`README.md`](README.md)
+Markers: architecture, contract
+Status: reference
 
-## Status
-Accepted
+> 🟢 **현재 유효한 데이터 인프라 결정** — 분류 컨텍스트: [`README.md`](../../README.md)
 
-## Date
+## 상태
+채택
+
+## 날짜
 2026-01-01 (초기 설계), 2026-02-14 (문서화)
 
 ---
 
-## Context
+## 배경
 
 자동매매 전략 시스템은 외부 데이터(FRED, Yahoo Finance 등)를 수집하고,
 정제하고, 피처를 계산하는 전 과정에서 아래 요구사항을 동시에 만족해야 했다.
@@ -23,7 +26,7 @@ Accepted
 
 ---
 
-## Decision
+## 결정
 
 **Bronze → Silver → Gold 3단계 Medallion Architecture를 채택한다.**
 
@@ -37,7 +40,7 @@ Accepted
 
 ---
 
-## Rationale
+## 근거
 
 **1. PIT 정합성 보장**
 FRED 거시 지표는 발표일(release_date)과 기준일(trade_date)이 다르다.
@@ -60,7 +63,7 @@ Gold가 Bronze를 직접 참조하면 데이터 계약이 무너지고 파이프
 
 ---
 
-## Alternatives Considered
+## 검토한 대안
 
 | 대안 | 거부 이유 |
 |---|---|
@@ -70,7 +73,7 @@ Gold가 Bronze를 직접 참조하면 데이터 계약이 무너지고 파이프
 
 ---
 
-## Consequences
+## 영향
 
 **수용한 트레이드오프**
 - 저장 공간: 동일 데이터가 3개 레이어에 존재하여 용량 증가

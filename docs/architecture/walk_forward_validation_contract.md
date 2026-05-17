@@ -3,14 +3,13 @@
 Markers: architecture, contract
 Status: active
 
-> 🔄 **Observability Track 자료 — "구간별 관측 검증 도구" 컨텍스트로 재해석**
+> 🟢 **Market Data Platform 검증 계약**
 >
-> 본 문서는 2026Q2 방향 재정의 후 Observability Track의 검증 자료로 재해석됩니다.
-> "백테스트 성과 검증"이 아닌 **"구간별(window+step) 관측 분포 / phase transition diagnostics 검증"** 컨텍스트로 활용됩니다.
-> Phase 2 similarity replay 설계 시 본 검증 패턴을 차용해 historical similarity 검증 도구로 발전시킬 계획입니다.
-> 참조: [`track_separation.md`](./track_separation.md), [`REFACTOR_2026Q2.md`](../../.agent/REFACTOR_2026Q2.md)
+> 본 문서는 **구간별(window+step) 관측 분포 / phase transition diagnostics 검증** 패턴을 정의합니다.
+> 백테스트 성과 검증이 아니라 historical similarity와 regime 관측 품질을 확인하는 reference입니다.
+> 참조: [`track_separation.md`](./track_separation.md)
 
-## Document Status
+## 문서 상태
 | Item | Value |
 | --- | --- |
 | Status | **Active (Observability 자료, 구간별 관측 검증 컨텍스트)** |
@@ -18,16 +17,16 @@ Status: active
 | Effective Date | 2026-02-24 |
 | Change Tracking | docs/changelog.md |
 
-## Capability Matrix
-| Capability | Status | Notes |
+## 기능 매트릭스
+| 기능 | 상태 | 비고 |
 | --- | --- | --- |
 | Core scope | Active | 본 문서의 계약/설계 범위 |
 | Extension ports | Reserved | v1+ 확장 포트는 인터페이스만 정의 |
 | Numeric scoring/tuning | Not supported | 본 문서 범위에서 금지 |
 
-## TOC
+## 목차
 - [1. 문서 목적](#1-문서-목적)
-- [2. Scope & Non-Goals](#2-scope--non-goals)
+- [2. 범위와 제외 범위](#2-scope--non-goals)
 - [3. Inputs](#3-inputs)
 - [4. Validation Tiers](#4-validation-tiers)
 - [5. Outputs](#5-outputs)
@@ -37,7 +36,7 @@ Status: active
 
 참조:
 - `docs/architecture/next_step_signal_contract.md`
-- `docs/strategy_engine_design.md`
+- `docs/architecture/strategy_engine_design.md`
 - `docs/architecture/allocation_engine_contract.md`
 - `docs/architecture/paper_execution_ledger_contract.md`
 
@@ -46,18 +45,18 @@ Status: active
 - Walk-forward 검증의 성과 KPI(1차) + 진단 KPI(2차) 이중 구조를 고정한다.
 - 검증 결과 상태(`PASS`, `PASS_WITH_WARNING`, `FAIL`) 전이 규칙을 고정한다.
 
-### Non-goals
+### 제외 범위
 - 성과 KPI 임계값 최적화
 - 실거래 차단 정책 자동 집행
 
-## 2. Scope & Non-Goals
+## 2. 범위와 제외 범위
 ### Scope
 - 기간별 백테스트 성과 검증
 - 기간별 12셀 진단 KPI 평가
 - Tier-1/Tier-2 결합 상태 산출
 - v3 검증 시 `next_step_signal snapshot` 기반 진단 입력 소비
 
-### Non-goals
+### 제외 범위
 - 전략 로직 변경
 - 타임머신/완전 PIT 백테스트 보장
 
@@ -65,7 +64,7 @@ Status: active
 ### 책임
 - Walk-forward 검증 입력 인터페이스를 고정한다.
 
-### Non-goals
+### 제외 범위
 - 윈도우 생성 정책 최적화
 
 | 입력 | 컬럼 | 타입 | 필수 | 설명 |
@@ -108,7 +107,7 @@ Status: active
 ### 책임
 - Tier별 결과 및 최종 상태를 고정한다.
 
-### Non-goals
+### 제외 범위
 - 자동 재튜닝 실행
 
 | 컬럼 | 타입 | 필수 | 설명 |
@@ -123,7 +122,7 @@ Status: active
 ### 책임
 - 상태 전이를 결정론적으로 고정한다.
 
-### Non-goals
+### 제외 범위
 - 예외 수동 개입 규칙 정의
 
 - Tier-1 통과 + Tier-2 경고 없음 -> `PASS`
@@ -135,7 +134,7 @@ Status: active
 ### 책임
 - 성과 실패 우선 원칙을 강제한다.
 
-### Non-goals
+### 제외 범위
 - 경고 상태 자동 차단
 
 - Tier-1 실패 시 `validation_status`는 항상 `FAIL`이다.
@@ -150,7 +149,7 @@ Status: active
 ### 책임
 - 계약 기반 검증 기준을 제공한다.
 
-### Non-goals
+### 제외 범위
 - 실제 운영 승인 절차 대체
 
 - **WFV1**: Tier-1 KPI 컬럼/타입 검증
@@ -166,8 +165,8 @@ Status: active
 
 ---
 
-## Change History
-| Date | Summary | References |
+## 변경 이력
+| 날짜 | 요약 | 참조 |
 | --- | --- | --- |
 | 2026-02-26 | Tier-1 임계값 수치 앵커 추가: Sharpe≥0.30, MDD≥-0.30 (Gate G) | docs/changelog.md |
 | 2026-02-25 | Tier-2에 hazard 품질 KPI(calibration error, bucket monotonicity) 추가 | docs/changelog.md |

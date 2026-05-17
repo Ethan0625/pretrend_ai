@@ -1,30 +1,31 @@
-# Operation Guide
+# 운영 가이드
 
 Markers: operation, security
 Status: active
 
-> ⚠️ **2026Q2 방향 재정의 안내**
+> ℹ️ **현재 운영 기준**
 >
-> 본 프로젝트는 **Market Structure Observability Runtime**으로 재정의되었다.
+> Pretrend는 금융·거시 데이터를 재현 가능한 방식으로 수집·정제하고,
+> point-in-time 안전한 feature layer를 구축하기 위한 **market data platform**이다.
 > 현재 기준으로 이 문서는 두 층위로 읽는다:
-> - **현재 유효 운영 기준**: Observability Track + Infrastructure(Bronze/Silver/Gold, Calendar, Text observability)
-> - **Legacy 참고 섹션**: Personal Track(Strategy/Backtest/Paper/Broker) 실행 규칙. 코드는 보존되지만 **운영 중단 (2026-05-12~)** 상태다.
+> - **현재 유효 운영 기준**: Docker runtime, Airflow 2, Bronze/Silver/Gold, Calendar, Postgres serving mirror, FastAPI read-only API
+> - **보관 참고 섹션**: Strategy/Backtest/Paper/Broker 실행 규칙. 코드는 보존되지만 현재 공개 운영 표면이 아니다.
 >
 > 우선 참조:
 > - `docs/architecture/track_separation.md`
 > - `.agent/WORKFLOW.md`
 > - `.agent/CHANGE_GATES.md`
 
-## 현재 운영 기준 (2026-05-12~)
-- 메인 트랙: Observability Track
-- 운영 유지 범위: Infrastructure 파이프라인(`macro`, `eod`, `calendar`) + Text observability
-- 운영 중단 범위: Personal Track(`strategy_engine`, `backtest`, `paper`, `broker`, Telegram bot orchestration)
+## 현재 운영 기준
+- 메인 영역: Reproducible Market Data Platform
+- 운영 유지 범위: Infrastructure 파이프라인(`macro`, `eod`, `calendar`), Postgres serving mirror, FastAPI read-only API, Text observability
+- 보관 범위: `strategy_engine`, `backtest`, `paper`, `broker`, Telegram bot orchestration
 - 해석 원칙:
   - Calendar / Gold / Text 섹션은 현재 운영 기준으로 읽는다.
-  - Strategy / Backtest / Paper / Walk-Forward / Telegram 보고 상세는 legacy reference로 읽는다.
-  - Personal Track 서비스 인스턴스는 stop/disable/paused 상태를 유지한다.
+  - Strategy / Backtest / Paper / Walk-Forward / Telegram 보고 상세는 보관 reference로 읽는다.
+  - 보관된 execution 서비스 인스턴스는 stop/disable/paused 상태를 유지한다.
 
-## Reproducible Runtime Preflight (P30)
+## 재현 가능한 런타임 사전 점검 (P30)
 
 Phase 3 dashboard 진입 전 Docker runtime, Postgres volume path, DB backup/restore, dev/test image, 신규 clone 검증, agent docs 공개 범위를 P30에서 고정한다.
 
@@ -71,7 +72,7 @@ PRETREND_BACKUP_DIR=/mnt/e/pretrend/backups \
 docker compose up -d postgres api
 ```
 
-### DB backup / restore-first recovery
+### DB backup / restore-first 복구
 
 운영 복구는 serving DB dump restore를 1순위로 둔다. backfill은 dump가 없거나 오래된 경우에 파일 data lake를 재구성하는 fallback이다.
 
@@ -109,7 +110,7 @@ Backfill fallback 순서:
 5. `similarity_build_dag`는 명시한 `query_start`/`query_end` 범위로 재생성한다.
 6. `explainability_build_dag`는 latest/on-demand 범위만 사용한다. historical full LLM backfill은 Phase 3 dashboard의 scope/window/cache key 계약이 정해지기 전까지 수행하지 않는다.
 
-## Observability Track 운영 명령 (Phase 0~3)
+## Observability Runtime 운영 명령 (Phase 0~3)
 
 ### Phase 0 — DB / Config / Models / Alembic (P17 진행 중)
 
@@ -252,9 +253,9 @@ docker compose exec -T api sh -c "timeout 10 alembic current; echo exit=\$?"
 - `cd apps/web && npm run dev`
 - 빌드 산출물: `apps/web/dist/`
 
-## Agent-assisted development (Codex)
+## Agent 보조 개발 (Codex)
 - **Workflow:** `dev` → `codex/<task>` 분기 → 작업/커밋 → PR/머지 → `dev` 반영.
-- **Verification checklist:** `pytest -q` (필요 시 대상 파일 예: `pytest -q tests/pipeline/<file>.py`), `git diff --cached`.
+- **Verification checklist:** `pytest --gate fast -q --tb=short` (필요 시 대상 파일 예: `pytest -q tests/pipeline/<file>.py`), `git diff --cached`.
 - **Guardrails:** `.agent/WORKFLOW.md`, `.agent/CHANGE_GATES.md` 준수, 비공개 정보/시크릿 금지, 요청 없는 공개 API 변경 금지, 파티션 overwrite·멱등성 보존.
 - **Rollback:** 브랜치 폐기 또는 `git restore`로 변경 취소.
 
@@ -309,7 +310,7 @@ docker compose exec -T api sh -c "timeout 10 alembic current; echo exit=\$?"
 - 다만 live SEC 수동 검증은 네트워크/DNS가 가능한 환경에서만 의미가 있다.
 - 현재 로컬 분석 환경에서 DNS가 차단되면 `company_tickers.json` 조회가 실패할 수 있다.
 
-## Strategy Engine 실행 (Legacy / Personal Track 동결)
+## Strategy Engine 실행 (보관 reference)
 - 본 섹션은 현재 운영 명령이 아니라 참고용 legacy 기록이다.
 - `strategy_engine_dag`는 2026-05-12부터 paused 상태를 유지한다.
 - Strategy Engine v0 단일 실행:
@@ -354,7 +355,7 @@ docker compose exec -T api sh -c "timeout 10 alembic current; echo exit=\$?"
 - Strategy Engine 실행 (legacy reference):
   - `PYTHONPATH=src python -m pretrend.pipeline.strategy_engine.strategy_job --date 2024-06-03 --invested-ratio 0.10`
 
-## Backtest Engine 실행 (Legacy / Personal Track 동결)
+## Backtest Engine 실행 (보관 reference)
 - 본 섹션은 현재 운영 명령이 아니라 참고용 legacy 기록이다.
 - 실행 규칙(현재):
   - 월 첫 거래일: `monthly_addition` 자금 추가(DCA)
@@ -452,7 +453,7 @@ Backtest/Walk-forward 해석 키:
   - v3.4.2a 체류 완화 메타
   - PAPER_RESULT의 게이트/강도 섹션에서 보조 설명으로 노출
 
-## Paper Trading 기본 조건 (Legacy / Personal Track 동결)
+## Paper Trading 기본 조건 (보관 reference)
 - 본 섹션은 현재 운영 명령이 아니라 참고용 legacy 기록이다.
 - 초기 자금: `1,000,000원`
 - 월 첫 거래일 DCA: `300,000원`
@@ -551,7 +552,7 @@ Backtest/Walk-forward 해석 키:
 
 ※ 임계값 근거: `docs/architecture/paper_execution_ledger_contract.md §10` (백테스트 2006~2024 실증)
 
-## Walk-Forward 실행 (Legacy / Personal Track 동결)
+## Walk-Forward 실행 (보관 reference)
 - 본 섹션은 현재 운영 명령이 아니라 참고용 legacy 기록이다.
 - v2 4년 창 / 2년 슬라이드 실행:
   - `PYTHONPATH=src python -m pretrend.pipeline.backtest.walk_forward --preset v2 --window-years 4 --step-years 2`
@@ -560,11 +561,11 @@ Backtest/Walk-forward 해석 키:
 - 결과 저장(`parquet` + `summary.json`):
   - `PYTHONPATH=src python -m pretrend.pipeline.backtest.walk_forward --preset v2 --window-years 4 --step-years 2 --save`
 
-## 결과 레지스트리 조회 (Legacy / Personal Track 동결)
+## 결과 레지스트리 조회 (보관 reference)
 - 저장 경로: `PRETREND_RESULT_ROOT/backtest/registry/pipeline=*/run_date=*/registry.parquet`
 - 권장: 같은 구간(v2/v3.1/v3.2/v3.3) 실행 후 registry 기반 비교표를 재생성해 실행결과와 일치성 확인
 
-## Backtest 테스트 실행 (Legacy / Personal Track 동결)
+## Backtest 테스트 실행 (보관 reference)
 - Backtest 테스트:
   - `conda run -n pytest-pretrend pytest tests/pipeline/backtest/ -v`
 
@@ -574,9 +575,9 @@ Backtest/Walk-forward 해석 키:
   - `macro_pipeline_dag`, `eod_pipeline_dag`, `text_pipeline_dag` 관련 서비스는 운영 기준으로 본다.
   - `strategy_engine_dag`, `paper_trading_dag`, `broker_mock_trading_dag`, Telegram bot 관련 운영은 정지 상태 유지가 현재 기준이다.
 
-### Personal Track DAG paused 처리 (2026-05-12~)
+### Legacy execution DAG paused 처리 (2026-05-12~)
 
-Airflow systemd 자체는 가동 유지 (macro/eod/text DAG 운영 필요). Personal Track DAG만 paused:
+Airflow systemd 자체는 가동 유지 (macro/eod/text DAG 운영 필요). Legacy execution DAG만 paused:
 
 ```bash
 # Airflow UI에서 paused 처리 (CLI도 가능)
@@ -608,21 +609,21 @@ Airflow CLI는 반드시 프로젝트 Airflow home과 DAG folder를 명시해서
 
 ```bash
 env \
-  AIRFLOW_HOME=/home/redtable/Desktop/ethan/pretrend/pretrend_ai/airflow_pretrend \
-  PYTHONPATH=/home/redtable/Desktop/ethan/pretrend/pretrend_ai/src \
-  AIRFLOW__CORE__DAGS_FOLDER=/home/redtable/Desktop/ethan/pretrend/pretrend_ai/dags \
+  AIRFLOW_HOME=$PWD/airflow_pretrend \
+  PYTHONPATH=$PWD/src \
+  AIRFLOW__CORE__DAGS_FOLDER=$PWD/dags \
   AIRFLOW__CORE__LOAD_EXAMPLES=False \
   AIRFLOW__CORE__DEFAULT_TIMEZONE=Asia/Seoul \
   conda run -n airflow-pretrend airflow dags list
 ```
 
-Personal Track pause 상태 확인:
+Legacy execution pause 상태 확인:
 
 ```bash
 env \
-  AIRFLOW_HOME=/home/redtable/Desktop/ethan/pretrend/pretrend_ai/airflow_pretrend \
-  PYTHONPATH=/home/redtable/Desktop/ethan/pretrend/pretrend_ai/src \
-  AIRFLOW__CORE__DAGS_FOLDER=/home/redtable/Desktop/ethan/pretrend/pretrend_ai/dags \
+  AIRFLOW_HOME=$PWD/airflow_pretrend \
+  PYTHONPATH=$PWD/src \
+  AIRFLOW__CORE__DAGS_FOLDER=$PWD/dags \
   AIRFLOW__CORE__LOAD_EXAMPLES=False \
   AIRFLOW__CORE__DEFAULT_TIMEZONE=Asia/Seoul \
   conda run -n airflow-pretrend airflow dags list | grep -E "strategy_engine_dag|paper_trading_dag|broker_mock_trading_dag"
@@ -633,7 +634,7 @@ env \
 환경변수 파일: `.env.airflow` (EnvironmentFile 지시자로 로드)
 
 ### 핵심 구성 요소
-- **WorkingDirectory**: 프로젝트 루트 (`/home/redtable/Desktop/ethan/pretrend/pretrend_ai`)
+- **WorkingDirectory**: 프로젝트 루트 (`$PWD`)
 - **PATH**: conda 환경 bin 디렉토리 포함 (SequentialExecutor subprocess에서 `airflow` 명령 사용)
 - **EnvironmentFile**: `.env.airflow` — FRED_API_KEY, TELEGRAM 토큰, DAGS_FOLDER, DEFAULT_TIMEZONE 등
 - **AIRFLOW__CORE__DEFAULT_TIMEZONE**: `Asia/Seoul` (`.env.airflow`에서 설정)
@@ -698,10 +699,10 @@ cat /proc/$(systemctl show airflow-scheduler -p MainPID --value)/environ | tr '\
 |-----|-------------|------|
 | `eod_pipeline_dag` | 매일 08:00 KST | EOD Bronze→Silver→Gold (미국 장 마감 후 2시간+) |
 | `macro_pipeline_dag` | 매일 09:00 KST | FRED Macro Bronze→Silver→Gold |
-| `strategy_engine_dag` | paused | Personal Track legacy DAG (운영 중단) |
-| `paper_trading_dag` | paused | Personal Track legacy DAG (운영 중단) |
+| `strategy_engine_dag` | paused | Legacy execution DAG (운영 중단) |
+| `paper_trading_dag` | paused | Legacy execution DAG (운영 중단) |
 
-실행 순서(현재 운영): EOD(08:00) → Macro(09:00). Personal Track DAG는 paused 상태다.
+실행 순서(현재 운영): EOD(08:00) → Macro(09:00). Legacy execution DAG는 paused 상태다.
 모든 DAG의 `start_date`는 `tz="Asia/Seoul"` 기준이며, `default_timezone=Asia/Seoul`로 설정됨.
 
 ### Telegram 알림 설정

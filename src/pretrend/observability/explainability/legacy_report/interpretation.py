@@ -441,7 +441,7 @@ def build_llm_analysis_payload(
         "group_transition": _build_group_material(group_rows),
         "tactical_etf": {
             group: [
-                {"name_ko": name, "symbol": sym, "rs": rs}
+                {"name_ko": name, "symbol": sym, "rs": _safe_float(rs)}
                 for name, sym, rs in entries
             ]
             for group, entries in tactical_by_group.items()
@@ -514,20 +514,25 @@ def _build_compact_llm_input(payload: Dict[str, Any]) -> Dict[str, Any]:
     all_assets_raw: List[Dict[str, Any]] = []
     for group, entries in payload.get("tactical_etf", {}).items():
         lbl = _GROUP_LABELS.get(group, group)
-        rs_by_group[lbl] = [
-            f"{e['name_ko']} {'+' if e['rs'] >= 0 else ''}{e['rs']:.1%}"
-            for e in entries
-        ]
-        rs_vals = [e["rs"] for e in entries]
-        if rs_vals:
-            rs_by_group_raw[lbl] = rs_vals
+        formatted_entries: List[str] = []
+        rs_vals: List[float] = []
         for e in entries:
+            name_ko = str(e.get("name_ko") or e.get("symbol") or "UNKNOWN")
+            rs = _safe_float(e.get("rs"))
+            if rs is None:
+                formatted_entries.append(f"{name_ko} N/A")
+                continue
+            formatted_entries.append(f"{name_ko} {'+' if rs >= 0 else ''}{rs:.1%}")
+            rs_vals.append(rs)
             all_assets_raw.append({
-                "name_ko": e["name_ko"],
-                "symbol": e["symbol"],
-                "rs_float": e["rs"],
+                "name_ko": name_ko,
+                "symbol": str(e.get("symbol") or ""),
+                "rs_float": rs,
                 "group": lbl,
             })
+        rs_by_group[lbl] = formatted_entries
+        if rs_vals:
+            rs_by_group_raw[lbl] = rs_vals
 
     # rs_assets_top5: 전체 자산 중 RS 상위 5개 (raw float 기준 정렬)
     all_assets_sorted = sorted(all_assets_raw, key=lambda x: x["rs_float"], reverse=True)

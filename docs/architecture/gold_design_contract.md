@@ -3,9 +3,9 @@
 Markers: architecture, contract
 Status: active
 
-> 🟢 **Infrastructure (공유) — 두 트랙 공통 자산**
+> 🟢 **Data Platform Core Contract**
 >
-> Gold Layer v1 PIT join contract는 Bronze/Silver/Gold 데이터 파이프라인의 핵심 invariant이며, Observability Track / Personal Track 양쪽이 read-only로 소비합니다.
+> Gold Layer v1 PIT join contract는 Bronze/Silver/Gold 데이터 파이프라인의 핵심 invariant이며, 현재 운영에서는 Postgres serving mirror와 read-only API가 소비합니다.
 > 참조: [`track_separation.md`](./track_separation.md)
 
 This document is the SOT for: Gold Layer v1 PIT join contract and release-date usage in Gold outputs.
@@ -176,7 +176,7 @@ This document is the SOT for: Gold Layer v1 PIT join contract and release-date u
 - **MF9**: 과거값 부족/NULL 입력 시 파생 컬럼 NULL 처리 일관성 유지.
 - **MF10**: `zscore_12m`은 v1.1에서 구현 완료. Monthly window=12, Daily window=252. NULL 조건: value NULL, 히스토리 부족, std=0.
 
-## 11. Gold v1의 Non-Goals
+## 11. Gold v1의 제외 범위
 - EOD 결합 Gold 및 전략/유니버스 연계 계산 로직 구현은 본 범위에 포함하지 않는다.
 - 실제 발표 시각의 완전한 정확성을 보장하지 않는다(`release_date`는 가정).
 - 전략/유니버스/LLM 기능 확장이나 새로운 설계 제안은 범위 밖이다.

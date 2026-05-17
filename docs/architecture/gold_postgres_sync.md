@@ -276,7 +276,7 @@ PK 제외 update column은 33개다: `open`, `high`, `low`, `close`, `adj_close`
 | --- | --- | --- | --- |
 | `eod_pipeline_dag` | `0 8 * * *` | Asia/Seoul | EOD Parquet Gold 생성 |
 | `macro_pipeline_dag` | `0 9 * * *` | Asia/Seoul | Macro Parquet Gold 생성 |
-| `strategy_engine_dag` | `0 10 * * *` | Asia/Seoul | Personal Track, 동결 |
+| `strategy_engine_dag` | `0 10 * * *` | Asia/Seoul | legacy execution, 동결 |
 | `gold_postgres_sync_dag` | `0 11 * * *` | Asia/Seoul | Postgres mirror sync |
 
 11:00 KST는 기존 10:00 strategy slot 뒤 1시간 buffer다. 기존 macro/eod DAG와 chain을 만들지 않고 독립 스케줄로 운영해 누락분은 다음 sync run에서 워터마크 기반으로 흡수한다.

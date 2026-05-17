@@ -1,32 +1,32 @@
-# Observability API Contract
+# Observability API 계약
 
 Markers: contract, architecture
 Status: active
 
-## 1. API Purpose
+## 1. API 목적
 
-The Observability API is the read-only runtime interface between Postgres serving tables and the Phase 3 dashboard.
+Observability API는 Postgres serving table과 Phase 3 dashboard 사이의 읽기 전용 runtime interface다.
 
-The API answers:
+API가 답하는 것:
 
-- What is the current observed regime state for a date?
-- Which historical dates are structurally similar?
-- What macro and EOD values are available for a date or range?
-- What cached explanation exists for a date and use case?
-- Is the runtime healthy and what are the current watermarks?
+- 특정 날짜의 관측 regime state.
+- 구조적으로 유사한 과거 날짜.
+- 특정 날짜 또는 기간의 macro/EOD 값.
+- 특정 날짜와 use case에 대해 cache된 explanation.
+- Runtime health와 현재 watermark.
 
-The API does not answer:
+API가 답하지 않는 것:
 
-- What should be bought or sold?
-- What return is forecast?
-- What target allocation or target price should be used?
-- What action a broker or paper trading engine should take?
+- 무엇을 사고팔아야 하는가.
+- 어떤 수익률이 예측되는가.
+- 어떤 target allocation 또는 target price를 사용해야 하는가.
+- Broker 또는 paper trading engine이 어떤 action을 취해야 하는가.
 
-## 2. Auth
+## 2. 인증
 
-All `/api/v1/*` endpoints require an `X-API-Key` header.
+모든 `/api/v1/*` endpoint는 `X-API-Key` header가 필요하다.
 
-| Item | Contract |
+| 항목 | 계약 |
 | --- | --- |
 | Header | `X-API-Key` |
 | Server env var | `PRETREND_API_KEY` |
@@ -34,58 +34,58 @@ All `/api/v1/*` endpoints require an `X-API-Key` header.
 | Invalid key | `401 {"detail": "API key invalid"}` |
 | Public endpoints | `/health`, `/docs`, `/openapi.json` |
 
-P28 implementation returns `401` for missing or invalid keys. Future `403` behavior would require a contract update.
+P28 구현은 key가 없거나 invalid인 경우 `401`을 반환한다. 향후 `403` behavior를 쓰려면 contract update가 필요하다.
 
-## 3. Endpoint Inventory
+## 3. Endpoint 목록
 
-| Endpoint | Purpose | Consumer Page | Source Table | Read-only |
+| Endpoint | 목적 | Consumer Page | Source Table | Read-only |
 | --- | --- | --- | --- | --- |
-| `GET /health` | Liveness and Alembic revision | Operations health monitor | app + Alembic | Yes |
-| `GET /api/v1/meta` | Runtime table stats and watermarks | Operations health monitor | all serving tables | Yes |
-| `GET /api/v1/regime` | Fixed-width regime feature for one date | Dashboard `/regime` | `gold_market_state_similarity_feature` | Yes |
+| `GET /health` | Liveness와 Alembic revision | 운영 health monitor | app + Alembic | Yes |
+| `GET /api/v1/meta` | Runtime table stats와 watermark | 운영 health monitor | all serving tables | Yes |
+| `GET /api/v1/regime` | 단일 날짜 fixed-width regime feature | Dashboard `/regime` | `gold_market_state_similarity_feature` | Yes |
 | `GET /api/v1/regime/explain` | Cached regime explanation | Dashboard `/regime` explanation panel | `explainability_cache` | Yes |
-| `GET /api/v1/similarity` | Top-N historical neighbors | Dashboard `/similarity` | `similarity_regime`, `similarity_gold` | Yes |
+| `GET /api/v1/similarity` | Top-N historical neighbor | Dashboard `/similarity` | `similarity_regime`, `similarity_gold` | Yes |
 | `GET /api/v1/similarity/explain` | Cached similarity explanation | Dashboard `/similarity` explanation panel | `explainability_cache` | Yes |
-| `GET /api/v1/macro` | Single macro indicator observation | Dashboard `/macro` | `gold_macro_features` | Yes |
+| `GET /api/v1/macro` | 단일 macro indicator observation | Dashboard `/macro` | `gold_macro_features` | Yes |
 | `GET /api/v1/macro/timeline` | Macro indicator timeline | Dashboard `/macro` chart | `gold_macro_features` | Yes |
 | `GET /api/v1/macro/explain` | Cached macro explanation | Dashboard `/macro` explanation panel | `explainability_cache` | Yes |
-| `GET /api/v1/eod` | Single EOD symbol observation | Dashboard `/eod` | `gold_eod_features` | Yes |
+| `GET /api/v1/eod` | 단일 EOD symbol observation | Dashboard `/eod` | `gold_eod_features` | Yes |
 | `GET /api/v1/eod/timeline` | EOD symbol timeline | Dashboard `/eod` chart | `gold_eod_features` | Yes |
 
-## 4. Endpoint Detail
+## 4. Endpoint 상세
 
 ### 4.1 `GET /health`
 
-| Field | Value |
+| 항목 | 값 |
 | --- | --- |
 | Auth | No |
-| Query params | None |
+| Query param | None |
 | Response schema | `{"status": "ok", "alembic": str}` |
-| Date semantics | None |
-| Error cases | Runtime failure if DB/Alembic cannot be checked |
+| Date semantic | None |
+| Error case | Runtime failure if DB/Alembic cannot be checked |
 
-Example response:
+응답 예시:
 
 ```json
 {"status": "ok", "alembic": "0004"}
 ```
 
-Invariant:
+불변식:
 
 - Must not require `X-API-Key`.
 
 ### 4.2 `GET /api/v1/meta`
 
-| Field | Value |
+| 항목 | 값 |
 | --- | --- |
 | Auth | `X-API-Key` |
-| Query params | None |
+| Query param | None |
 | Response schema | `MetaResponse` |
 | Nullable | max dates can be null for empty tables |
-| Date semantics | Table watermarks reflect Postgres serving tables |
-| Error cases | `401`, `500` |
+| Date semantic | Table watermarks reflect Postgres serving tables |
+| Error case | `401`, `500` |
 
-Example response shape:
+응답 예시 형태:
 
 ```json
 {
@@ -98,22 +98,22 @@ Example response shape:
 }
 ```
 
-Invariant:
+불변식:
 
 - Must expose serving freshness without exposing API secrets.
 
 ### 4.3 `GET /api/v1/regime`
 
-| Field | Value |
+| 항목 | 값 |
 | --- | --- |
 | Auth | `X-API-Key` |
-| Query params | `trade_date: date` |
+| Query param | `trade_date: date` |
 | Response schema | `RegimeResponse` |
 | Nullable | feature values can be null |
-| Date semantics | `trade_date` is the observed market state date |
-| Error cases | `401`, `404`, `422`, `500` |
+| Date semantic | `trade_date` is the observed market state date |
+| Error case | `401`, `404`, `422`, `500` |
 
-Example response shape:
+응답 예시 형태:
 
 ```json
 {
@@ -123,22 +123,22 @@ Example response shape:
 }
 ```
 
-Invariant:
+불변식:
 
 - Feature fields are observations only. They are not trading decisions.
 
 ### 4.4 `GET /api/v1/regime/explain`
 
-| Field | Value |
+| 항목 | 값 |
 | --- | --- |
 | Auth | `X-API-Key` |
-| Query params | `trade_date: date` |
+| Query param | `trade_date: date` |
 | Response schema | `ExplainResponse` |
 | Nullable | report fields follow cached JSON schema |
-| Date semantics | maps `trade_date` to `query_date` in `explainability_cache` |
-| Error cases | `401`, `404`, `422`, `500` |
+| Date semantic | maps `trade_date` to `query_date` in `explainability_cache` |
+| Error case | `401`, `404`, `422`, `500` |
 
-Example response shape:
+응답 예시 형태:
 
 ```json
 {
@@ -151,22 +151,22 @@ Example response shape:
 }
 ```
 
-Invariant:
+불변식:
 
 - The router must sanity-check forbidden prediction/recommendation terms before returning the report.
 
 ### 4.5 `GET /api/v1/similarity`
 
-| Field | Value |
+| 항목 | 값 |
 | --- | --- |
 | Auth | `X-API-Key` |
-| Query params | `query_date: date`, `view: regime\|gold`, `top_n: int = 10` |
+| Query param | `query_date: date`, `view: regime\|gold`, `top_n: int = 10` |
 | Response schema | `SimilarityResponse` |
 | Nullable | none for row identity fields; scores/ranks are constrained by DB |
-| Date semantics | `query_date` is the observed date whose historical neighbors are requested |
-| Error cases | `401`, `404`, `422`, `500` |
+| Date semantic | `query_date` is the observed date whose historical neighbors are requested |
+| Error case | `401`, `404`, `422`, `500` |
 
-Example response shape:
+응답 예시 형태:
 
 ```json
 {
@@ -178,22 +178,22 @@ Example response shape:
 }
 ```
 
-Invariant:
+불변식:
 
 - Similarity means historical comparison, not future prediction.
 
 ### 4.6 `GET /api/v1/similarity/explain`
 
-| Field | Value |
+| 항목 | 값 |
 | --- | --- |
 | Auth | `X-API-Key` |
-| Query params | `query_date: date`, `view: regime\|gold` |
+| Query param | `query_date: date`, `view: regime\|gold` |
 | Response schema | `ExplainResponse` |
 | Nullable | report fields follow cached JSON schema |
-| Date semantics | `use_case` is `similarity_regime` or `similarity_gold` |
-| Error cases | `401`, `404`, `422`, `500` |
+| Date semantic | `use_case` is `similarity_regime` or `similarity_gold` |
+| Error case | `401`, `404`, `422`, `500` |
 
-Example response shape:
+응답 예시 형태:
 
 ```json
 {
@@ -205,22 +205,22 @@ Example response shape:
 }
 ```
 
-Invariant:
+불변식:
 
 - Explanation text must stay evidence-bound to the similarity rows.
 
 ### 4.7 `GET /api/v1/macro`
 
-| Field | Value |
+| 항목 | 값 |
 | --- | --- |
 | Auth | `X-API-Key` |
-| Query params | `trade_date: date`, `indicator_id: str` |
+| Query param | `trade_date: date`, `indicator_id: str` |
 | Response schema | `MacroResponse` |
 | Nullable | macro feature fields can be null according to Gold contract |
-| Date semantics | PIT-selected macro observation for `trade_date` |
-| Error cases | `401`, `404`, `422`, `500` |
+| Date semantic | PIT-selected macro observation for `trade_date` |
+| Error case | `401`, `404`, `422`, `500` |
 
-Example response shape:
+응답 예시 형태:
 
 ```json
 {
@@ -231,22 +231,22 @@ Example response shape:
 }
 ```
 
-Invariant:
+불변식:
 
 - `selected_release_date` must be earlier than `trade_date` when present.
 
 ### 4.8 `GET /api/v1/macro/timeline`
 
-| Field | Value |
+| 항목 | 값 |
 | --- | --- |
 | Auth | `X-API-Key` |
-| Query params | `indicator_id: str`, `start: date`, `end: date` |
+| Query param | `indicator_id: str`, `start: date`, `end: date` |
 | Response schema | `MacroTimelineResponse` |
 | Nullable | row fields follow macro schema nullability |
-| Date semantics | inclusive `start` and `end` over `trade_date` |
-| Error cases | `401`, `404`, `422`, `500` |
+| Date semantic | inclusive `start` and `end` over `trade_date` |
+| Error case | `401`, `404`, `422`, `500` |
 
-Example response shape:
+응답 예시 형태:
 
 ```json
 {
@@ -257,22 +257,22 @@ Example response shape:
 }
 ```
 
-Invariant:
+불변식:
 
 - Timeline must not synthesize unavailable future observations.
 
 ### 4.9 `GET /api/v1/macro/explain`
 
-| Field | Value |
+| 항목 | 값 |
 | --- | --- |
 | Auth | `X-API-Key` |
-| Query params | `trade_date: date` |
+| Query param | `trade_date: date` |
 | Response schema | `ExplainResponse` |
 | Nullable | report fields follow cached JSON schema |
-| Date semantics | `use_case=macro`, `query_date=trade_date` |
-| Error cases | `401`, `404`, `422`, `500` |
+| Date semantic | `use_case=macro`, `query_date=trade_date` |
+| Error case | `401`, `404`, `422`, `500` |
 
-Example response shape:
+응답 예시 형태:
 
 ```json
 {
@@ -282,22 +282,22 @@ Example response shape:
 }
 ```
 
-Invariant:
+불변식:
 
 - Macro explanation may describe current and historical macro observations only.
 
 ### 4.10 `GET /api/v1/eod`
 
-| Field | Value |
+| 항목 | 값 |
 | --- | --- |
 | Auth | `X-API-Key` |
-| Query params | `symbol: str`, `trade_date: date` |
+| Query param | `symbol: str`, `trade_date: date` |
 | Response schema | `EodResponse` |
 | Nullable | price and indicator fields follow EOD schema nullability |
-| Date semantics | single symbol row at `trade_date` |
-| Error cases | `401`, `404`, `422`, `500` |
+| Date semantic | single symbol row at `trade_date` |
+| Error case | `401`, `404`, `422`, `500` |
 
-Example response shape:
+응답 예시 형태:
 
 ```json
 {
@@ -308,22 +308,22 @@ Example response shape:
 }
 ```
 
-Invariant:
+불변식:
 
 - EOD response is an observation and must not imply action.
 
 ### 4.11 `GET /api/v1/eod/timeline`
 
-| Field | Value |
+| 항목 | 값 |
 | --- | --- |
 | Auth | `X-API-Key` |
-| Query params | `symbol: str`, `start: date`, `end: date` |
+| Query param | `symbol: str`, `start: date`, `end: date` |
 | Response schema | `EodTimelineResponse` |
 | Nullable | row fields follow EOD schema nullability |
-| Date semantics | inclusive `start` and `end` over `trade_date` |
-| Error cases | `401`, `404`, `422`, `500` |
+| Date semantic | inclusive `start` and `end` over `trade_date` |
+| Error case | `401`, `404`, `422`, `500` |
 
-Example response shape:
+응답 예시 형태:
 
 ```json
 {
@@ -334,7 +334,7 @@ Example response shape:
 }
 ```
 
-Invariant:
+불변식:
 
 - Timeline endpoints return historical rows only.
 
@@ -361,6 +361,6 @@ Invariant:
 
 Consumer routes are Phase 3 placeholders. API contracts are stable enough for a dashboard client, but page composition can change in Phase 3 without changing endpoint semantics.
 
-## 7. Change History
+## 7. 변경 이력
 
-- 2026-05-15: Initial draft. P29-3.
+- 2026-05-15: 초안 작성. P29-3.

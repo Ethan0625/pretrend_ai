@@ -1,34 +1,36 @@
 # Market Structure — 데이터 인벤토리
 
-> 🔄 **Observability Track 자료 — 시장 구조 관측 컨텍스트**
->
-> 본 문서는 2026Q2 방향 재정의 후 Observability Track의 시장 관측 데이터 인벤토리로 활용됩니다.
-> 인벤토리 자체는 그대로 유효하며, "투자 의사결정" 컨텍스트가 아닌 "시장 구조 관측" 컨텍스트로 소비됩니다.
-> 참조: [`architecture/track_separation.md`](architecture/track_separation.md)
+Markers: architecture, contract
+Status: active
 
-## Document Status
-| Item | Value |
+> 🔄 **시장 구조 관측 데이터 인벤토리**
+>
+> 본 문서는 시장 구조 관측에 필요한 데이터 축과 현재 수집 상태를 정리합니다.
+> 범위는 관측과 설명이며, 투자 의사결정이나 자동매매 실행 규칙을 정의하지 않습니다.
+
+## 문서 상태
+| 항목 | 값 |
 | --- | --- |
 | Status | Active |
 | Structure Policy | 구조는 고정, 기능은 확장 |
 | Effective Date | 2026-02-13 |
 | Change Tracking | docs/changelog.md |
 
-## Capability Matrix
-| Capability | Status | Notes |
+## 기능 매트릭스
+| 기능 | 상태 | 비고 |
 | --- | --- | --- |
 | Core scope | Active | 본 문서의 계약/설계 범위 |
 | Extension ports | Reserved | v1+ 확장 포트는 인터페이스만 정의 |
 | Numeric scoring/tuning | Not supported | 본 문서 범위에서 금지 |
 
-## TOC
+## 목차
 - [1. 문서 목적](#1-문서-목적)
 - [2. 인벤토리 범위](#2-인벤토리-범위)
 - [3. 축별 데이터 현황](#3-축별-데이터-현황)
 - [4. 상태값 표준(참고)](#4-상태값-표준참고)
 - [5. 결측/미수집 처리 원칙](#5-결측미수집-처리-원칙)
 - [6. v0/v1/v2/v3 데이터 로드맵 연결](#6-v0v1v2v3-데이터-로드맵-연결)
-- [7. Non-Goals](#7-non-goals)
+- [7. 제외 범위](#7-제외-범위)
 
 참조 계약 문서:
 - `docs/architecture/market_structure_long_contract.md`
@@ -43,7 +45,7 @@
 - Market Structure 4개 축의 데이터 수집/가용 상태를 명시한다.
 - 현재 구현 가능한 축과 미수집 축을 분리해 우선순위를 고정한다.
 
-### Non-goals
+### 제외 범위
 - 상태 판정 수치 기준 정의
 - 스코어링 가중치 정의
 
@@ -51,7 +53,7 @@
 ### 책임
 - Layer에서 Market Structure로 전달되는 입력 데이터의 가용성 관리를 수행한다.
 
-### Non-goals
+### 제외 범위
 - Universe-ETF/Allocation 엔진 출력 정의
 
 ## 3. 축별 데이터 현황
@@ -73,7 +75,7 @@
 ### 책임
 - 미수집 데이터가 있는 동안 상태 표현을 표준화한다.
 
-### Non-goals
+### 제외 범위
 - 상태 판정 로직 수치화
 
 | 모듈 | 상태 컬럼 | 기본 결측 값 |
@@ -87,7 +89,7 @@
 ### 책임
 - v0 운영 시 데이터 미수집 구간의 동작 원칙을 명시한다.
 
-### Non-goals
+### 제외 범위
 - 결측 보간 알고리즘 정의
 
 - 필수 입력 누락 시 해당 모듈 상태는 `UNKNOWN`
@@ -98,7 +100,7 @@
 ### 책임
 - 전략 버전별 데이터 요구사항을 연결한다.
 
-### Non-goals
+### 제외 범위
 - 각 버전의 수치 정책
 
 - **v0**: 정책/매크로 + 가격/변동성 + 심리 proxy(Risk Spread/Volatility) 기반 운용, 총 투자 비율 조절
@@ -106,14 +108,14 @@
 - **v2**: 레짐 기반 allocation 입력 고도화
 - **v3**: Universe-ETF 그룹별 동적 가중치 지원을 위한 그룹별 상태 입력 확장
 
-## 7. Non-Goals
+## 7. 제외 범위
 - 점수/가중치/컷오프 수치 정의
 - 모델링/예측 로직 정의
 - Observability 계약 변경
 
 ---
 
-## Change History
-| Date | Summary | References |
+## 변경 이력
+| 날짜 | 요약 | 참조 |
 | --- | --- | --- |
-| 2026-02-13 | 파일명 버전 제거 및 문서 표준 블록(Document Status/Capability Matrix) 적용 | docs/changelog.md |
+| 2026-02-13 | 파일명 버전 제거 및 문서 표준 블록(문서 상태/기능 매트릭스) 적용 | docs/changelog.md |

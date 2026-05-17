@@ -239,7 +239,7 @@ def _load_broker_peak_nav(paper_root: Path, current_nav_usd: float) -> float:
     description="KIS mock broker order execution + MOCK Telegram (manual trigger)",
     default_args=DEFAULT_ARGS,
     start_date=pendulum.datetime(2026, 1, 1, tz="US/Eastern"),
-    schedule_interval=_broker_schedule_interval(),
+    schedule=_broker_schedule_interval(),
     catchup=False,
     max_active_runs=1,
     tags=["pretrend", "broker", "mock", "telegram"],

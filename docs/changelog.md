@@ -1,15 +1,18 @@
 # Changelog
 
+Markers: operation, roadmap
+Status: reference
+
 ## 현재 유효 규칙 (As-Is)
-- 프로젝트 방향 / 트랙 경계 SOT: `docs/architecture/track_separation.md`
+- 프로젝트 entry point: `docs/system_overview.md`
+- 운영 재현성 SOT: `docs/operation/reproducible_runtime_contract.md`
 - 운영/작업 규칙 SOT: `.agent/WORKFLOW.md`, `.agent/CHANGE_GATES.md`
 - 운영 실행 가이드 SOT: `docs/operation_guide.md`
 - Infrastructure / 계약 SOT:
   - `docs/architecture/*_contract.md`
-  - `docs/strategy_engine_design.md`는 계약/불변식 참조용으로 유지
 - 상태 해석:
-  - Observability Track + Infrastructure가 현재 메인 운영 범위다.
-  - Personal Track(Strategy/Backtest/Paper/Broker)은 동결 + 운영 중단 상태이며, 아래 과거 섹션은 legacy 기록으로 보존한다.
+  - Observability Runtime + Infrastructure가 현재 메인 운영 범위다.
+  - Strategy/Backtest/Paper/Broker 관련 과거 섹션은 historical implementation record로 보존한다.
 
 > 참고: changelog 과거 섹션은 작성 시점 원문을 보존한다.
 
@@ -1088,7 +1091,7 @@
 - 기존 4축 / AHS / `run_universe` / `risk_gate` 의미는 유지
 
 ### docs(strategy): SECTION J 설계 고정
-- `docs/strategy_engine_design.md` SECTION J에 P3 설계 확정 문구 추가
+- `docs/architecture/strategy_engine_design.md` SECTION J에 P3 설계 확정 문구 추가
 - Text는 hard gate를 대체하지 않고, `target_ratio`를 1 step(`+/-0.05`)만 soft adjustment 하도록 원칙 고정
 
 ### note(text-strategy): Gate H 이후 구현
@@ -1310,8 +1313,8 @@
   - `Hard-gate Exit Assist`
 
 ### docs(sync)
-- `next_step_signal_contract.md`: v3.4.2a 확장 포트/DoD/Change History 반영
-- `allocation_engine_contract.md`: v3.4.2a 규칙/DoD/Change History 반영
+- `next_step_signal_contract.md`: v3.4.2a 확장 포트/DoD/변경 이력 반영
+- `allocation_engine_contract.md`: v3.4.2a 규칙/DoD/변경 이력 반영
 - `paper_execution_ledger_contract.md`: v3.4.2a 체류 완화 규칙/DoD 반영
 - `operation_guide.md`, `README.md`: `--preset v3.4.2a` 설명 추가
 
@@ -2448,7 +2451,7 @@ print_phase_distribution(policy_df, group_by="year")
 - `docs/architecture/eod_observability_contract.md` 생성
 - 포함 범위:
   - 용어 정의(Observability Set, 분류 컬럼, Always-on vs Universe-driven)
-  - Scope / Non-Goals
+  - 범위 / 제외 범위
   - 분류 체계(`INDEX`, `COUNTRY`, `COMMODITY`, `BOND`, `SECTOR`)
   - Base EOD Observability Set v1 전체 심볼 표
   - Bronze/Silver/Gold 라벨 전파 규칙 및 ENUM 계약
@@ -2461,16 +2464,16 @@ print_phase_distribution(policy_df, group_by="year")
 ---
 
 ### 7) Data Requirements 문서 동기화
-- `docs/data_requirements.md`의 EOD 섹션에 `Always-on Observability ETFs v1` 항목 추가
+- `docs/data/data_requirements.md`의 EOD 섹션에 `Always-on Observability ETFs v1` 항목 추가
 - 필수 분류 컬럼 계약 및 Universe 그룹핑 사용 규칙을 명시
 
 ---
 
 ### 8) Risk-Control 전략 문서 구조 재정의 (4축 + Composer + Allocation v0)
 - Design vs Contract 분리 원칙으로 전략 문서를 재구성
-  - Design: `docs/strategy_architecture.md`
+  - Design: `docs/architecture/strategy_architecture.md`
   - Contracts: `market_structure_long/mid/short/composer`, `universe`, `allocation_engine`
-  - Inventory: `docs/market_structure_data_inventory.md`
+  - Inventory: `docs/data/market_structure_data_inventory.md`
 - 전략 흐름을 `Layer -> Market Structure(4축) -> Composer -> Universe -> Allocation Engine -> Weekly Report`로 고정
 - v0 원칙 반영:
   - 총 투자 비율(`invested_ratio`) 조절만 허용
@@ -2486,7 +2489,7 @@ print_phase_distribution(policy_df, group_by="year")
 ---
 
 ### 9) 전략 로드맵 문서 동기화
-- `docs/milestones.md`에 Risk-Control 전략 로드맵(v0~v3) 추가
+- `docs/roadmap/milestones.md`에 Risk-Control 전략 로드맵(v0~v3) 추가
 - 운영 주기 분리 명시:
   - Adjustment Cycle: 주 1회(화요일)
   - Portfolio Rebalance: 월 1회(마지막 주 금요일, 휴장 시 직전 영업일)
@@ -2825,7 +2828,7 @@ print_phase_distribution(policy_df, group_by="year")
 
 ### Airflow 환경 구성
 - 별도 conda env: `airflow-pretrend`
-- `AIRFLOW_HOME=/home/redtable/Desktop/ethan/pretrend/airflow_pretrend`
+- `AIRFLOW_HOME=<repo-root>/airflow_pretrend`
 - `DAGS_FOLDER`를 `pretrend_ai/dags`로 지정 (`AIRFLOW__CORE__DAGS_FOLDER`)
 - `run_airflow_dev.sh`에서:
   - `PROJECT_ROOT` 기반 공통 경로 설정
@@ -2835,7 +2838,7 @@ print_phase_distribution(policy_df, group_by="year")
 ### 환경변수 / 시크릿 설계
 - `.env.airflow`에 운영에 필요한 핵심 변수만 정의
   - `FRED_API_KEY` : FRED 연동용 API 키
-  - `PRETREND_DATA_ROOT` : `/home/redtable/Desktop/ethan/pretrend/pretrend_ai/data`
+  - `PRETREND_DATA_ROOT` : `$PWD/data`
 - 모든 시크릿/경로는 Git에 커밋하지 않고 `.env.airflow` + 런처 스크립트 구조로 관리
 
 ### MacroJob Airflow 통합
@@ -2898,14 +2901,14 @@ print_phase_distribution(policy_df, group_by="year")
 - EOD 수집 대상은 전체 종목이 아니라 **U3 최종 Universe에 포함된 종목만**으로 한정
 
 ### 신규 문서
-- `docs/universe_design.md`
+- `docs/architecture/universe_design.md`
   - U0: Macro Signal Detector (거시 신호 감지 및 영향력 수치화)
   - U1: Theme Prioritization (각광받을 테마 스코어링)
   - U2: Theme Universe Builder (테마 기반 주요 종목 1차 필터링)
   - U3: Growth & Flow Candidates (성장성 + 수급 기반 최종 Universe)
   - Universe와 EOD Ingest 연계 구조 정의
 
-- `docs/data_requirements.md`
+- `docs/data/data_requirements.md`
   - Macro / Theme / Stock / EOD별 필수 데이터 항목 정의
   - MVP 단계에서 수집해야 할 최소 데이터 셋(Macro 4종, Theme 3종, Stock 3종, EOD OHLCV) 명시
   - 주요 데이터 소스(FRED, Yahoo Finance, FMP 등) 개략 정리

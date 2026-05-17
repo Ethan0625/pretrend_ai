@@ -16,4 +16,7 @@ data/
 docs/
 logs/
 result/
+state/
+codex-bin/
+codex-home/
 tests/

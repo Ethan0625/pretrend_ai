@@ -6,13 +6,13 @@ v2026.02.24
 
 | ID | Invariant | 적용 범위 | 위반 신호 | Source |
 | --- | --- | --- | --- | --- |
-| INV-PIT-01 | `selected_release_date < trade_date` | Gold Macro / Strategy 입력 | 미래 정보 조인, look-ahead | `docs/architecture/gold_design_contract.md §9`, `docs/data_requirements.md (#8-데이터-품질불변식-요구사항)` |
-| INV-IDEMP-01 | `_tmp_run` 기록 후 atomic rename, 동일 파티션 overwrite | Calendar/Strategy snapshot writer | append 누적, 파티션 중복 파일 | `docs/architecture/calendar_design_contract.md (#5-idempotent-write-strategy)`, `docs/strategy_engine_design.md (#section-e--snapshot-storage)` |
-| INV-FAILOPEN-01 | 결측 시 fail-open + `UNKNOWN` 허용 + 스키마 유지 | Axis/Horizon, Text, Strategy 출력 | 결측 시 crash/null schema 변경 | `docs/strategy_engine_design.md (#section-a--one-page-summary)`, `docs/architecture/text_observability_contract.md (#6-fail-open-정책)` |
-| INV-RO-01 | Strategy는 Gold read-only consumer | Strategy Engine | 상위 레이어 데이터 재가공 저장 | `docs/strategy_engine_design.md (#section-a--one-page-summary)` |
-| INV-UNI-01 | Universe-ETF와 Universe-Stock(U0~U3) 개념 분리 | Universe/로드맵 해석 | ETF 실행 로직과 U0~U3 혼재 | `docs/architecture/universe_contract.md (#2-scope--non-goals)`, `docs/milestones.md (#m2-universe-stock-pipelineu0u3-구현-68주)` |
+| INV-PIT-01 | `selected_release_date < trade_date` | Gold Macro / Strategy 입력 | 미래 정보 조인, look-ahead | `docs/architecture/gold_design_contract.md §9`, `docs/data/data_requirements.md (#8-데이터-품질불변식-요구사항)` |
+| INV-IDEMP-01 | `_tmp_run` 기록 후 atomic rename, 동일 파티션 overwrite | Calendar/Strategy snapshot writer | append 누적, 파티션 중복 파일 | `docs/architecture/calendar_design_contract.md (#5-idempotent-write-strategy)`, `docs/architecture/strategy_engine_design.md (#section-e--snapshot-storage)` |
+| INV-FAILOPEN-01 | 결측 시 fail-open + `UNKNOWN` 허용 + 스키마 유지 | Axis/Horizon, Text, Strategy 출력 | 결측 시 crash/null schema 변경 | `docs/architecture/strategy_engine_design.md (#section-a--one-page-summary)`, `docs/architecture/text_observability_contract.md (#6-fail-open-정책)` |
+| INV-RO-01 | Strategy는 Gold read-only consumer | Strategy Engine | 상위 레이어 데이터 재가공 저장 | `docs/architecture/strategy_engine_design.md (#section-a--one-page-summary)` |
+| INV-UNI-01 | Universe-ETF와 Universe-Stock(U0~U3) 개념 분리 | Universe/로드맵 해석 | ETF 실행 로직과 U0~U3 혼재 | `docs/architecture/universe_contract.md (#2-scope--non-goals)`, `docs/roadmap/milestones.md (#m2-universe-stock-pipelineu0u3-구현-68주)` |
 | INV-ENUM-01 | 상태/액션은 계약 ENUM 외 값 금지 | Long/Mid/Short/Composer/Allocation | 임의 문자열 상태값 | `docs/architecture/market_structure_long_contract.md (#6-invariants)`, `docs/architecture/market_structure_mid_contract.md (#6-invariants)`, `docs/architecture/market_structure_short_contract.md (#6-invariants)`, `docs/architecture/allocation_engine_contract.md (#7-invariants)` |
-| INV-TEXT-OBS-01 | Text LLM feature는 영구 observer-only이며 실행 입력으로 직접 소비하지 않는다 | Text / Strategy / Paper / Backtest | LLM feature가 실행 입력으로 직접 소비됨 | `docs/architecture/text_observability_contract.md (#14-운영-경계-정책-v1)`, `docs/strategy_engine_design.md (#telegram-phase-15)` |
+| INV-TEXT-OBS-01 | Text LLM feature는 영구 observer-only이며 실행 입력으로 직접 소비하지 않는다 | Text / Strategy / Paper / Backtest | LLM feature가 실행 입력으로 직접 소비됨 | `docs/architecture/text_observability_contract.md (#14-운영-경계-정책-v1)`, `docs/architecture/strategy_engine_design.md (#telegram-phase-15)` |
 
 ## 2) 모듈별 위반 감지 체크리스트
 
@@ -70,5 +70,5 @@ Source:
 grep -RIn "selected_release_date < trade_date\|fail-open\|Universe-ETF\|Universe-Stock" docs .agent
 
 # Strategy snapshot 저장 규칙 확인 포인트
-grep -RIn "_tmp_run\|atomic\|overwrite\|decision_date" docs/strategy_engine_design.md docs/architecture/*.md
+grep -RIn "_tmp_run\|atomic\|overwrite\|decision_date" docs/architecture/strategy_engine_design.md docs/architecture/*.md
 ```

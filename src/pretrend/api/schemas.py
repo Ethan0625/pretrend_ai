@@ -114,3 +114,14 @@ class ExplainResponse(BaseModel):
     prompt_version: str
     report: dict[str, Any]
     built_at: datetime
+
+
+class StrategyReportAnalyzeRequest(BaseModel):
+    payload: dict[str, Any]
+    model: str | None = None
+    base_url: str | None = None
+    timeout: int | None = None
+
+
+class StrategyReportAnalyzeResponse(BaseModel):
+    analysis_text: str | None = None

@@ -1,41 +1,69 @@
-# 📄 Pretrend AI — Market Structure Observability Runtime
+# 📄 Pretrend — Reproducible Market Data Platform
 
 # 프로젝트 마일스톤 문서 (Milestones)
 
-**Version:** 2026.05.12 (2026Q2 방향 재정의)\
-**Period:** 2025.12 ~ ongoing\
-**Scope (현재)**: 시장 구조 관측·설명 시스템 — Bronze/Silver/Gold + Observability regime + similarity + dashboard
+Markers: roadmap
+Status: active
 
-> ⚠️ **2026Q2 방향 재정의 — 본 문서의 마일스톤 분류**
->
-> 본 문서가 정의하는 마일스톤은 2026Q2 재정의 후 다음과 같이 분리됩니다:
-> - **🔄 유효 마일스톤**: Infrastructure(Bronze/Silver/Gold, Calendar, Text Observability) + Observability Track 신규 작업
-> - **🔒 Personal Track legacy**: 종목 Universe-Stock(U0~U3) 기반 자동매매 / Strategy Engine 운영화 등은 운영 중단 (2026-05-12~)
->
-> 신규 로드맵: [`REFACTOR_2026Q2.md §4 단계 분해`](../.agent/REFACTOR_2026Q2.md), [`track_separation.md`](architecture/track_separation.md)
->
-> 본 문서의 기존 M1~M6 마일스톤 중 Personal Track 영역(자동매매, 종목 신호 등)은 동결 상태이며, 신규 마일스톤은 P17+ phase로 진행됩니다 (`.agent/TASK_QUEUE.md` 참조).
+**Version:** 2026.05.16\
+**Period:** 2025.12 ~ ongoing\
+**Scope (현재)**: 재현 가능한 금융·거시 데이터 플랫폼 — Bronze/Silver/Gold + Postgres serving mirror + Airflow 2 + read-only observability surface
+
+> 이 문서는 현재 repo 방문자가 프로젝트의 진행 상태를 빠르게 파악하기 위한 로드맵입니다.
+> 오래된 자동매매/종목선정 중심 계획은 아래 "과거 로드맵"에 보존하되,
+> 현재 프로젝트의 주 메시지는 재현 가능한 market data platform입니다.
 
 ---
 
-## Observability Track 로드맵 (2026Q2~)
+## 현재 로드맵 상태 (2026-05-16 기준)
+
+| Phase / Task | 상태 | 결과 |
+| --- | --- | --- |
+| P17 Foundation | 완료 | Docker Postgres, config, SQLAlchemy models, Alembic, observability layout foundation. |
+| P18-P22 Regime Modules | 완료 | Axis features, horizon state, market position, group transition, next-step/report context module을 `src/pretrend/observability/` 하위로 정리. |
+| P23 Test Surface Cleanup | 완료 | Archived personal regression test를 기본 active pytest surface 밖으로 이동. |
+| P24-P25 Serving Data | 완료 | Gold Postgres schema와 Gold-to-Postgres sync DAG. |
+| P26 Similarity | 완료 | Historical similarity module과 DAG. |
+| P27 Explainability | 완료 | Cache schema와 DAG를 갖춘 LLM-backed explanation layer. |
+| P28 API | 완료 | meta/regime/similarity/macro/eod view를 위한 read-only FastAPI surface. |
+| P29 Phase 2 Stage Gate | 완료 | Dashboard 전 code, operation, docs, invariant audit. |
+| P30 Reproducible Runtime | 완료 | Docker runtime, volume contract, restore/backfill contract, Airflow 2 profile, 새 머신 runbook. |
+| Phase 3 Dashboard | 다음 | Heatmap, regime timeline, similarity replay, explanation view용 React dashboard. |
+
+현재 운영 참조:
+
+- [`../system_overview.md`](../system_overview.md)
+- [`../architecture/system_map_2026q2.md`](../architecture/system_map_2026q2.md)
+- [`../architecture/runtime_flow.md`](../architecture/runtime_flow.md)
+- [`../operation/reproducible_runtime_contract.md`](../operation/reproducible_runtime_contract.md)
+
+---
+
+## 과거 로드맵
+
+> ⚠️ **보관된 planning context**
+>
+> 이하 M0~M6 계획은 초기 자동매매/종목 Universe 로드맵의 기록입니다.
+> 현재 운영 기준이나 향후 작업 우선순위로 해석하지 않습니다.
+
+---
+
+## Observability Runtime 로드맵 (2026Q2~)
 
 | Phase | Task ID | 단계 | 상태 |
 |---|---|---|---|
-| Phase 0 | P17 | Foundation Setup (DB, config, models, Alembic, layout) | TODO |
-| Phase 1 | P18 (가칭) | axis_features 추출 → observability/regime/axis/ | 대기 |
-| Phase 1+ | P18.x | axis_horizon_state, market_position, next_step, group_transition 이전 | 대기 |
-| Phase 2 | P19 (가칭) | similarity, explainability, FastAPI, Postgres sync DAG, Cloudflare Tunnel | 대기 |
+| Phase 0 | P17 | Foundation Setup (DB, config, models, Alembic, layout) | 완료 |
+| Phase 1 | P18-P22 | regime feature modules and report context organization | 완료 |
+| Phase 2 | P24-P29 | Postgres serving schema, sync, similarity, explainability, FastAPI, stage gate | 완료 |
+| Preflight | P30 | reproducible Docker runtime and data bootstrap contract | 완료 |
 | Phase 3 | P20 (가칭) | React Dashboard (heatmap, regime timeline, similarity replay) | 대기 |
-| Phase 4 | (가정) | AWS RDS / Fargate 이주 (외부 노출 / 가용성 요구 시) | 미결정 |
-
-상세는 `.agent/REFACTOR_2026Q2.md §4` 참조.
+| Phase 4 | (가정) | 외부 사용자/가용성 요구 시 managed DB/runtime 검토 | 미결정 |
 
 ---
 
-## Personal Track Legacy (동결 + 운영 중단)
+## Legacy Planning Notes
 
-이하 본 문서가 정의하는 M1~M6 마일스톤은 **Personal Track 자료**이며, 운영 중단(2026-05-12~) 상태로 보존됩니다. 신규 작업은 없습니다.
+이하 본 문서가 정의하는 M1~M6 마일스톤은 초기 전략 실험 로드맵이며, 현재 repo의 공개 운영 목표가 아닙니다.
 
 ---
 
@@ -53,7 +81,7 @@
 * 한국 시장 제외 → **미국/글로벌 종목 중심** Universe-Stock
 * 전 종목 수집이 아닌 → **U0~U3 파이프라인 기반 최적 Universe-Stock만 추적**
 * EOD·펀더멘털·거시·테마 신호를 결합한 AI 분석 시스템 설계
-* vLLM 기반 리서치 모듈 + FastAPI 백엔드 + Data Lake Architecture
+* FastAPI 관측 API + Docker/Airflow Data Lake Architecture + 선택적 LLM/Codex 분석 계층
 
 ---
 
@@ -84,12 +112,12 @@
 
 ### 📌 주요 작업
 
-* Ubuntu + RTX4090 서버 환경 설정
-* VS Code Remote SSH 구성
-* Conda env: `pretrend-dev`
-* vLLM 서버 & FastAPI API 서버 초기 구동
+* Windows/Docker Desktop 또는 Linux/Docker Engine 기준 개발 환경 설정
+* VS Code 로컬/Remote 개발 구성
+* Python 3.11 개발 환경과 역할별 requirements 정리
+* Docker Compose 기반 Postgres/API/Airflow 초기 구동
 * GitHub main/dev 브랜치 규칙, Actions(pytest) 설정
-* 문서 기본 구조 작성 (`docs/architecture.md`, `docs/dev_plan.md` 등)
+* 문서 기본 구조 작성 (`docs/README.md`, `docs/architecture/` 등)
 
 ### 📦 산출물
 
@@ -233,7 +261,7 @@ Pre-Trend Value 전략 신호 및 백테스트 시스템을 구축.
 ### 📌 주요 작업
 
 * Dockerfile / docker-compose 구성
-* vLLM 서버 최적화 및 템플릿 관리
+* 선택적 LLM/Codex 분석 계층 연결
 * FastAPI 백엔드 통합
 * Airflow(또는 Prefect)로 전체 파이프라인 오케스트레이션
 * MLflow/W&B로 실험/모델 관리
@@ -241,7 +269,7 @@ Pre-Trend Value 전략 신호 및 백테스트 시스템을 구축.
 
 ### 📦 산출물
 
-* `/deploy/*` 배포 세트
+* `docker/`, `docker-compose.yml`, `requirements/` runtime 세트
 * Airflow DAGs
 * 운영 가이드 (`docs/operation_guide.md`)
 
@@ -292,6 +320,6 @@ M6 (8~12주): MLOps + 서빙 + 자동화
 - Portfolio Rebalance: 월 1회 (매달 마지막 주 금요일, 휴장 시 직전 영업일)
 - 원칙: `Adjustment != Rebalance`
 
-## 6.4 Non-Goals
+## 6.4 제외 범위
 - 수치 기반 가중치/컷오프 튜닝 정의
 - v0 단계에서 그룹별 가중치 조절 허용

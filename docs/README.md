@@ -1,46 +1,56 @@
-# Docs Marker Guide
+# Docs Marker 가이드
 
 Markers: operation, testing, architecture
 Status: active
 Publication: public
 
-## Purpose
+## 목적
 
-Docs markers classify documents by operating role, publication risk, and reading priority. They do not change contract meaning.
+Pretrend 문서는 재현 가능한 market data platform의 운영 계약, 데이터 구조, 검증 기준을 설명한다. 기준 언어는 한국어이며, 필요한 기술 용어와 고유 명칭만 영어를 함께 사용한다.
 
-## Marker Vocabulary
+Docs marker는 문서의 운영 역할, 공개 위험도, 읽기 우선순위를 분류한다. Marker 자체가 계약 의미를 바꾸지는 않는다.
 
-| Marker | Meaning |
+## Marker 어휘
+
+| Marker | 의미 |
 | --- | --- |
-| `contract` | Defines public behavior, grain/key/schema, invariant, or interface commitments. |
-| `operation` | Defines runtime, runbook, environment, deployment, or recovery procedures. |
-| `testing` | Defines validation, pytest marker, smoke, or reproducibility gate behavior. |
-| `architecture` | Defines system structure, track boundaries, data flow, or module responsibility. |
-| `roadmap` | Defines future sequencing or phase plans, not active runtime contract. |
-| `agent` | Defines agent workflow, task execution, publication, or collaboration rules. |
-| `legacy` | Reference-only frozen material. It must not be treated as active source of truth. |
-| `security` | Contains security, secret handling, access, or publication risk guidance. |
+| `contract` | Public behavior, grain/key/schema, invariant, interface commitment를 정의한다. |
+| `operation` | Runtime, runbook, environment, deployment, recovery procedure를 정의한다. |
+| `testing` | Validation, pytest marker, smoke, reproducibility gate behavior를 정의한다. |
+| `architecture` | System structure, boundary, data flow, module responsibility를 정의한다. |
+| `roadmap` | 향후 순서나 phase plan을 정의한다. Active runtime contract가 아니다. |
+| `agent` | Agent workflow, task execution, publication, collaboration rule을 정의한다. |
+| `legacy` | Reference-only frozen material. Active source of truth로 취급하지 않는다. |
+| `security` | Security, secret handling, access, publication risk guidance를 포함한다. |
 
-## Status Values
+## Status 값
 
-| Status | Meaning |
+| Status | 의미 |
 | --- | --- |
-| `active` | Current source of truth or current operating guidance. |
-| `reference` | Useful context, but not the primary source of truth. |
-| `legacy` | Frozen historical material. Preserve for context only. |
-| `draft` | Work-in-progress guidance that must not override active contracts. |
+| `active` | 현재 source of truth 또는 현재 운영 가이드. |
+| `reference` | 유용한 맥락이지만 primary source of truth는 아니다. |
+| `legacy` | Frozen historical material. 맥락 보존용이다. |
+| `draft` | Work-in-progress guidance. Active contract를 override하면 안 된다. |
 
-## Required Format
+## 필수 형식
 
-Use simple top-of-document metadata lines:
+문서 상단에 단순 metadata line을 사용한다.
 
 ```text
   Markers: contract, operation
   Status: active
 ```
 
-Existing title lines can remain above the metadata. Do not use markers to reclassify a legacy document as active without a separate contract review.
+기존 title line은 metadata 위에 남겨둘 수 있다. 별도 contract review 없이 marker만으로 legacy 문서를 active로 재분류하지 않는다.
 
-## Publication Link
+## 공개 정책 연결
 
-Agent docs publication uses the same marker vocabulary. See `.agent/README.md` for the whitelist and exclusion policy.
+Agent docs publication도 같은 marker vocabulary를 사용한다. Whitelist와 exclusion policy는 `.agent/README.md`를 참조한다.
+
+## 주요 Active 문서
+
+| 문서 | 역할 |
+| --- | --- |
+| [operation/reproducible_runtime_contract.md](operation/reproducible_runtime_contract.md) | Docker runtime, Airflow profile, restore/backfill, 격리 test DB, 재현성 검증 절차. |
+| [testing/operational_invariant_test_contract.md](testing/operational_invariant_test_contract.md) | pytest marker/gate, runtime gate, DB synthetic row smoke 기준. |
+| [testing/operational_failure_scenario_catalog.md](testing/operational_failure_scenario_catalog.md) | `OFS-*` 운영 장애 시나리오와 synthetic test data anchor. |

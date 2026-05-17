@@ -11,7 +11,7 @@ from fastapi.responses import JSONResponse
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from pretrend.api.db import dispose_engine
-from pretrend.api.routers import eod, explain, health, macro, meta, regime, similarity
+from pretrend.api.routers import eod, explain, health, macro, meta, regime, report, similarity
 from pretrend.api.schemas import ErrorResponse
 from pretrend.api.settings import get_api_settings
 
@@ -39,7 +39,7 @@ def create_app() -> FastAPI:
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
-        allow_methods=["GET"],
+        allow_methods=["GET", "POST"],
         allow_credentials=False,
         allow_headers=["X-API-Key", "Content-Type"],
     )
@@ -57,6 +57,7 @@ def create_app() -> FastAPI:
     app.include_router(macro.router)
     app.include_router(eod.router)
     app.include_router(explain.router)
+    app.include_router(report.router)
     return app
 
 

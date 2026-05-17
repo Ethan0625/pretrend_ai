@@ -9,7 +9,7 @@ description = "Contract-first, reproducible time-series data pipeline for AI-rea
 readme = "README.md"
 requires-python = ">=3.10"
 
-# 의존성은 일단 최소만, 나머지는 requirements.txt로 계속 관리
+# package install 최소 의존성만 둔다. 역할별 runtime 의존성은 requirements/ 아래에서 관리한다.
 dependencies = [
     "alembic>=1.13",
     "pandas",

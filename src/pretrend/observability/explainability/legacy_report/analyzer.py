@@ -11,6 +11,8 @@ from pathlib import Path
 import sys
 from typing import Optional
 
+from pretrend.observability.explainability.codex_binary import resolve_codex_bin
+
 _BOT_AVAILABLE = False
 try:
     from bot.task_store import (
@@ -74,11 +76,10 @@ def _default_state_db_path() -> Path:
 
 
 def _require_codex_bin() -> Path:
-    ext_root = Path.home() / ".vscode-server" / "extensions"
-    candidates = sorted(ext_root.glob("openai.chatgpt-*/bin/linux-x86_64/codex"))
-    if candidates:
-        return candidates[-1]
-    raise RuntimeError("Codex binary not found for report analyzer")
+    try:
+        return resolve_codex_bin()
+    except FileNotFoundError as exc:
+        raise RuntimeError(str(exc)) from exc
 
 
 def _extract_session_id(output: str) -> Optional[str]:
@@ -99,10 +100,16 @@ def _run_codex_output_command(
             [*cmd, "--output-last-message", str(output_path)],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             cwd=str(cwd),
             timeout=timeout,
         )
-        response = output_path.read_text().strip() if output_path.exists() else ""
+        response = (
+            output_path.read_text(encoding="utf-8", errors="replace").strip()
+            if output_path.exists()
+            else ""
+        )
         return result, response
     finally:
         output_path.unlink(missing_ok=True)
@@ -357,10 +364,41 @@ def generate_report_via_analyzer(
     Transitional design:
     - Reuse existing sessions/conversation_summary schema without migration.
     - `role='analyzer'` is interpreted as report-only session in P11.
-    - Returns None if bot.task_store is not available (e.g. CI without src/bot/).
+    - Falls back to a stateless Codex call when bot.task_store is not available.
     """
+    codex_bin = _require_codex_bin()
+    project_dir = _project_root()
+    timeout_raw = os.getenv("REPORT_ANALYZER_TIMEOUT", "").strip()
+    if timeout_raw.lower() in {"", "none", "null", "off", "false", "no", "0"}:
+        timeout_secs: int | None = None
+    else:
+        timeout_secs = int(timeout_raw)
+
     if not _BOT_AVAILABLE:
-        return None
+        prompt = _build_report_analyzer_prompt(
+            system_prompt=system_prompt,
+            user_content=user_content,
+            prior_summary="",
+            working_state_text="",
+            checkpoint_text="",
+        )
+        result, response = _run_codex_output_command(
+            [
+                str(codex_bin),
+                "exec",
+                "--full-auto",
+                "-C",
+                str(project_dir),
+                prompt,
+            ],
+            cwd=project_dir,
+            timeout=timeout_secs,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(result.stderr.strip() or result.stdout.strip() or "Codex report analyzer failed")
+        raw = response or result.stdout.strip()
+        return raw or None
+
     db_path = Path(os.getenv("PRETREND_STATE_DB", str(_default_state_db_path())))
     init_db(db_path)
 
@@ -381,14 +419,6 @@ def generate_report_via_analyzer(
         working_state_text=working_state_text,
         checkpoint_text=checkpoint_text,
     )
-    codex_bin = _require_codex_bin()
-    project_dir = _project_root()
-    timeout_raw = os.getenv("REPORT_ANALYZER_TIMEOUT", "").strip()
-    if timeout_raw.lower() in {"", "none", "null", "off", "false", "no", "0"}:
-        timeout_secs: int | None = None
-    else:
-        timeout_secs = int(timeout_raw)
-
     if session and session.status == "active":
         result, response = _run_codex_output_command(
             [

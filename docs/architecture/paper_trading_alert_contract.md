@@ -3,30 +3,30 @@
 Markers: architecture, contract, legacy
 Status: legacy
 
-> 🔒 **Personal Track (Frozen) — 자동매매·매매 리포팅 영역**
+> 🔒 **Legacy Execution Reference — 자동매매·매매 리포팅 영역**
 >
-> 본 문서는 2026Q2 방향 재정의에 따라 Personal Track으로 분류되어 동결 상태입니다.
-> Personal Track은 2026-05-12부터 운영 중단되었으며, 본 문서가 정의하는 Telegram 매매 알림 기능도 추가 개발이 없습니다.
-> 참조: [`track_separation.md`](./track_separation.md), [`REFACTOR_2026Q2.md`](../../.agent/REFACTOR_2026Q2.md)
+> 본 문서는 과거 실행 실험 계약을 보존하기 위한 reference입니다.
+> 2026-05-12부터 운영 중단 상태이며, 현재 market data platform의 공개 운영 표면이 아닙니다.
+> 참조: [`track_separation.md`](./track_separation.md)
 
-## Document Status
+## 문서 상태
 | Item | Value |
 | --- | --- |
-| Status | **Frozen (Personal Track 운영 중단, 2026-05-12~)** |
+| Status | **Frozen (legacy execution 운영 중단, 2026-05-12~)** |
 | Structure Policy | 구조는 고정, 기능은 확장 |
 | Effective Date | 2026-02-25 |
 | Change Tracking | docs/changelog.md |
 
-## Capability Matrix
-| Capability | Status | Notes |
+## 기능 매트릭스
+| 기능 | 상태 | 비고 |
 | --- | --- | --- |
 | Core scope | Active | 본 문서의 계약/설계 범위 |
 | Extension ports | Reserved | Paper execution 고도화 포트만 정의 |
 | Numeric scoring/tuning | Not supported | 본 문서 범위에서 금지 |
 
-## TOC
+## 목차
 - [1. 문서 목적](#1-문서-목적)
-- [2. Scope & Non-Goals](#2-scope--non-goals)
+- [2. 범위와 제외 범위](#2-scope--non-goals)
 - [3. Message Types](#3-message-types)
 - [4. Scheduling / Delivery](#4-scheduling--delivery)
 - [5. Payload Interface](#5-payload-interface)
@@ -35,7 +35,7 @@ Status: legacy
 
 참조:
 - `docs/architecture/paper_execution_ledger_contract.md`
-- `docs/strategy_engine_design.md`
+- `docs/architecture/strategy_engine_design.md`
 - `docs/architecture/next_step_signal_contract.md`
 - `docs/architecture/walk_forward_validation_contract.md`
 - `docs/operation_guide.md`
@@ -46,11 +46,11 @@ Status: legacy
 - Paper Trading 알림 범위를 "일 1회 EOD 요약"으로 고정한다.
 - Telegram 전송 실패 시 fail-open 정책을 고정한다.
 
-### Non-goals
+### 제외 범위
 - 실전 계좌 자동 주문 집행
 - Level 3(실거래) 브로커 운영
 
-## 2. Scope & Non-Goals
+## 2. 범위와 제외 범위
 ### Scope
 - Telegram 메시지 타입 분리(SIGNAL vs PAPER_RESULT)
 - Paper Trading 요약 payload(표시) 계약
@@ -63,7 +63,7 @@ Status: legacy
 - `pretrend.pipeline.broker.kis_mock` — 모의투자 브로커 어댑터(옵션, `PAPER_BROKER_ENABLED=1`일 때만 실행)
 - `pretrend.pipeline.broker.order_manager` — 주문 실행/리컨실리에이션 유틸
 
-### Non-goals
+### 제외 범위
 - 가상 체결 계산식/NAV 산출 규칙 정의
 - 전략 신호 생성 로직 변경
 
@@ -143,8 +143,8 @@ PAPER_RESULT 전용 필드:
 
 ---
 
-## Change History
-| Date | Summary | References |
+## 변경 이력
+| 날짜 | 요약 | 참조 |
 | --- | --- | --- |
 | 2026-02-26 | PAPER_RESULT payload에 group gate 요약 필드 추가 | docs/changelog.md |
 | 2026-02-25 | SIGNAL/PAPER_RESULT 분리 전송 + paper EOD + fail-open 정책 계약 추가 | docs/changelog.md |

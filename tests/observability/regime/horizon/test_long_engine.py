@@ -114,6 +114,17 @@ class TestLongPhaseML3:
         result = build_long_phase(df)
         assert result.iloc[0]["long_phase"] in LONG_PHASE_ENUM
 
+    def test_null_delta_values_use_regime_only(self):
+        """delta_6m None values should fail open to regime-only classification."""
+        df = pd.DataFrame({
+            "indicator_id": ["CPI", "UNRATE"],
+            "trade_date": [date(2024, 7, 1), date(2024, 7, 1)],
+            "regime": ["tightening", "tightening"],
+            "delta_6m": [None, None],
+        })
+        result = build_long_phase(df)
+        assert result.iloc[0]["long_phase"] == "LATE_CYCLE"
+
 
 class TestLongPhaseV1Normalization:
     """v1: delta_6m 지표별 rolling z-score 정규화 관련 테스트."""

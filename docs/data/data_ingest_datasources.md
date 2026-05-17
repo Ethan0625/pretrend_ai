@@ -1,14 +1,20 @@
 # 📄 ETL — Data Source Ingest Layer
 
+Markers: architecture, contract
+Status: reference
+
 ### Bronze Ingest 데이터 소스 구조
 
 **Version:** 2025.12 (재분류: 2026-05-12)\
 
-> 🟢 **Infrastructure (공유) — 두 트랙 공통 자산**
+> 🟢 **데이터 인프라 참고 문서**
 >
-> Bronze 레이어 데이터 소스 정의는 Observability Track / Personal Track 양쪽이 read-only로 소비하는 공통 자산입니다.
-> Universe-Stock(U0~U3) 관련 로드맵 부분은 **Personal Track legacy**로 분류되며 운영 중단 상태입니다.
-> 참조: [`architecture/track_separation.md`](architecture/track_separation.md)
+> Bronze 레이어 데이터 소스 정의를 보존한 문서입니다.
+> 현재 운영 기준에서는 Macro/EOD/Calendar/Observability 데이터 레이어를 우선하며,
+> Universe-Stock(U0~U3) 확장 서술은 과거 로드맵 참고 자료로만 해석합니다.
+> 현재 데이터 흐름과 저장 schema는 [`data_model.md`](data_model.md),
+> [`../architecture/runtime_flow.md`](../architecture/runtime_flow.md)와
+> [`../architecture/gold_design_contract.md`](../architecture/gold_design_contract.md)를 우선합니다.
 
 **Milestone:** M1 – Data Source Ingest Layer 구축\
 **Source Modules:** `pretrend.pipeline.ingest.*`
@@ -17,7 +23,7 @@
 
 # 1. 개요
 
-본 문서는 Pre-Trend Value 기반 자동매매 시스템의
+본 문서는 Pretrend market data platform의
 **데이터 소스 인입 레이어(Data Source Ingest Layer)** 설계를 정의한다.
 
 이 레이어는 Universe-Stock(U0~U3) 생성 및 EOD 파이프라인의 기반이 되는

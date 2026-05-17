@@ -4,7 +4,7 @@ Strategy Engine E2E Runner + CLI.
 Gold Macro/EOD → Axis Features → Axis×Horizon State → Market Position
 → Policy Selection → Universe → Allocation → Sell Advice → Snapshot Write.
 
-SOT: docs/strategy_engine_design.md
+SOT: docs/architecture/strategy_engine_design.md
 패턴: macro_job.py (Config/Runner/Result/CLI)
 
 Usage:

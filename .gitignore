@@ -77,6 +77,8 @@ lightning_logs/
 
 # --- 데이터 / 모델 / 아티팩트 ---
 data/
+!docs/data/
+!docs/data/*.md
 datasets/
 raw
 raw_data/
@@ -137,3 +139,5 @@ result/
 src/bot/
 tests/test_bot/
 state/
+codex-bin/
+codex-home/

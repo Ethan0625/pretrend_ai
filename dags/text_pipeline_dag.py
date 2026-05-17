@@ -39,7 +39,7 @@ def _build_text_cfg() -> TextPipelineConfig:
     description="Text Pipeline Bronze(SEC+Fed)→Silver→Gold→Gold LLM E2E",
     default_args=DEFAULT_ARGS,
     start_date=pendulum.datetime(2026, 1, 1, tz="Asia/Seoul"),
-    schedule_interval="30 9 * * *",
+    schedule="30 9 * * *",
     catchup=False,
     max_active_runs=1,
     tags=["pretrend", "text", "bronze", "silver", "gold", "llm"],

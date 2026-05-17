@@ -5,7 +5,7 @@ Status: active
 
 > Observability Track P27 SOT. This document defines the LLM explanation layer for cached market-structure reports.
 
-## 1. Purpose And Scope
+## 1. 목적과 범위
 
 The explainability layer turns existing Postgres observability data into structured Korean-language reports for API and dashboard use. It explains observed market structure, historical similarity, and macro conditions. It does not forecast returns, recommend trades, or provide buy/sell guidance.
 
@@ -65,7 +65,7 @@ class LLMProvider(Protocol):
 Provider selection:
 
 - `PRETREND_LLM_PROVIDER`: default `vscode_codex`
-- `PRETREND_CODEX_BIN`: optional explicit Codex binary path
+- `PRETREND_CODEX_BIN`: optional explicit Codex binary path; when empty, OS-specific Codex paths are auto-discovered
 
 Caller policy:
 
@@ -390,6 +390,6 @@ LIMIT 10;
 - Legacy Telegram report code lives under `legacy_report/`; root legacy files remain shims.
 - DB integration tests must skip when Postgres settings or connection are unavailable.
 
-## 12. Change History
+## 12. 변경 이력
 
 - 2026-05-14: P27-1 initial SOT. `prompt_version=v1`.

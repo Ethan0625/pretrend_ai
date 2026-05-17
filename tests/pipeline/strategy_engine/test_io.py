@@ -1,7 +1,7 @@
 """
 Strategy Engine I/O 계약 테스트.
 
-SOT: docs/strategy_engine_design.md §C, §E
+SOT: docs/architecture/strategy_engine_design.md §C, §E
 """
 from __future__ import annotations
 

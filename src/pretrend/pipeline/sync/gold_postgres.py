@@ -96,6 +96,23 @@ def _get_env_value(key: str, dotenv_values: dict[str, str]) -> str | None:
     return os.getenv(key) or dotenv_values.get(key)
 
 
+def _env_bool(name: str, default: bool = False) -> bool:
+    value = os.getenv(name)
+    if value is None or value == "":
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+def _parse_env_date(name: str) -> date | None:
+    raw = os.getenv(name)
+    if not raw:
+        return None
+    try:
+        return datetime.strptime(raw, "%Y-%m-%d").date()
+    except ValueError as exc:
+        raise ValueError(f"{name} must be YYYY-MM-DD, got {raw!r}") from exc
+
+
 def _database_url_from_env() -> str:
     dotenv_values = _read_dotenv()
     user = _get_env_value("POSTGRES_USER", dotenv_values)
@@ -234,6 +251,17 @@ def _load_eod_parquet(gold_root: Path, lower_bound: date | None) -> pd.DataFrame
     return _read_parquet_files(gold_root, EOD_COLUMNS, lower_bound)
 
 
+def _sync_lower_bound(watermark: date | None, lookback_days: int) -> date | None:
+    if _env_bool("PRETREND_GOLD_SYNC_FULL", False):
+        return None
+
+    start_date = _parse_env_date("PRETREND_GOLD_SYNC_START_DATE")
+    if start_date is not None:
+        return start_date - timedelta(days=1)
+
+    return None if watermark is None else watermark - timedelta(days=lookback_days)
+
+
 def _upsert_macro(engine: Engine, df: pd.DataFrame) -> int:
     records = _records(df, MACRO_COLUMNS)
     if not records:
@@ -290,11 +318,7 @@ def sync_gold_macro(
     gold_root = gold_root or _default_gold_root(MACRO_GOLD_ROOT_REL)
 
     watermark_before = _get_watermark(engine, "gold_macro_features")
-    lower_bound = (
-        None
-        if watermark_before is None
-        else watermark_before - timedelta(days=WATERMARK_LOOKBACK_DAYS_MACRO)
-    )
+    lower_bound = _sync_lower_bound(watermark_before, WATERMARK_LOOKBACK_DAYS_MACRO)
     df = _load_macro_parquet(gold_root, lower_bound)
     df_filtered = _filter_by_lower_bound(df, lower_bound)
     rows_upserted = _upsert_macro(engine, df_filtered)
@@ -323,11 +347,7 @@ def sync_gold_eod(
     gold_root = gold_root or _default_gold_root(EOD_GOLD_ROOT_REL)
 
     watermark_before = _get_watermark(engine, "gold_eod_features")
-    lower_bound = (
-        None
-        if watermark_before is None
-        else watermark_before - timedelta(days=WATERMARK_LOOKBACK_DAYS_EOD)
-    )
+    lower_bound = _sync_lower_bound(watermark_before, WATERMARK_LOOKBACK_DAYS_EOD)
     df = _load_eod_parquet(gold_root, lower_bound)
     df_filtered = _filter_by_lower_bound(df, lower_bound)
     rows_upserted = _upsert_eod(engine, df_filtered)

@@ -11,7 +11,10 @@ from typing import List
 import pandas as pd
 import pytest
 
-from pretrend.pipeline.features.gold_macro_features import build_gold_macro_features
+from pretrend.pipeline.features.gold_macro_features import (
+    build_gold_macro_features,
+    build_release_calendar,
+)
 
 
 # ── Schema Constants ────────────────────────────────────────
@@ -110,6 +113,47 @@ def _run_gold() -> pd.DataFrame:
         df_calendar=_build_calendar(),
         trade_dates=TRADE_DATES,
     )
+
+
+def test_ofs_104_release_calendar_fallback_keeps_gold_buildable_when_coverage_is_partial():
+    """OFS-104: econ_events/vintage coverage가 일부 없어도 release evidence를 명시적으로 채운다."""
+    silver_macro = pd.DataFrame(
+        [
+            {"indicator_id": "CPI_US_ALL_ITEMS_SA", "date": date(2024, 1, 1), "value": 300.0},
+            {"indicator_id": "CPI_US_ALL_ITEMS_SA", "date": date(2024, 2, 1), "value": 301.0},
+            {"indicator_id": "US_TREASURY_10Y_YIELD", "date": date(2024, 2, 5), "value": 4.2},
+        ]
+    )
+    econ_events = pd.DataFrame(
+        [
+            {
+                "indicator_id": "CPI_US_ALL_ITEMS_SA",
+                "observation_date": date(2024, 1, 1),
+                "release_date_utc": date(2024, 2, 13),
+            }
+        ]
+    )
+    fred_vintages = pd.DataFrame(
+        [
+            {
+                "indicator_id": "CPI_US_ALL_ITEMS_SA",
+                "observation_date": date(2024, 2, 1),
+                "vintage_date": date(2024, 3, 12),
+                "is_first_vintage": True,
+            }
+        ]
+    )
+
+    calendar = build_release_calendar(silver_macro, econ_events, fred_vintages)
+    by_key = {
+        (row["indicator_id"], row["observation_date"]): row
+        for row in calendar.to_dict(orient="records")
+    }
+
+    assert by_key[("CPI_US_ALL_ITEMS_SA", date(2024, 1, 1))]["release_source"] == "econ_events"
+    assert by_key[("CPI_US_ALL_ITEMS_SA", date(2024, 2, 1))]["release_source"] == "fred_vintages"
+    assert by_key[("US_TREASURY_10Y_YIELD", date(2024, 2, 5))]["release_source"] == "assumed_t_plus_1"
+    assert by_key[("US_TREASURY_10Y_YIELD", date(2024, 2, 5))]["is_assumption_based"] is True
 
 
 # ════════════════════════════════════════════════════════════

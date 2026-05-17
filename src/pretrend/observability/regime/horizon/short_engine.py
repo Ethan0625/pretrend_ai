@@ -5,7 +5,7 @@ REQUIRED axis: price_volatility, flow_structure, sentiment
 OPTIONAL axis: (없음)
 
 Contract: docs/architecture/market_structure_short_v1_contract.md
-SOT: docs/strategy_engine_design.md §A3
+SOT: docs/architecture/strategy_engine_design.md §A3
 
 v1.3 라벨 로직:
   Primary: SPY ret_1d + vol_20d → PANIC / RELIEF / STABLE (v0 조건 유지)

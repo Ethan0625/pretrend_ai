@@ -99,8 +99,10 @@ def _select_and_compute(
 
     pit_safe = pit_safe.sort_values("observation_date").reset_index(drop=True)
 
-    # Latest-as-of: max release_date
-    selected_idx = pit_safe["release_date"].idxmax()
+    # Latest-as-of: max release_date. Some pandas versions cannot idxmax()
+    # object-dtype Python date values, so compare through datetime64.
+    release_rank = pd.to_datetime(pit_safe["release_date"])
+    selected_idx = release_rank.idxmax()
     sel = pit_safe.loc[selected_idx]
     selected_value = sel["value"]
     selected_obs = sel["observation_date"]

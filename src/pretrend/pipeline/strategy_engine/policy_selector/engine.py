@@ -4,7 +4,7 @@ Policy Selector Engine — Market Position + Policy Config → Composer 출력.
 Registry에서 정책을 resolve하여 Market Position에 정책 파라미터를 부착한다.
 Composer 계약의 최종 출력을 생성하는 단계.
 
-SOT: docs/strategy_engine_design.md §A3
+SOT: docs/architecture/strategy_engine_design.md §A3
 Contract:
   - docs/architecture/market_structure_composer_contract.md
   - docs/architecture/policy_config_contract.md

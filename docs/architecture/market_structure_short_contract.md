@@ -3,16 +3,15 @@
 Markers: architecture, contract
 Status: active
 
-> 🔄 **Observability Track 자료 — "시장 구조 관측" 컨텍스트로 재해석**
+> 🟢 **Market Data Platform 관측 계약**
 >
-> 본 문서는 2026Q2 방향 재정의 후 Observability Track의 시장 관측 자료로 재해석됩니다.
-> "투자 의사결정"이 아닌 **"Short-term PANIC/RELIEF 관측"** 컨텍스트로 활용됩니다.
-> P29-4 분류: **Observability Track 자산, Phase 1 추출 완료**.
+> 본 문서는 Gold feature layer를 소비해 **Short-term PANIC/RELIEF** 상태를 관측하는 계약입니다.
+> 투자 의사결정이나 매매 지시가 아니라 read-only observation context로 활용됩니다.
 > 코드 모듈은 Phase 1 P19에서 `observability/regime/horizon/short_engine.py`로 이전 완료되었습니다.
 > 기존 `strategy_engine/axis_horizon_state/short_engine.py` import path는 shim으로 backward compat을 유지합니다.
-> 참조: [`track_separation.md`](./track_separation.md), [`REFACTOR_2026Q2.md`](../../.agent/REFACTOR_2026Q2.md)
+> 참조: [`track_separation.md`](./track_separation.md)
 
-## Document Status
+## 문서 상태
 | Item | Value |
 | --- | --- |
 | Status | **Active (Observability 자료, 시장 관측 컨텍스트)** |
@@ -20,16 +19,16 @@ Status: active
 | Effective Date | 2026-02-22 |
 | Change Tracking | docs/changelog.md |
 
-## Capability Matrix
-| Capability | Status | Notes |
+## 기능 매트릭스
+| 기능 | 상태 | 비고 |
 | --- | --- | --- |
 | Core scope | Active | 본 문서의 계약/설계 범위 |
 | Extension ports | Reserved | v1+ 확장 포트는 인터페이스만 정의 |
 | Numeric scoring/tuning | Not supported | 본 문서 범위에서 금지 |
 
-## TOC
+## 목차
 - [1. 문서 목적](#1-문서-목적)
-- [2. Scope & Non-Goals](#2-scope--non-goals)
+- [2. 범위와 제외 범위](#2-scope--non-goals)
 - [3. Inputs](#3-inputs)
 - [4. Outputs](#4-outputs)
 - [5. Grain/Key](#5-grainkey)
@@ -47,15 +46,15 @@ Status: active
 - 단기 신호 모듈(`ms_short_term_signal`)의 입력/출력 계약을 정의한다.
 - Risk Spread + 변동성 proxy 기반 단기 상태 인터페이스를 고정한다.
 
-### Non-goals
+### 제외 범위
 - 단기 매매 타이밍 알고리즘 수치화
 
-## 2. Scope & Non-Goals
+## 2. 범위와 제외 범위
 ### Scope
 - 단기 스트레스/완화 상태를 `short_signal` ENUM으로 산출한다.
 - Composer가 소비할 형식으로 표준화한다.
 
-### Non-goals
+### 제외 범위
 - 중기/장기 레짐 산출
 - Universe 직접 선별
 
@@ -63,7 +62,7 @@ Status: active
 ### 책임
 - 단기 신호 입력 재료 스키마를 고정한다.
 
-### Non-goals
+### 제외 범위
 - VIX 편입 수치/튜닝 정의
 
 입력 컬럼:
@@ -92,7 +91,7 @@ Status: active
 ### 책임
 - Composer 소비용 단기 상태를 정의한다.
 
-### Non-goals
+### 제외 범위
 - 신호 강도 수치 기준 정의
 
 출력 컬럼:
@@ -108,7 +107,7 @@ Status: active
 ### 책임
 - 단기 신호 출력 grain을 고정한다.
 
-### Non-goals
+### 제외 범위
 - intraday 세분화
 
 - Grain: `trade_date`
@@ -118,7 +117,7 @@ Status: active
 ### 책임
 - 단기 상태 출력 무결성을 보장한다.
 
-### Non-goals
+### 제외 범위
 - 성과 보장
 
 - `short_signal`은 ENUM 외 값 금지
@@ -133,7 +132,7 @@ Status: active
 ### 책임
 - 단기 모듈 검증 기준을 제공한다.
 
-### Non-goals
+### 제외 범위
 - 테스트 도구 강제
 
 - **MSH1**: 필수 컬럼/타입 검증
@@ -144,9 +143,9 @@ Status: active
 
 ---
 
-## Change History
-| Date | Summary | References |
+## 변경 이력
+| 날짜 | 요약 | 참조 |
 | --- | --- | --- |
 | 2026-03-12 | Short Engine v1.3: `skew_extreme_flag` 입력 추가 및 secondary PANIC을 6신호 중 3개 이상 규칙으로 강화 | docs/changelog.md |
 | 2026-02-22 | Short Engine 보강: secondary PANIC 4신호 체계 및 `smallcap_stress(iwm_spy_vol_spread > 0.005)` 기준 반영 | docs/changelog.md |
-| 2026-02-13 | 파일명 버전 제거 및 문서 표준 블록(Document Status/Capability Matrix) 적용 | docs/changelog.md |
+| 2026-02-13 | 파일명 버전 제거 및 문서 표준 블록(문서 상태/기능 매트릭스) 적용 | docs/changelog.md |

@@ -90,7 +90,7 @@ def test_bronze_empty_adapter_returns_success(tmp_path, monkeypatch):
 
 
 def test_bronze_raising_adapter_records_error(tmp_path, monkeypatch):
-    """예외 발생 어댑터 → Bronze 결과에 error 기록, 파이프라인은 계속."""
+    """OFS-203: adapter exceptions are recorded as source-level ingest errors."""
     import pretrend.pipeline.text.bronze_ingest as mod
     monkeypatch.setattr(mod, "_build_adapter", lambda src, cfg: _RaisingAdapter())
 
@@ -114,7 +114,7 @@ def test_bronze_raising_adapter_records_error(tmp_path, monkeypatch):
 
 
 def test_bronze_failopen_mixed_sources_continue(tmp_path, monkeypatch):
-    """한 소스 실패 + 다른 소스 성공 시 전체 ingest는 계속되어야 한다."""
+    """OFS-203: one provider failure does not block other text sources."""
     import pretrend.pipeline.text.bronze_ingest as mod
 
     def _build(src, cfg):

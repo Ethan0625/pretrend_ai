@@ -19,10 +19,79 @@ services:
       retries: 5
       start_period: 10s
 
+  postgres-test:
+    image: timescale/timescaledb:2.27.0-pg16
+    container_name: pretrend-postgres-test
+    profiles:
+      - test
+    environment:
+      POSTGRES_USER: ${PRETREND_TEST_POSTGRES_USER:-pretrend_test}
+      POSTGRES_PASSWORD: ${PRETREND_TEST_POSTGRES_PASSWORD:-pretrend_test_password}
+      POSTGRES_DB: ${PRETREND_TEST_POSTGRES_DB:-pretrend_test}
+    ports:
+      - "${PRETREND_TEST_POSTGRES_PORT:-15432}:5432"
+    volumes:
+      - ${PRETREND_TEST_POSTGRES_DATA_DIR:-./.local/postgres-test-data}:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  test-db-migrate:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.dev
+    container_name: pretrend-test-db-migrate
+    profiles:
+      - test
+    env_file:
+      - .env
+    environment:
+      APP_ENV: test
+      POSTGRES_HOST: postgres-test
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${PRETREND_TEST_POSTGRES_USER:-pretrend_test}
+      POSTGRES_PASSWORD: ${PRETREND_TEST_POSTGRES_PASSWORD:-pretrend_test_password}
+      POSTGRES_DB: ${PRETREND_TEST_POSTGRES_DB:-pretrend_test}
+      PRETREND_TEST_DATABASE_URL: postgresql+psycopg2://${PRETREND_TEST_POSTGRES_USER:-pretrend_test}:${PRETREND_TEST_POSTGRES_PASSWORD:-pretrend_test_password}@postgres-test:5432/${PRETREND_TEST_POSTGRES_DB:-pretrend_test}
+    depends_on:
+      postgres-test:
+        condition: service_healthy
+    command: ["alembic", "upgrade", "head"]
+
+  test-runner:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.dev
+    profiles:
+      - test
+    env_file:
+      - .env
+    environment:
+      APP_ENV: test
+      POSTGRES_HOST: postgres-test
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${PRETREND_TEST_POSTGRES_USER:-pretrend_test}
+      POSTGRES_PASSWORD: ${PRETREND_TEST_POSTGRES_PASSWORD:-pretrend_test_password}
+      POSTGRES_DB: ${PRETREND_TEST_POSTGRES_DB:-pretrend_test}
+      PRETREND_TEST_DATABASE_URL: postgresql+psycopg2://${PRETREND_TEST_POSTGRES_USER:-pretrend_test}:${PRETREND_TEST_POSTGRES_PASSWORD:-pretrend_test_password}@postgres-test:5432/${PRETREND_TEST_POSTGRES_DB:-pretrend_test}
+    depends_on:
+      postgres-test:
+        condition: service_healthy
+    command:
+      - bash
+      - -c
+      - |
+        set -euo pipefail
+        alembic upgrade head
+        pytest tests/ops/test_db_synthetic_data_contract.py -q --tb=short
+
   api:
     build:
       context: .
-      dockerfile: Dockerfile.api
+      dockerfile: docker/Dockerfile.api
     container_name: pretrend-api
     restart: unless-stopped
     ports:
@@ -32,14 +101,30 @@ services:
     volumes:
       - ${PRETREND_HOST_DATA_DIR:-./data}:/app/data
       - ${PRETREND_HOST_LOG_DIR:-./logs}:/app/logs
+      - ${PRETREND_STATE_DIR:-./state}:/app/state
+      - ${PRETREND_CODEX_BIN_DIR:-./codex-bin}:/opt/pretrend/codex-bin:ro
+      - ${PRETREND_CODEX_HOME_DIR:-./codex-home}:/root/.codex
     environment:
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
       PRETREND_DATA_DIR: /app/data
+      PRETREND_DATA_ROOT: /app/data
       PRETREND_LOG_DIR: /app/logs
+      PRETREND_STATE_DB: ${PRETREND_STATE_DB:-/app/state/orchestrator.db}
+      PRETREND_CODEX_BIN: ${PRETREND_CODEX_BIN:-}
+      PRETREND_CODEX_BIN_DIR: /opt/pretrend/codex-bin
       PRETREND_API_KEY: ${PRETREND_API_KEY:?PRETREND_API_KEY is required}
       PRETREND_API_CORS_ORIGINS: ${PRETREND_API_CORS_ORIGINS:-}
       PRETREND_API_TRUSTED_HOSTS: ${PRETREND_API_TRUSTED_HOSTS:-*}
+      REPORT_ANALYZER_ENABLED: ${REPORT_ANALYZER_ENABLED:-1}
+      REPORT_ANALYZER_TIMEOUT: ${REPORT_ANALYZER_TIMEOUT:-}
+      REPORT_LLM_PROVIDER: ${REPORT_LLM_PROVIDER:-gemini}
+      REPORT_LLM_MODEL: ${REPORT_LLM_MODEL:-gemini-2.5-flash}
+      REPORT_LLM_BASE_URL: ${REPORT_LLM_BASE_URL:-}
+      REPORT_LLM_TIMEOUT: ${REPORT_LLM_TIMEOUT:-}
+      REPORT_LLM_FALLBACK_ENABLED: ${REPORT_LLM_FALLBACK_ENABLED:-1}
+      REPORT_LLM_RETRY: ${REPORT_LLM_RETRY:-3}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
     depends_on:
       postgres:
         condition: service_healthy
@@ -55,3 +140,211 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+
+  worker:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.dev
+    container_name: pretrend-worker
+    profiles:
+      - ops
+    env_file:
+      - .env
+    volumes:
+      - ${PRETREND_HOST_DATA_DIR:-./data}:/app/data
+      - ${PRETREND_HOST_LOG_DIR:-./logs}:/app/logs
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      PRETREND_DATA_DIR: /app/data
+      PRETREND_DATA_ROOT: /app/data
+      PRETREND_LOG_DIR: /app/logs
+      PRETREND_ENV: ${PRETREND_ENV:-backfill}
+      PRETREND_GOLD_SYNC_FULL: ${PRETREND_GOLD_SYNC_FULL:-0}
+      PRETREND_GOLD_SYNC_START_DATE: ${PRETREND_GOLD_SYNC_START_DATE:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["python", "-c", "print('pretrend worker ready')"]
+
+  backfill-once:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.dev
+    container_name: pretrend-backfill-once
+    profiles:
+      - bootstrap
+    env_file:
+      - .env
+    volumes:
+      - ${PRETREND_HOST_DATA_DIR:-./data}:/app/data
+      - ${PRETREND_HOST_LOG_DIR:-./logs}:/app/logs
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      PRETREND_DATA_DIR: /app/data
+      PRETREND_DATA_ROOT: /app/data
+      PRETREND_LOG_DIR: /app/logs
+      PRETREND_ENV: ${PRETREND_ENV:-backfill}
+      PRETREND_BACKFILL_ON_START: ${PRETREND_BACKFILL_ON_START:-1}
+      PRETREND_BACKFILL_START_DATE: ${PRETREND_BACKFILL_START_DATE:-2003-01-01}
+      PRETREND_BACKFILL_END_DATE: ${PRETREND_BACKFILL_END_DATE:-}
+      PRETREND_BACKFILL_FORCE: ${PRETREND_BACKFILL_FORCE:-0}
+      PRETREND_BACKFILL_RUN_MACRO: ${PRETREND_BACKFILL_RUN_MACRO:-1}
+      PRETREND_BACKFILL_RUN_EOD: ${PRETREND_BACKFILL_RUN_EOD:-1}
+      PRETREND_BACKFILL_SYNC_POSTGRES: ${PRETREND_BACKFILL_SYNC_POSTGRES:-1}
+      PRETREND_BACKFILL_SYMBOLS: ${PRETREND_BACKFILL_SYMBOLS:-}
+      PRETREND_BACKFILL_MARKER_PATH: ${PRETREND_BACKFILL_MARKER_PATH:-/app/data/meta/bootstrap_backfill_once.json}
+      PRETREND_GOLD_SYNC_FULL: ${PRETREND_GOLD_SYNC_FULL:-0}
+      PRETREND_GOLD_SYNC_START_DATE: ${PRETREND_GOLD_SYNC_START_DATE:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["python", "-m", "pretrend.ops.backfill_once"]
+
+  airflow-init:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.airflow
+    container_name: pretrend-airflow-init
+    profiles:
+      - airflow
+    env_file:
+      - .env
+    volumes:
+      - ${PRETREND_HOST_DATA_DIR:-./data}:/app/data
+      - ${PRETREND_HOST_LOG_DIR:-./logs}:/app/logs
+      - ${PRETREND_AIRFLOW_HOME_DIR:-./airflow_pretrend}:/opt/airflow/local
+      - ${PRETREND_AIRFLOW_LOG_DIR:-./airflow_pretrend/logs}:/opt/airflow/logs
+      - ${PRETREND_HOST_DAGS_DIR:-./dags}:/opt/airflow/dags:ro
+      - ${PRETREND_HOST_SRC_DIR:-./src}:/opt/airflow/src:ro
+    environment:
+      AIRFLOW__CORE__EXECUTOR: SequentialExecutor
+      AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+      AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "True"
+      AIRFLOW__CORE__DAGS_FOLDER: /opt/airflow/dags
+      AIRFLOW__CORE__DEFAULT_TIMEZONE: Asia/Seoul
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: sqlite:////opt/airflow/local/airflow.db
+      AIRFLOW__LOGGING__BASE_LOG_FOLDER: /opt/airflow/logs
+      AIRFLOW__WEBSERVER__WEB_SERVER_PORT: 8080
+      AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "False"
+      AIRFLOW_ADMIN_USER: ${AIRFLOW_ADMIN_USER?AIRFLOW_ADMIN_USER must be declared in .env}
+      AIRFLOW_ADMIN_PASSWORD: ${AIRFLOW_ADMIN_PASSWORD?AIRFLOW_ADMIN_PASSWORD must be declared in .env}
+      AIRFLOW_ADMIN_EMAIL: ${AIRFLOW_ADMIN_EMAIL?AIRFLOW_ADMIN_EMAIL must be declared in .env}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      PRETREND_DATA_DIR: /app/data
+      PRETREND_DATA_ROOT: /app/data
+      PRETREND_LOG_DIR: /app/logs
+      PRETREND_ENV: ${PRETREND_ENV:-backfill}
+      PRETREND_REPORT_API_URL: ${PRETREND_REPORT_API_URL:-http://api:8000/api/v1/report/strategy/analyze}
+      PRETREND_GOLD_SYNC_FULL: ${PRETREND_GOLD_SYNC_FULL:-0}
+      PRETREND_GOLD_SYNC_START_DATE: ${PRETREND_GOLD_SYNC_START_DATE:-}
+      PYTHONPATH: /opt/airflow/src
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command:
+      - bash
+      - -c
+      - |
+        set -euo pipefail
+        : "$${AIRFLOW_ADMIN_USER:?AIRFLOW_ADMIN_USER is required}"
+        : "$${AIRFLOW_ADMIN_PASSWORD:?AIRFLOW_ADMIN_PASSWORD is required}"
+        : "$${AIRFLOW_ADMIN_EMAIL:?AIRFLOW_ADMIN_EMAIL is required}"
+        airflow db migrate
+        airflow users create \
+          --username "$${AIRFLOW_ADMIN_USER}" \
+          --password "$${AIRFLOW_ADMIN_PASSWORD}" \
+          --firstname Pretrend \
+          --lastname Admin \
+          --role Admin \
+          --email "$${AIRFLOW_ADMIN_EMAIL}" || airflow users reset-password \
+            --username "$${AIRFLOW_ADMIN_USER}" \
+            --password "$${AIRFLOW_ADMIN_PASSWORD}"
+
+  airflow-webserver:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.airflow
+    container_name: pretrend-airflow-webserver
+    restart: unless-stopped
+    profiles:
+      - airflow
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env
+    volumes:
+      - ${PRETREND_HOST_DATA_DIR:-./data}:/app/data
+      - ${PRETREND_HOST_LOG_DIR:-./logs}:/app/logs
+      - ${PRETREND_AIRFLOW_HOME_DIR:-./airflow_pretrend}:/opt/airflow/local
+      - ${PRETREND_AIRFLOW_LOG_DIR:-./airflow_pretrend/logs}:/opt/airflow/logs
+      - ${PRETREND_HOST_DAGS_DIR:-./dags}:/opt/airflow/dags:ro
+      - ${PRETREND_HOST_SRC_DIR:-./src}:/opt/airflow/src:ro
+    environment:
+      AIRFLOW__CORE__EXECUTOR: SequentialExecutor
+      AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+      AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "True"
+      AIRFLOW__CORE__DAGS_FOLDER: /opt/airflow/dags
+      AIRFLOW__CORE__DEFAULT_TIMEZONE: Asia/Seoul
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: sqlite:////opt/airflow/local/airflow.db
+      AIRFLOW__LOGGING__BASE_LOG_FOLDER: /opt/airflow/logs
+      AIRFLOW__WEBSERVER__WEB_SERVER_PORT: 8080
+      AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "False"
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      PRETREND_DATA_DIR: /app/data
+      PRETREND_DATA_ROOT: /app/data
+      PRETREND_LOG_DIR: /app/logs
+      PRETREND_ENV: ${PRETREND_ENV:-backfill}
+      PRETREND_REPORT_API_URL: ${PRETREND_REPORT_API_URL:-http://api:8000/api/v1/report/strategy/analyze}
+      PRETREND_GOLD_SYNC_FULL: ${PRETREND_GOLD_SYNC_FULL:-0}
+      PRETREND_GOLD_SYNC_START_DATE: ${PRETREND_GOLD_SYNC_START_DATE:-}
+      PYTHONPATH: /opt/airflow/src
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+    command: webserver
+
+  airflow-scheduler:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.airflow
+    container_name: pretrend-airflow-scheduler
+    restart: unless-stopped
+    profiles:
+      - airflow
+    env_file:
+      - .env
+    volumes:
+      - ${PRETREND_HOST_DATA_DIR:-./data}:/app/data
+      - ${PRETREND_HOST_LOG_DIR:-./logs}:/app/logs
+      - ${PRETREND_AIRFLOW_HOME_DIR:-./airflow_pretrend}:/opt/airflow/local
+      - ${PRETREND_AIRFLOW_LOG_DIR:-./airflow_pretrend/logs}:/opt/airflow/logs
+      - ${PRETREND_HOST_DAGS_DIR:-./dags}:/opt/airflow/dags:ro
+      - ${PRETREND_HOST_SRC_DIR:-./src}:/opt/airflow/src:ro
+    environment:
+      AIRFLOW__CORE__EXECUTOR: SequentialExecutor
+      AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+      AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "True"
+      AIRFLOW__CORE__DAGS_FOLDER: /opt/airflow/dags
+      AIRFLOW__CORE__DEFAULT_TIMEZONE: Asia/Seoul
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: sqlite:////opt/airflow/local/airflow.db
+      AIRFLOW__LOGGING__BASE_LOG_FOLDER: /opt/airflow/logs
+      AIRFLOW__WEBSERVER__WEB_SERVER_PORT: 8080
+      AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "False"
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      PRETREND_DATA_DIR: /app/data
+      PRETREND_DATA_ROOT: /app/data
+      PRETREND_LOG_DIR: /app/logs
+      PRETREND_ENV: ${PRETREND_ENV:-backfill}
+      PRETREND_REPORT_API_URL: ${PRETREND_REPORT_API_URL:-http://api:8000/api/v1/report/strategy/analyze}
+      PRETREND_GOLD_SYNC_FULL: ${PRETREND_GOLD_SYNC_FULL:-0}
+      PRETREND_GOLD_SYNC_START_DATE: ${PRETREND_GOLD_SYNC_START_DATE:-}
+      PYTHONPATH: /opt/airflow/src
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+    command: scheduler

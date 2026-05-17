@@ -3,4 +3,4 @@ requests
 httpx==0.28.1
 pyarrow
 yfinance
--r requirements_api.txt
+-r api.txt

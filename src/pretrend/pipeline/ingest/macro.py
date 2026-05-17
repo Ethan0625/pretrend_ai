@@ -11,6 +11,10 @@ import requests
 from pretrend.pipeline.ingest.base import IngestContext, BaseFetcher, BaseNormalizer, BaseWriter
 
 
+class _FredVintageSeriesUnavailable(RuntimeError):
+    """Raised when a FRED series exists but has no ALFRED vintage history."""
+
+
 @dataclass
 class FredSeriesSpec:
     """
@@ -188,6 +192,18 @@ class MacroFetcher(BaseFetcher):
     _VINTAGE_MAX_RETRIES: int = 3      # 429 시 최대 재시도 횟수
     _VINTAGE_BACKOFF_BASE: float = 2.0 # 지수 백오프 기본 대기(초)
 
+    _VINTAGE_COLUMNS: tuple[str, ...] = (
+        "series_id",
+        "observation_date",
+        "vintage_date",
+        "value",
+        "source",
+    )
+
+    @classmethod
+    def _empty_vintage_frame(cls) -> pd.DataFrame:
+        return pd.DataFrame(columns=list(cls._VINTAGE_COLUMNS))
+
     def _fetch_vintage_chunk(
         self,
         spec: FredSeriesSpec,
@@ -211,16 +227,44 @@ class MacroFetcher(BaseFetcher):
 
         for attempt in range(self._VINTAGE_MAX_RETRIES + 1):
             resp = requests.get(self.config.base_url, params=params, timeout=60)
-            if resp.status_code == 429:
+            if resp.status_code == 429 or 500 <= resp.status_code < 600:
                 if attempt < self._VINTAGE_MAX_RETRIES:
                     wait = self._VINTAGE_BACKOFF_BASE * (2 ** attempt)
                     print(
-                        f"[MacroFetcher] 429 rate limited ({spec.series_id}), "
+                        f"[MacroFetcher] FRED vintage retryable error "
+                        f"status={resp.status_code} ({spec.series_id}), "
                         f"retry {attempt + 1}/{self._VINTAGE_MAX_RETRIES} "
                         f"after {wait:.0f}s"
                     )
                     time.sleep(wait)
                     continue
+                message = getattr(resp, "text", "")
+                print(
+                    "[MacroFetcher] Vintage chunk skipped after retryable "
+                    "FRED error: "
+                    f"status={resp.status_code}, series_id={spec.series_id}, "
+                    f"observation_start={obs_start}, observation_end={obs_end}, "
+                    f"realtime_start={rt_start}, realtime_end={rt_end}, "
+                    f"message={message[:300]!r}"
+                )
+                return self._empty_vintage_frame()
+            if resp.status_code == 400:
+                message = getattr(resp, "text", "")
+                if "does not exist in ALFRED" in message:
+                    print(
+                        "[MacroFetcher] Vintage series skipped because ALFRED "
+                        "history is unavailable: "
+                        f"series_id={spec.series_id}, message={message[:300]!r}"
+                    )
+                    raise _FredVintageSeriesUnavailable(spec.series_id)
+                print(
+                    "[MacroFetcher] Vintage chunk skipped after FRED 400: "
+                    f"series_id={spec.series_id}, "
+                    f"observation_start={obs_start}, observation_end={obs_end}, "
+                    f"realtime_start={rt_start}, realtime_end={rt_end}, "
+                    f"message={message[:300]!r}"
+                )
+                return self._empty_vintage_frame()
             resp.raise_for_status()
             break
 
@@ -244,10 +288,7 @@ class MacroFetcher(BaseFetcher):
             )
 
         if not rows:
-            return pd.DataFrame(
-                columns=["series_id", "observation_date", "vintage_date",
-                         "value", "source"]
-            )
+            return self._empty_vintage_frame()
         return pd.DataFrame(rows)
 
     @staticmethod
@@ -305,13 +346,21 @@ class MacroFetcher(BaseFetcher):
                 rt_end_candidate = _date(rt_year + REALTIME_CHUNK_YEARS - 1, 12, 31)
                 rt_end = min(rt_end_candidate, safe_max)
 
-                df_chunk = self._fetch_vintage_chunk(
-                    spec,
-                    obs_start=obs_start.strftime("%Y-%m-%d"),
-                    obs_end=obs_end.strftime("%Y-%m-%d"),
-                    rt_start=rt_start.strftime("%Y-%m-%d"),
-                    rt_end=rt_end.strftime("%Y-%m-%d"),
-                )
+                try:
+                    df_chunk = self._fetch_vintage_chunk(
+                        spec,
+                        obs_start=obs_start.strftime("%Y-%m-%d"),
+                        obs_end=obs_end.strftime("%Y-%m-%d"),
+                        rt_start=rt_start.strftime("%Y-%m-%d"),
+                        rt_end=rt_end.strftime("%Y-%m-%d"),
+                    )
+                except _FredVintageSeriesUnavailable:
+                    print(
+                        "[MacroFetcher] Stop vintage collection for "
+                        f"{spec.series_id}; Gold macro will use release-date "
+                        "fallback where needed."
+                    )
+                    return self._empty_vintage_frame()
                 if not df_chunk.empty:
                     frames.append(df_chunk)
 
@@ -320,10 +369,7 @@ class MacroFetcher(BaseFetcher):
             obs_year += 1
 
         if not frames:
-            return pd.DataFrame(
-                columns=["series_id", "observation_date", "vintage_date",
-                         "value", "source"]
-            )
+            return self._empty_vintage_frame()
 
         # 청크 간 중복 제거 (realtime 구간 경계에서 겹칠 수 있음)
         result = pd.concat(frames, ignore_index=True)

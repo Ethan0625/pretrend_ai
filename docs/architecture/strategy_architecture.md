@@ -1,24 +1,27 @@
-# Pretrend AI — 전략 아키텍처 (Mixed: Frozen + Observability 재해석)
+# Pretrend 전략 아키텍처 (reference)
 
-> ⚠️ **2026Q2 방향 재정의 — 본 문서의 단계별 분류**
+Markers: architecture, legacy
+Status: reference
+
+
+> ⚠️ **Reference — 현재 플랫폼과 과거 실행 실험의 경계**
 >
-> 본 문서가 설명하는 Risk-Control 전략 흐름은 단계별로 다음과 같이 분리됩니다:
+> 본 문서가 설명하는 Risk-Control 전략 흐름은 과거 실행 실험 맥락을 포함합니다:
 >
-> **🔄 Observability Track 자료로 재해석** (Phase 1+ 추출 대상):
+> **현재 market data platform에서 유효한 관측 자료**:
 > - Layer (Bronze/Silver/Gold) — Infrastructure 공유
 > - Market Structure 4축 (Long/Mid/Short/Composer) — 시장 관측 자료
 > - Axis × Horizon State — 12-slot 관측 매트릭스
 > - Market Position — RS, breadth 관측
 >
-> **🔒 Personal Track Frozen** (자동매매 의사결정, 2026-05-12~ 운영 중단):
+> **보관된 실행 실험(reference, 2026-05-12~ 운영 중단)**:
 > - Composer → Universe-ETF picking → Allocation Engine → Weekly Report
 > - Sell Advisor (자동 매도 권고)
 >
 > 참조:
-> - [`docs/architecture/track_separation.md`](architecture/track_separation.md)
-> - [`.agent/REFACTOR_2026Q2.md`](../.agent/REFACTOR_2026Q2.md)
+> - [`docs/architecture/track_separation.md`](track_separation.md)
 
-## Document Status
+## 문서 상태
 | Item | Value |
 | --- | --- |
 | Status | **Mixed (Frozen + Observability)** |
@@ -26,14 +29,14 @@
 | Effective Date | 2026-02-13 (재분류: 2026-05-12) |
 | Change Tracking | docs/changelog.md |
 
-## Capability Matrix
-| Capability | Status | Notes |
+## 기능 매트릭스
+| 기능 | 상태 | 비고 |
 | --- | --- | --- |
 | Core scope | Active | 본 문서의 계약/설계 범위 |
 | Extension ports | Reserved | v1+ 확장 포트는 인터페이스만 정의 |
 | Numeric scoring/tuning | Not supported | 본 문서 범위에서 금지 |
 
-## TOC
+## 목차
 - [1. 문서 목적](#1-문서-목적)
 - [2. 전체 전략 아키텍처](#2-전체-전략-아키텍처)
 - [3. 모듈별 책임 분리](#3-모듈별-책임-분리)
@@ -43,7 +46,7 @@
   - [3.4 Allocation Engine v0](#34-allocation-engine-v0)
 - [4. 4개 축 전략 철학 (재료 관점)](#4-4개-축-전략-철학-재료-관점)
 - [5. 실행 흐름](#5-실행-흐름)
-- [6. Non-Goals](#6-non-goals)
+- [6. 제외 범위](#6-non-goals)
 
 참조 계약 문서:
 - `docs/architecture/gold_design_contract.md`
@@ -51,7 +54,7 @@
 - `docs/architecture/eod_observability_contract.md`
 - `docs/architecture/allocation_engine_contract.md`
 - `docs/architecture/policy_config_contract.md`
-- `docs/market_structure_data_inventory.md`
+- `docs/data/market_structure_data_inventory.md`
 
 ## 1. 문서 목적
 ### 책임
@@ -59,7 +62,7 @@
 - `Layer -> Market Structure -> Composer -> Universe-ETF -> Allocation Engine` 흐름 채택 이유를 명시한다.
 - 전략 철학(Design)과 검증 가능한 스키마/불변식(Contract) 분리 원칙을 고정한다.
 
-### Non-goals
+### 제외 범위
 - 점수 가중치/컷오프/수치 기준 정의
 - 구현 코드 상세 정의
 
@@ -68,7 +71,7 @@
 - 데이터/판단/실행 흐름을 표준 파이프라인으로 고정한다.
 - Market Structure를 단일 모듈이 아닌 3개 분리 모듈 + Composer 구조로 명시한다.
 
-### Non-goals
+### 제외 범위
 - 모듈 내부 계산식/튜닝 규칙 명세
 
 ```mermaid
@@ -101,7 +104,7 @@ flowchart TD
 - 사실 데이터 저장 및 정규화, PIT-safe 입력 확정을 수행한다.
 - Gold Macro/Gold EOD를 통해 판단 모듈이 사용할 입력을 제공한다.
 
-#### Non-goals
+#### 제외 범위
 - 시장 국면 해석, 후보 선별, 매수/매도 판단을 수행하지 않는다.
 
 ### 3.2 Market Structure (분리 모듈 + 합성)
@@ -113,7 +116,7 @@ flowchart TD
 - `ms_composer`: long/mid/short 출력을 단일 상태 벡터로 합성해 Universe-ETF/Allocation 입력으로 제공
 - 핵심 원칙: Universe-ETF/Allocation은 개별 모듈을 직접 참조하지 않고 Composer 출력만 의존
 
-#### Non-goals
+#### 제외 범위
 - 장/중/단기 모듈 간 가중치 수치화
 - 포트폴리오 구성 비중 결정
 
@@ -123,7 +126,7 @@ flowchart TD
 - Composer 결과를 반영하여 후보 집합을 제한한다.
 - 전략 판단은 최소화하고 후보 집합 생성에 집중한다.
 
-#### Non-goals
+#### 제외 범위
 - Market Structure 하위 모듈 재계산/직접 참조
 - Universe-ETF 내부 가중치 조절을 수행하지 않는다(v0 금지).
 
@@ -137,7 +140,7 @@ flowchart TD
   - `risk_gate=false`이면 증가(INCREASE) 금지 (v0 규칙)
 - 즉시 올인/올아웃을 금지한다.
 
-#### Non-goals
+#### 제외 범위
 - Universe-ETF 내부 종목 비중 조절(v0 범위 밖)
 - 변동성/레짐 기반 가중 조절(v1+ 범위)
 - Policy Config 직접 참조(Composer 출력 경유만 허용)
@@ -147,7 +150,7 @@ flowchart TD
 - 정책/유동성, 가격/변동성, 수급/구조, 심리 축을 재료 단위로 분리한다.
 - 각 축에서 어떤 입력이 필요한지 정의해 데이터 수급 우선순위를 정한다.
 
-### Non-goals
+### 제외 범위
 - 점수화 수치, 가중치, 컷오프 수치 정의
 
 축별 재료:
@@ -163,7 +166,7 @@ flowchart TD
 ### 책임
 - 상위 실행 순서를 고정해 운영/검증 관점을 통일한다.
 
-### Non-goals
+### 제외 범위
 - 스케줄러/Airflow DAG 구현 세부는 다루지 않는다.
 
 1. Layer 계산 완료
@@ -199,11 +202,11 @@ allocation:
   delta_ratio: 0.0
 ```
 
-## 6. Non-Goals
+## 6. 제외 범위
 ### 책임
 - 본 문서에서 의도적으로 다루지 않는 영역을 명시한다.
 
-### Non-goals
+### 제외 범위
 - 구체적 스코어 가중치 정의 금지
 - 수치 기반 컷오프 정의 금지
 - 코드 구현 상세 금지
@@ -211,7 +214,7 @@ allocation:
 
 ---
 
-## Change History
-| Date | Summary | References |
+## 변경 이력
+| 날짜 | 요약 | 참조 |
 | --- | --- | --- |
-| 2026-02-13 | 파일명 버전 제거 및 문서 표준 블록(Document Status/Capability Matrix) 적용 | docs/changelog.md |
+| 2026-02-13 | 파일명 버전 제거 및 문서 표준 블록(문서 상태/기능 매트릭스) 적용 | docs/changelog.md |

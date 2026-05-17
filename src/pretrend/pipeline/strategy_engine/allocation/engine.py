@@ -4,7 +4,7 @@ Allocation Engine — HOW_MUCH_EXPOSURE 경계.
 Composer(policy_selection) 출력 + 이전 invested_ratio → 조정 액션.
 
 Contract: docs/architecture/allocation_engine_contract.md
-SOT: docs/strategy_engine_design.md §D2, §F
+SOT: docs/architecture/strategy_engine_design.md §D2, §F
 
 v0 규칙 (range-maintenance):
   1. 현재 비율이 목표 범위 내 → HOLD

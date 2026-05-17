@@ -1,151 +1,152 @@
-# Boundary Contract
+# 경계 계약
 
 Markers: architecture, contract
 Status: active
 
-## 1. Track Classification
+## 1. 영역 분류
 
-This document is the dependency boundary contract for the 2026Q2 two-track architecture.
+이 문서는 현재 아키텍처의 dependency boundary contract다.
 
 ### Shared Infrastructure
 
-Shared Infrastructure may be read by both Observability and frozen Personal assets.
+Shared Infrastructure는 Observability Runtime과 보관된 strategy experiment가 함께 읽을 수 있는 공통 기반이다.
 
-| Path | Responsibility |
+| Path | 책임 |
 | --- | --- |
 | `src/pretrend/pipeline/ingest/` | Bronze source ingestion |
-| `src/pretrend/pipeline/features/` | Silver/Gold feature builders |
-| `src/pretrend/pipeline/calendar/` | Release calendar and PIT evidence |
-| `src/pretrend/pipeline/config/` | Shared universe/config definitions where explicitly documented |
-| `data/bronze/`, `data/silver/`, `data/gold/` | Parquet data layers |
+| `src/pretrend/pipeline/features/` | Silver/Gold feature builder |
+| `src/pretrend/pipeline/calendar/` | Release calendar와 PIT evidence |
+| `src/pretrend/pipeline/config/` | 명시적으로 공유된 universe/config 정의 |
+| `data/bronze/`, `data/silver/`, `data/gold/` | Parquet data layer |
 | `dags/eod_pipeline_dag.py` | Shared EOD data DAG |
 | `dags/macro_pipeline_dag.py` | Shared macro data DAG |
 
-### Observability Track
+### Observability Runtime
 
-Observability owns market structure observation, historical comparison, explanation, serving DB schema, API, and dashboard surfaces.
+Observability Runtime은 market structure observation, historical comparison, explanation, serving DB schema, API, dashboard surface를 소유한다.
 
-| Path | Responsibility |
+| Path | 책임 |
 | --- | --- |
-| `src/pretrend/observability/regime/` | Regime observation modules |
-| `src/pretrend/observability/similarity/` | Historical similarity builders and inputs |
-| `src/pretrend/observability/explainability/` | Evidence-bound report generation and cache |
+| `src/pretrend/observability/regime/` | Regime observation module |
+| `src/pretrend/observability/similarity/` | Historical similarity builder와 input |
+| `src/pretrend/observability/explainability/` | Evidence-bound report generation과 cache |
 | `src/pretrend/api/` | Read-only FastAPI runtime |
-| `src/pretrend/models/` | Postgres SQLAlchemy/Pydantic models |
+| `src/pretrend/models/` | Postgres SQLAlchemy/Pydantic model |
 | `src/pretrend/config.py` | Observability runtime settings |
 | `src/pretrend/pipeline/sync/` | Gold Parquet to Postgres sync |
-| `migrations/` | Postgres/TimescaleDB schema revisions |
+| `migrations/` | Postgres/TimescaleDB schema revision |
 | `dags/gold_postgres_sync_dag.py` | Gold mirror sync |
 | `dags/similarity_build_dag.py` | Similarity build |
 | `dags/explainability_build_dag.py` | Explainability cache build |
-| `Dockerfile.api`, `requirements_api.txt`, `docker-compose.yml` `api` service | API runtime integration |
+| `docker/Dockerfile.api`, `requirements/api.txt`, `docker-compose.yml` `api` service | API runtime integration |
 | `apps/web/` | Phase 3 dashboard |
 
-### Personal Track Frozen
+### 보관된 Strategy Execution
 
-Personal Track preserves prior investing experiment assets. It is frozen and should not operate services by default.
+초기 investing experiment asset은 보관하되, 기본 운영 service로 취급하지 않는다.
 
-| Path | Responsibility |
+| Path | 책임 |
 | --- | --- |
 | `src/pretrend/pipeline/strategy_engine/{allocation, policy_selector, sell_advisor, universe}` | Investing decision logic |
-| `src/pretrend/backtest/` | Backtest and walk-forward assets |
+| `src/pretrend/backtest/` | Backtest와 walk-forward asset |
 | `src/pretrend/paper/` | Paper trading |
-| `src/pretrend/broker/` | Broker mock/live adapters |
+| `src/pretrend/broker/` | Broker mock/live adapter |
 | `dags/strategy_engine_dag.py` | Strategy snapshot DAG |
 | `dags/paper_trading_dag.py` | Paper trading DAG |
 | `dags/broker_mock_trading_dag.py` | Broker mock DAG |
-| `tests/archive/personal/` | Archived Personal regression tests |
-| `scripts/telegram_*` | Telegram orchestration assets |
+| `tests/archive/personal/` | Archived regression tests |
+| `scripts/telegram_*` | Telegram orchestration asset |
 
-Compatibility shims under `src/pretrend/pipeline/strategy_engine/*` that re-export moved Observability modules are temporary compatibility assets. They must not be treated as new Personal feature ownership.
+`src/pretrend/pipeline/strategy_engine/*` 아래 compatibility shim은 이동된 Observability module을 re-export하는 임시 호환 asset이다. 신규 strategy feature ownership으로 해석하지 않는다.
 
-## 2. Allowed Dependencies
+## 2. 허용 dependency
 
-Allowed dependency direction:
+허용되는 dependency 방향:
 
 ```text
-Observability Track -> Shared Infrastructure
-Personal Track Frozen -> Shared Infrastructure
+Observability Runtime -> Shared Infrastructure
+보관된 전략 실행 -> Shared Infrastructure
 ```
 
-Allowed examples:
+허용 예시:
 
-- API routers import `pretrend.models` and Observability query helpers.
-- Similarity builders read Postgres mirror data and shared Gold feature definitions.
-- Gold Postgres sync reads Gold Parquet feature contracts.
-- Legacy Personal tests may import archived Personal modules for regression only.
+- API router는 `pretrend.models`와 Observability query helper를 import할 수 있다.
+- Similarity builder는 Postgres mirror data와 shared Gold feature definition을 읽을 수 있다.
+- Gold Postgres sync는 Gold Parquet feature contract를 읽는다.
+- Archived regression test는 보관된 strategy module을 회귀 검증 목적으로 import할 수 있다.
 
-Observability may read:
+Observability Runtime이 읽을 수 있는 것:
 
 - `pretrend.pipeline.features.*`
 - `pretrend.pipeline.calendar.*`
-- `pretrend.pipeline.config.*` only when the config is explicitly shared.
+- 명시적으로 shared로 정의된 `pretrend.pipeline.config.*`
 - `pretrend.models.*`
 - `pretrend.config`
 
-Personal may continue reading:
+보관된 strategy execution이 계속 읽을 수 있는 것:
 
-- Shared Gold Parquet features.
-- Existing Personal snapshots and ledgers.
-- Archived Personal test fixtures.
+- Shared Gold Parquet feature.
+- Existing strategy snapshot과 ledger.
+- Archived test fixture.
 
-## 3. Forbidden Dependencies
+## 3. 금지 dependency
 
-Forbidden code dependencies:
+금지되는 code dependency:
 
-- `src/pretrend/observability/` must not import `pretrend.backtest`, `pretrend.paper`, or `pretrend.broker`.
-- `src/pretrend/observability/` must not import Personal decision modules from `pretrend.pipeline.strategy_engine.*`.
-- `src/pretrend/api/` must not import allocation, paper, broker, backtest, or Personal strategy modules.
-- Personal Track modules must not import `pretrend.observability`, `pretrend.models`, or API runtime modules.
-- Dashboard code must not call Personal Track endpoints or read Personal snapshots.
+- `src/pretrend/observability/`는 `pretrend.backtest`, `pretrend.paper`, `pretrend.broker`를 import하면 안 된다.
+- `src/pretrend/observability/`는 `pretrend.pipeline.strategy_engine.*`의 decision module을 import하면 안 된다.
+- `src/pretrend/api/`는 allocation, paper, broker, backtest, strategy decision module을 import하면 안 된다.
+- 보관된 strategy execution module은 `pretrend.observability`, `pretrend.models`, API runtime module을 import하면 안 된다.
+- Dashboard code는 archived strategy endpoint를 호출하거나 archived strategy snapshot을 읽으면 안 된다.
 
-Forbidden product semantics:
+금지되는 product semantic:
 
-- FastAPI must not return allocation, order, buy, sell, hold, target price, or target return guidance.
-- Similarity must not claim future prediction.
-- Explainability must not generate investment decision text.
-- Dashboard must not display historical similarity as a future outcome.
-- LLM output must remain observer-only and must not become strategy input.
+- FastAPI는 allocation, order, buy, sell, hold, target price, target return guidance를 반환하면 안 된다.
+- Similarity는 future prediction을 주장하면 안 된다.
+- Explainability는 investment decision text를 생성하면 안 된다.
+- Dashboard는 historical similarity를 future outcome처럼 표시하면 안 된다.
+- LLM output은 observer-only로 남아야 하며 strategy input이 되면 안 된다.
 
-Forbidden schema drift:
+금지되는 schema drift:
 
-- Postgres mirror tables must not change grain/key without a contract and migration task.
-- `explainability_cache` must not receive historical full LLM backfill under a cache key that cannot distinguish explanation scope/window.
+- Postgres mirror table은 contract와 migration task 없이 grain/key를 바꾸면 안 된다.
+- `explainability_cache`는 explanation scope/window를 구분할 수 없는 cache key로 historical full LLM backfill을 받으면 안 된다.
 
-P29 hotfix resolution:
+P29 hotfix 반영:
 
-- Shared snapshot load/write helpers live in `src/pretrend/pipeline/utils/snapshot.py`.
-- Runtime Observability modules import shared snapshot IO instead of `pretrend.pipeline.backtest._utils`.
-- The one-off historical `what_to_hold` backfill helper was moved out of runtime Observability to `src/pretrend/pipeline/research/similarity_what_to_hold_backfill.py`.
-- `tests/observability/test_boundary_imports.py` protects this boundary with an AST import check.
+- Shared snapshot load/write helper는 `src/pretrend/pipeline/utils/snapshot.py`에 둔다.
+- Runtime Observability module은 `pretrend.pipeline.backtest._utils` 대신 shared snapshot IO를 import한다.
+- One-off historical `what_to_hold` backfill helper는 runtime Observability 밖인 `src/pretrend/pipeline/research/similarity_what_to_hold_backfill.py`로 이동했다.
+- `tests/observability/test_boundary_imports.py`가 AST import check로 이 경계를 보호한다.
 
-## 4. Frozen Boundary Rules
+## 4. 보관 영역 규칙
 
-Personal Track rules:
+보관된 strategy execution 규칙:
 
-- No new features.
-- No service enablement by default.
-- No new dashboard surface.
-- No new API dependency.
-- No deletion of archived Personal regression tests.
-- Compatibility fixes are allowed only when needed for active Observability or CI safety.
+- 신규 feature를 추가하지 않는다.
+- 기본 service enablement를 하지 않는다.
+- 신규 dashboard surface를 만들지 않는다.
+- 신규 API dependency를 만들지 않는다.
+- Archived regression test를 삭제하지 않는다.
+- Compatibility fix는 active Observability 또는 CI safety에 필요할 때만 허용한다.
 
-Operational rules:
+운영 규칙:
 
-- `strategy_engine_dag`, `paper_trading_dag`, and `broker_mock_trading_dag` should be paused or disabled according to `track_separation.md`.
-- If an operational audit finds Personal DAGs unpaused, record it as drift and fix in a separate operational hotfix.
-- Existing Personal data under `state/`, `data/strategy/`, `data/paper/`, and `data/broker/` should be preserved.
+- `strategy_engine_dag`, `paper_trading_dag`, `broker_mock_trading_dag`는 paused 또는 disabled 상태를 유지한다.
+- Operational audit에서 archived DAG가 unpaused 상태로 발견되면 drift로 기록하고 별도 operational hotfix로 고친다.
+- 기존 `state/`, `data/strategy/`, `data/paper/`, `data/broker/` 아래 data는 보존한다.
 
 Review checklist:
 
-- Did the change add an Observability import of Personal code?
-- Did the change add a Personal import of Observability code?
-- Did the API expose decision fields?
-- Did an LLM output become strategy input?
-- Did a Postgres table key/grain change without a contract?
-- Did a Personal DAG become scheduled or unpaused?
+- Observability가 archived strategy code를 import했는가?
+- 보관된 strategy code가 Observability code를 import했는가?
+- API가 decision field를 노출했는가?
+- LLM output이 strategy input이 되었는가?
+- Postgres table key/grain이 contract 없이 바뀌었는가?
+- Archived DAG가 scheduled 또는 unpaused 상태가 되었는가?
 
-## 5. Change History
+## 5. 변경 이력
 
-- 2026-05-15: Initial draft. P29-3.
-- 2026-05-15: P29 hotfix resolved known runtime Observability boundary exceptions by extracting shared snapshot IO and moving historical backfill helper out of `src/pretrend/observability/`.
+- 2026-05-15: 초안 작성. P29-3.
+- 2026-05-15: P29 hotfix에서 shared snapshot IO 추출 및 historical backfill helper 이동으로 runtime Observability boundary exception 해결.
+- 2026-05-16: 문서 기준 언어를 한국어로 정리.

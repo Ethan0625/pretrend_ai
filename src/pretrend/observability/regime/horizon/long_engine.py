@@ -5,7 +5,7 @@ REQUIRED axis: macro_policy
 OPTIONAL axis: price_volatility, flow_structure
 
 Contract: docs/architecture/market_structure_long_v1_contract.md
-SOT: docs/strategy_engine_design.md §A3
+SOT: docs/architecture/strategy_engine_design.md §A3
 
 v1 라벨 로직:
   regime 다수결 + delta_6m 지표별 rolling z-score 평균 → phase 매핑
@@ -117,6 +117,7 @@ def build_long_phase(
         # 중복 제거: (indicator_id, trade_date) 기준, keep="last"
         mac = mac.drop_duplicates(subset=["indicator_id", "trade_date"], keep="last")
         mac = mac.sort_values(["indicator_id", "trade_date"])
+        mac["delta_6m"] = pd.to_numeric(mac["delta_6m"], errors="coerce")
 
         # 지표별 rolling z-score (window=252거래일, min_periods=60)
         def _rolling_zscore(x: pd.Series) -> pd.Series:

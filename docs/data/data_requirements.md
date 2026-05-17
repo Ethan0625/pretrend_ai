@@ -1,30 +1,35 @@
 # 📄 Data Requirements Document
 
-**Project:** Pretrend AI — Market Structure Observability Runtime
-**Document:** Data Requirements
-**Version:** 2026.02.12 (재분류: 2026-05-12)
+Markers: architecture, contract
+Status: active
 
-> 🟢 **Infrastructure (공유) — 두 트랙 공통 자산**
+**프로젝트:** Pretrend — Reproducible Market Data Platform
+**문서:** Data Requirements
+**버전:** 2026.02.12 (재분류: 2026-05-12)
+
+> 🟢 **데이터 인프라 계약**
 >
-> 데이터 요구사항(Macro/EOD/Calendar)은 Observability Track / Personal Track 양쪽이 공유하는 Infrastructure 자산입니다.
-> 본 문서 내 자동매매 관련 데이터 요구는 **Personal Track legacy**로 보존되며, 신규 요구는 Observability Track 컨텍스트로 추가됩니다.
-> 참조: [`architecture/track_separation.md`](architecture/track_separation.md)
+> Macro/EOD/Calendar 요구사항은 현재 market data platform의 입력 계약입니다.
+> 과거 전략 실행 문맥의 항목은 참고 자료로만 남기며, 신규 운영 기준은
+> Bronze/Silver/Gold data lake, Gold Parquet SOT, Postgres serving mirror,
+> observation-only API를 중심으로 해석합니다.
 
-**Purpose:** Risk-Control 전략 아키텍처(v0) 기준의 데이터 요구사항 정의
+**목적:** 재현 가능한 market data platform 기준의 데이터 요구사항 정의
 
 ---
 
 ## 1. Overview
 
-본 문서는 현재 전략 구조
-`Layer -> Market Structure(4축) -> Composer -> Universe-ETF -> Allocation Engine v0`
+본 문서는 현재 운영 중인 data platform 구조
+`Bronze -> Silver -> Gold Parquet SOT -> Postgres Mirror -> Observability API`
 에서 필요한 데이터 입력을 정의한다.
 
 본 문서의 범위는 **데이터 항목/스키마/운영 전제**이며,
 점수화(가중치/컷오프/임계값) 설계는 포함하지 않는다.
 
 참조 문서:
-- `docs/strategy_architecture.md`
+- `docs/data/data_model.md`
+- `docs/architecture/strategy_architecture.md`
 - `docs/architecture/market_structure_long_contract.md`
 - `docs/architecture/market_structure_mid_contract.md`
 - `docs/architecture/market_structure_short_contract.md`
@@ -45,9 +50,9 @@
 2. EOD Observability 데이터 (가격/변동성, 수급/구조, 심리 proxy 공통 입력)
 3. Market Structure 모듈 입력 (Long/Mid/Short)
 4. Composer/Universe-ETF 입력
-5. Allocation Engine v0 입력
+5. 보관된 Allocation Engine v0 입력(reference)
 
-Non-Goals:
+제외 범위:
 - 종목 추천/전략 수익률 최적화용 feature 설계
 - Market Structure 점수식 정의
 - Universe-ETF 내부 종목 가중치 조정 규칙
@@ -149,7 +154,9 @@ Non-Goals:
 - Gold EOD Feature + Observability 라벨
 - 라벨은 read-only
 
-### 6.3 Allocation 입력 요건(v0)
+### 6.3 Allocation 입력 요건(v0, reference)
+
+아래 항목은 과거 전략 실행 계약을 보존하기 위한 reference다. 현재 platform 운영의 필수 요건은 Macro/EOD/Calendar 입력과 PIT-safe Gold layer다.
 
 | 컬럼 | 타입 | 필수 | 설명 |
 | --- | --- | --- | --- |

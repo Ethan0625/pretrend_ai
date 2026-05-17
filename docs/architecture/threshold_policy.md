@@ -3,14 +3,13 @@
 Markers: architecture, contract
 Status: reference
 
-> 🔄 **Observability Track 자료 — Regime 분류 임계값 정책**
+> 🟢 **Market Data Platform 관측 정책**
 >
-> 본 문서는 2026Q2 방향 재정의 후 Observability Track의 regime 관측 자료로 재해석됩니다.
-> "투자 의사결정"이 아닌 **"Long-cycle regime 분류 임계값 정책"** 컨텍스트로 활용됩니다.
-> Phase 1 추출 시 본 정책은 `observability/regime/horizon/` 하위 모듈과 함께 이전됩니다.
-> 참조: [`track_separation.md`](./track_separation.md), [`REFACTOR_2026Q2.md`](../../.agent/REFACTOR_2026Q2.md)
+> 본 문서는 **Long-cycle regime 분류 임계값 정책**의 설계 reference입니다.
+> 투자 의사결정이나 매매 지시가 아니라 read-only observation context로 활용됩니다.
+> 참조: [`track_separation.md`](./track_separation.md)
 
-## Document Status
+## 문서 상태
 | Item | Value |
 | --- | --- |
 | Status | **Draft — Observability 자료, 설계만, 코드 미구현** |
@@ -108,7 +107,7 @@ class ThresholdPolicy:
 
 ---
 
-## Change History
+## 변경 이력
 | Date | Summary |
 | --- | --- |
 | 2026-02-21 | 초안 작성 — 이산 상태 {0.0, 0.3}, 트리거, cooldown=6개월, 구현 보류 |

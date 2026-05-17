@@ -1,23 +1,27 @@
 # Strategy Engine — Design (SOT)
 
+Markers: architecture, contract, legacy
+Status: reference
+
+
 > ⚠️ **Mixed — 7단계 파이프라인의 단계별로 분류가 다름**
 >
-> 본 문서가 정의하는 Strategy Engine 7-stage pipeline은 2026Q2 방향 재정의 후 단계별로 다르게 분류됩니다:
+> 본 문서가 정의하는 Strategy Engine 7-stage pipeline은 현재 플랫폼 관점에서 단계별 성격이 다릅니다:
 >
-> **🔄 Observability Track 자료로 재해석되는 단계** (Phase 1 추출 대상):
+> **현재 market data platform에서 유효한 관측 자료**:
 > - Axis Features (4축 관측 지표)
 > - Axis × Horizon State (12-slot 관측 매트릭스)
 > - Market Position (RS, breadth 관측)
 >
-> **🔒 Personal Track Frozen** (자동매매 의사결정):
+> **보관된 실행 실험(reference)**:
 > - Policy Selector
 > - Universe Picking (ETF 선정 로직)
 > - Allocation (자산배분 비율)
 > - Sell Advisor
 >
-> 참조: [`track_separation.md`](architecture/track_separation.md), [`REFACTOR_2026Q2.md`](../.agent/REFACTOR_2026Q2.md)
+> 참조: [`track_separation.md`](track_separation.md)
 
-## Document Status
+## 문서 상태
 | Item | Value |
 | --- | --- |
 | Status | **Mixed (Frozen + Observability)** — 단계별 재분류 (헤더 참조) |
@@ -25,14 +29,14 @@
 | Effective Date | 2026-02-13 (재분류: 2026-05-12) |
 | Change Tracking | docs/changelog.md |
 
-## Capability Matrix
-| Capability | Status | Notes |
+## 기능 매트릭스
+| 기능 | 상태 | 비고 |
 | --- | --- | --- |
 | Core scope | Active | 본 문서의 계약/설계 범위 |
 | Extension ports | Reserved | v1+ 확장 포트는 인터페이스만 정의 |
 | Numeric scoring/tuning | Not supported | 본 문서 범위에서 금지 |
 
-## TOC
+## 목차
 - [SECTION A — One-page Summary](#section-a--one-page-summary)
 - [SECTION B — End-to-End Flow](#section-b--end-to-end-flow)
 - [SECTION C — Inputs Inventory (Current vs Future)](#section-c--inputs-inventory-current-vs-future)
@@ -50,7 +54,7 @@
 ## SECTION A — One-page Summary
 
 ### A1) Pretrend 전체 시스템
-Pretrend AI는 시장 위치 판단, 자산 구조 결정, 실행 경계 출력을 분리한 전략 시스템이다. 전략 엔진은 입력 계층을 Gold Layer로 고정해 재현 가능한 스냅샷 기반 실행을 보장한다. 출력 경계는 `WHAT_TO_HOLD`, `HOW_MUCH_EXPOSURE`, `HOW_MUCH_TO_SELL` 3개로 나뉘며, 각 경계는 역할이 중복되지 않도록 계약으로 고정한다. 정책 선택은 하드코딩 분기 대신 정책 registry 기반 선택 구조를 사용한다. v0에서는 수치 점수화, 최적화, 자동 튜닝을 금지하고 상태 기반 규칙만 허용한다. 엔진 결과는 `decision_date` 기준으로 저장되며, 동일 입력 스냅샷 재실행 시 동일 출력이 나와야 한다. 이 문서는 구현 이전/이후 모두 참조 가능한 단일 SOT로 동작한다. 상위 레이어 계약 변경 시 본 문서의 입력 계약을 먼저 동기화해야 한다.
+Pretrend의 과거 strategy engine은 시장 위치 판단, 자산 구조 결정, 실행 경계 출력을 분리한 전략 시스템이었다. 전략 엔진은 입력 계층을 Gold Layer로 고정해 재현 가능한 스냅샷 기반 실행을 보장한다. 출력 경계는 `WHAT_TO_HOLD`, `HOW_MUCH_EXPOSURE`, `HOW_MUCH_TO_SELL` 3개로 나뉘며, 각 경계는 역할이 중복되지 않도록 계약으로 고정한다. 정책 선택은 하드코딩 분기 대신 정책 registry 기반 선택 구조를 사용한다. v0에서는 수치 점수화, 최적화, 자동 튜닝을 금지하고 상태 기반 규칙만 허용한다. 엔진 결과는 `decision_date` 기준으로 저장되며, 동일 입력 스냅샷 재실행 시 동일 출력이 나와야 한다. 이 문서는 구현 이전/이후 모두 참조 가능한 단일 SOT로 동작한다. 상위 레이어 계약 변경 시 본 문서의 입력 계약을 먼저 동기화해야 한다.
 
 ### A2) Data Layer
 Data Layer는 Bronze, Silver, Gold의 3단계로 구성되며 Strategy Engine은 Gold만 소비한다. Bronze는 원천 수집과 최소 정규화, Silver는 중복 제거/정합성 보정, Gold는 전략 소비를 위한 PIT-safe feature 스냅샷을 제공한다. Gold는 read-only 입력이며 Strategy Engine은 Gold 데이터를 수정하거나 재해석 저장하지 않는다. v0 기준 핵심 입력은 Gold Macro Feature와 Gold EOD Feature다. Macro는 정책/유동성 축 근거를, EOD는 가격/변동성 및 proxy 축 근거를 제공한다. 입력 스키마는 axis feature 빌더에서 표준화하며 Horizon 엔진은 표준화된 axis outputs만 소비한다. 레이어 경계를 넘는 계산 중복을 금지해 재현성과 책임 분리를 유지한다. 결측 데이터는 fail-open 원칙으로 `UNKNOWN` 상태로 전달한다.
@@ -248,13 +252,13 @@ mid_regime Top-N:
   - rationale: 해상도별 상태 해석 모듈 계약 유지
 
 ### H3) Move (Phase2)
-- `docs/universe_design.md`의 legacy 서술 중 재활용 가능한 운영 설명
+- `docs/architecture/universe_design.md`의 legacy 서술 중 재활용 가능한 운영 설명
   - rationale: Strategy Engine 중심 구조와 충돌하지 않는 부분만 분리/이관
 - U0~U3 계열 문서의 데이터 수집 메모 중 소스 인벤토리 성격 항목
-  - rationale: `docs/market_structure_data_inventory.md` 또는 별도 메모 문서로 이관
+  - rationale: `docs/data/market_structure_data_inventory.md` 또는 별도 메모 문서로 이관
 
 ### H4) Deprecated
-- `docs/universe_design.md` (legacy 서술이 남아 있는 버전)
+- `docs/architecture/universe_design.md` (legacy 서술이 남아 있는 버전)
   - rationale: Strategy Engine 단일 SOT에 중복 정의 발생
 - U0~U3 기반 구형 문서군
   - rationale: 현재 Axis×Horizon + Composer 구조와 불일치
@@ -487,11 +491,11 @@ python -m pretrend.pipeline.strategy_engine.strategy_job --date 2024-06-03 --inv
 
 ---
 
-## Change History
-| Date | Summary | References |
+## 변경 이력
+| 날짜 | 요약 | 참조 |
 | --- | --- | --- |
 | 2026-02-22 | sell_planner→sell_advisor 리네임, Allocation v1/v2 추가, K4/K5/K7/K9 갱신 | docs/changelog.md |
 | 2026-02-22 | CORE 정의 수정(TLT→SCHD), K4 테스트 수 갱신, K8 성과 DCA 기준 교체, K9 Allocation 아키텍처/Sell Advisor advisory 역할 추가 | docs/changelog.md |
 | 2026-02-21 | Implementation Status 날짜/테스트 현황/Long Engine v1(z-threshold=0.3) 반영 | docs/changelog.md |
-| 2026-02-13 | 파일명 버전 제거 및 문서 표준 블록(Document Status/Capability Matrix) 적용 | docs/changelog.md |
+| 2026-02-13 | 파일명 버전 제거 및 문서 표준 블록(문서 상태/기능 매트릭스) 적용 | docs/changelog.md |
 | 2026-02-13 | Strategy Engine 구현 현황(모듈/커버리지/테스트/검증) 반영 | docs/changelog.md |

@@ -1,7 +1,7 @@
 """
 Backtest Engine configuration + Preset registry.
 
-SOT: docs/strategy_engine_design.md
+SOT: docs/architecture/strategy_engine_design.md
 """
 from __future__ import annotations
 

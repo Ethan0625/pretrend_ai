@@ -2,7 +2,7 @@
 Strategy Engine configuration.
 
 Contract: docs/architecture/policy_config_contract.md
-SOT: docs/strategy_engine_design.md
+SOT: docs/architecture/strategy_engine_design.md
 """
 from __future__ import annotations
 
@@ -53,7 +53,7 @@ DEFAULT_POLICY_V0 = PolicyProfile(
 class StrategyEngineConfig:
     """Strategy Engine 실행 설정.
 
-    SOT: docs/strategy_engine_design.md §E
+    SOT: docs/architecture/strategy_engine_design.md §E
     """
 
     data_root: Path

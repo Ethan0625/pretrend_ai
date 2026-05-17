@@ -73,7 +73,7 @@ DEFAULT_ARGS: Dict[str, Any] = {
     default_args=DEFAULT_ARGS,
     # 매일 한 번 돌리되, 실제 대상 날짜는 get_last_us_trading_date()로 결정
     start_date=pendulum.datetime(2010, 1, 1, tz="Asia/Seoul"),
-    schedule_interval="0 8 * * *",  # 매일 08:00 KST (미국 장 마감 후 2시간+)
+    schedule="0 8 * * *",  # 매일 08:00 KST (미국 장 마감 후 2시간+)
     catchup=False,
     max_active_runs=1,
     tags=["pretrend", "eod", "bronze", "silver", "gold"],
@@ -87,8 +87,17 @@ def eod_pipeline():
     - Bronze ingest(Observability SOT 32개 ETF) → Silver Feature → Gold fact mart 순차 실행.
     """
 
+    @task(task_id="ensure_data_lake_bootstrap")
+    def ensure_data_lake_bootstrap_task() -> Dict[str, Any]:
+        from pretrend.ops.backfill_once import run_backfill_once
+
+        return run_backfill_once()
+
     @task(task_id="run_eod_bronze_ingest")
-    def run_eod_bronze_ingest_task(**context: Any) -> Dict[str, Any]:
+    def run_eod_bronze_ingest_task(
+        _bootstrap_summary: Dict[str, Any],
+        **context: Any,
+    ) -> Dict[str, Any]:
         # 1) Airflow data_interval_start → US/Eastern 변환 (backfill 호환)
         data_interval_start = context["data_interval_start"]
         now_et = data_interval_start.in_tz("US/Eastern")
@@ -193,7 +202,8 @@ def eod_pipeline():
         }
         return summary
 
-    bronze_summary = run_eod_bronze_ingest_task()
+    bootstrap_summary = ensure_data_lake_bootstrap_task()
+    bronze_summary = run_eod_bronze_ingest_task(bootstrap_summary)
     silver_summary = run_eod_silver_features_task(bronze_summary)
     run_eod_gold_features_task(silver_summary)
 

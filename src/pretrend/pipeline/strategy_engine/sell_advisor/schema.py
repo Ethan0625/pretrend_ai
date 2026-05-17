@@ -1,7 +1,7 @@
 """
 Sell Advisor schema.
 
-SOT: docs/strategy_engine_design.md §D3
+SOT: docs/architecture/strategy_engine_design.md §D3
 """
 from __future__ import annotations
 

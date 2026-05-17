@@ -1,0 +1,25 @@
+ARG AIRFLOW_VERSION=2.10.5
+FROM apache/airflow:${AIRFLOW_VERSION}-python3.11
+
+ARG AIRFLOW_VERSION=2.10.5
+
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+ENV PRETREND_ENV=backfill
+ENV PRETREND_DATA_DIR=/app/data
+ENV PRETREND_DATA_ROOT=/app/data
+ENV PRETREND_LOG_DIR=/app/logs
+
+USER airflow
+WORKDIR /opt/airflow
+
+COPY --chown=airflow:0 README.md pyproject.toml ./
+COPY --chown=airflow:0 requirements/airflow.txt ./requirements/airflow.txt
+RUN pip install --no-cache-dir -r requirements/airflow.txt
+
+COPY --chown=airflow:0 alembic.ini ./alembic.ini
+COPY --chown=airflow:0 migrations/ ./migrations/
+COPY --chown=airflow:0 src/ ./src/
+COPY --chown=airflow:0 dags/ ./dags/
+
+RUN pip install --no-cache-dir --no-deps -e .

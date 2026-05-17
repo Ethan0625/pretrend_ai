@@ -3,14 +3,13 @@
 Markers: architecture, contract
 Status: active
 
-> 🔄 **Observability Track 자산 — 이름 그대로 observability**
+> 🟢 **Market Data Platform 관측 계약**
 >
-> 본 문서는 2026Q2 방향 재정의 후 Observability Track의 핵심 자료로 그대로 유효합니다.
 > Text feature(FOMC, SEC, 거시 리포트 텍스트)는 시장 관측·해석 컨텍스트로 활용되며, **observer-only 원칙**(직접 매매 연결 금지)은 유지됩니다.
 > Phase 2 explainability layer에서 본 contract를 직접 소비합니다.
-> 참조: [`track_separation.md`](./track_separation.md), [`REFACTOR_2026Q2.md`](../../.agent/REFACTOR_2026Q2.md)
+> 참조: [`track_separation.md`](./track_separation.md)
 
-## Document Status
+## 문서 상태
 | Item | Value |
 | --- | --- |
 | Status | **Active (Observability 자료, observer-only 원칙 유지)** |
@@ -19,8 +18,8 @@ Status: active
 | Last Updated | 2026-03-04 |
 | Change Tracking | docs/changelog.md |
 
-## Capability Matrix
-| Capability | Status | Notes |
+## 기능 매트릭스
+| 기능 | 상태 | 비고 |
 | --- | --- | --- |
 | Bronze text raw SOT | Active | 원문 원본 저장/재처리 보장. 멱등키: `(source, source_doc_id)` |
 | Silver 정규화/dedup/quality_flags | Active | v0 구현 범위. clean_text + asset_scope + quality_flags |
@@ -30,7 +29,7 @@ Status: active
 | VIX/외부 감성 연동 | Reserved (v1+) | 별도 확장 |
 | Numeric score tuning | Not supported | 본 계약 범위에서 금지 |
 
-## TOC
+## 목차
 - [1. 문서 목적](#1-문서-목적)
 - [2. Layer 정의](#2-layer-정의)
 - [3. Topic/Tag Allowlist](#3-topictag-allowlist)
@@ -45,10 +44,10 @@ Status: active
 - [12. v1+ 확장 체크리스트 (Gate D)](#12-v1-확장-체크리스트-gate-d)
 - [13. LLM Observer Layer — v1 계약 (Gate D)](#13-llm-observer-layer--v1-계약-gate-d)
 - [14. 운영 경계 정책 (v1)](#14-운영-경계-정책-v1)
-- [Change History](#change-history)
+- [변경 이력](#change-history)
 
 참조:
-- `docs/strategy_engine_design.md`
+- `docs/architecture/strategy_engine_design.md`
 - `docs/architecture/eod_observability_contract.md`
 - `docs/architecture/gold_design_contract.md`
 - `docs/architecture/axis_horizon_dependency_contract.md`
@@ -59,7 +58,7 @@ Status: active
 - Bronze/Silver/Gold 레이어의 입력/출력 경계와 저장 형태를 명확히 한다.
 - Strategy Engine 입력을 Gold의 day-level numeric features로 고정한다.
 
-### Non-goals
+### 제외 범위
 - 텍스트 기반 점수화/가중치/임계값 설계
 - LLM 모델 성능 최적화 설계
 
@@ -592,8 +591,8 @@ Silver (clean_text)
 
 ---
 
-## Change History
-| Date | Summary | References |
+## 변경 이력
+| 날짜 | 요약 | 참조 |
 | --- | --- | --- |
 | 2026-03-04 | §13.4 Gold LLM 스키마에 `source` 컬럼 추가. §13.5 프롬프트 정책 명시 (tag selection rules, few-shot, parser 방어). §3 Topic/Tag Taxonomy를 코드 TOPIC_TAXONOMY/TAG_TAXONOMY와 정합 동기화. §2.1 SEC filing 유형(8-K/10-K/10-Q) 및 활용 정책 명시 | gold_llm_build.py |
 | 2026-03-04 | SEC `filings.files` 페이지네이션 지원 명시: `sec_edgar` source는 `recent + files` 순회, date-range skip 최적화와 live SEC 검증 주의사항 추가 | docs/changelog.md |

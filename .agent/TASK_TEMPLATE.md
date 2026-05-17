@@ -235,8 +235,8 @@ conda run -n pytest-pretrend pytest tests/ -q --tb=short
 * `.agent/TASK_QUEUE.md`
 * `.agent/task/[PARENT_TASK_FILE].md`
 * `docs/changelog.md`
-* `docs/milestones.md`
-* `docs/strategy_engine_design.md`
+* `docs/roadmap/milestones.md`
+* `docs/architecture/strategy_engine_design.md`
 * `docs/architecture/...`
 * `docs/operation_guide.md`
 

@@ -5,7 +5,7 @@ Status: active
 
 > P26 SOT. Market structure historical similarity는 현재 시장 구조와 과거 시점의 유사성을 관측하기 위한 기능이다. 예측, 추천, 매매 신호 생성에 사용하지 않는다.
 
-## 1. Purpose / Scope / Invariant
+## 1. 목적 / 범위 / 불변식
 
 Historical similarity answers one question:
 
@@ -424,7 +424,7 @@ Normalization is z-score per feature over full available history:
 z = (x - mean(feature)) / std(feature)
 ```
 
-Rules:
+규칙:
 
 - If raw value is missing, keep it missing until normalization.
 - After z-score, missing values become `0`.
@@ -580,7 +580,7 @@ GROUP BY query_date
 HAVING COUNT(*) > 100 OR MIN(rank) <> 1 OR MAX(rank) > 100;
 ```
 
-## 13. Change History
+## 13. 변경 이력
 
 | Date | Summary |
 | --- | --- |

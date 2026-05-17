@@ -1,104 +1,94 @@
-# Operational Invariant Test Contract
+# 운영 invariant 테스트 계약
 
 Markers: testing, contract
 Status: active
 
-## 1. Testing Philosophy
+## 1. 목적
 
-Tests in the Observability Track are not only feature checks. They are operational invariant monitors for the local runtime.
+Pretrend의 pytest는 단순히 함수가 실행되는지 확인하는 도구가 아니라, 운영 중 깨지면 안 되는 약속을 막는 수문장이다. 테스트는 다음 질문에 답해야 한다.
 
-They should answer:
+- 공개 API의 인증, 응답 스키마, 오류 계약이 바뀌었는가?
+- Gold/Postgres serving table의 grain, key, PIT 규칙이 깨졌는가?
+- 재실행 시 중복 append나 partial snapshot이 남는가?
+- Airflow DAG가 import, schedule, task graph 단계에서 깨졌는가?
+- Observability 코드가 archived Personal Track에 다시 결합되었는가?
+- explanation/API 텍스트가 예측, 추천, 매매 판단 의미로 넘어갔는가?
+- Docker, volume, backfill, restore 절차가 새 clone 기준으로 재현 가능한가?
 
-- Did a contract change break the public API?
-- Did a migration drift from SQLAlchemy models or source schema?
-- Did a DAG stop importing or scheduling correctly?
-- Did a serving table violate grain/key or PIT rules?
-- Did a boundary import reintroduce Personal Track coupling?
-- Did explanation or API text cross into prediction or recommendation semantics?
+각 테스트는 가능하면 함수명, class명, docstring, assertion 메시지 중 하나에 “어떤 회귀를 막는지”를 드러낸다. 실패 메시지는 기능명이 아니라 깨진 운영 약속을 바로 가리켜야 한다.
 
-P29 separates verification into code audit, operations audit, documentation contracts, and final stage-gate reporting. This document defines how future pytest markers and command sets should encode those checks.
+운영 장애를 직접 막는 테스트는 [운영 장애 시나리오 카탈로그](operational_failure_scenario_catalog.md)의 `OFS-*` ID를 기준으로 작성한다. 새 테스트를 추가할 때는 먼저 장애 시나리오, synthetic test data, 기대 invariant를 정의한 뒤 pytest로 고정한다.
 
-## 2. Test Group Inventory
+## 2. Pytest Marker
 
-| Test Group | Invariant | Failure Means | Run Timing | Marker |
-| --- | --- | --- | --- | --- |
-| `gold_sync` | Postgres mirror matches Gold Parquet contract and preserves UPSERT idempotency | API/similarity may read stale or malformed Gold data | Before dashboard work and after sync changes | `db`, `invariant` |
-| `api_contract` | 11 logical endpoints preserve auth, response schema, error behavior | Dashboard client contract is unsafe | Every API change and pre-dashboard check | `contract` |
-| `similarity` | Multi-view similarity remains historical comparison with min-gap, score, rank, and PK invariants | Similarity can become misleading or invalid | Similarity changes and stage gates | `invariant`, `db` where Postgres is used |
-| `explainability` | Cached reports remain evidence-bound and prediction-free | LLM output can leak recommendation semantics or cause cost drift | Prompt/provider/cache changes and stage gates | `invariant`, `slow` where real provider is used |
-| `boundary` | Observability and Personal Track dependency boundaries hold | Frozen Personal code becomes coupled to main runtime or vice versa | Every refactor and stage gate | `contract` |
-| `migration` | Alembic chain, SQLAlchemy models, and physical DB schema stay aligned | Serving DB cannot be rebuilt safely | Schema/model/migration changes and stage gates | `db`, `invariant` |
-| `dag` | DAGs import, schedule, and task graph shape remain valid | Scheduler runtime can silently break | DAG changes and operations audit | `dag`, `contract` |
-| `personal_archive` | Frozen Personal regression assets remain runnable on demand | Archived assets were accidentally broken or deleted | Manual regression only | `personal`, `slow` as needed |
-| `runtime_reproducibility` | Docker runtime, restore procedure, volume mounts, and sensitive-file excludes stay reproducible | New clone / OS migration / power-loss recovery procedures can drift silently | P30 and every runtime/Docker/docs change | `contract` |
-
-## 3. Required Pytest Markers
-
-The following markers should be added in P29-4.
-
-| Marker | Meaning |
+| Marker | 의미 |
 | --- | --- |
-| `contract` | Public contract or boundary behavior. Breakage means a documented interface changed. |
-| `invariant` | Operational invariant such as PIT, idempotency, no forbidden terms, no duplicate keys, or score range. |
-| `db` | Requires a real or provisioned database connection. |
-| `dag` | Validates Airflow DAG import, metadata, schedule, or task graph. |
-| `slow` | Too slow for quick local loops or depends on larger data fixtures. |
-| `personal` | Frozen Personal Track regression tests, normally excluded from active default runs. |
+| `contract` | 공개 인터페이스, schema, boundary, 문서화된 동작 계약. |
+| `invariant` | PIT, idempotency, grain/key, forbidden term, fail-open 같은 운영 불변조건. |
+| `db` | 실제 또는 provisioned Postgres/TimescaleDB 연결이 필요한 테스트. |
+| `dag` | Airflow DAG import, schedule, task graph 검증. |
+| `slow` | 빠른 로컬 루프에 넣기 어려운 큰 fixture 또는 외부 provider 테스트. |
+| `personal` | frozen Personal Track 회귀 자산. 기본 운영 gate에서는 제외한다. |
 
-Marker rules:
+경로 기반 자동 분류는 루트 `conftest.py`가 담당한다. 테스트 파일을 추가하면 `tests/ops/test_pytest_gate_contract.py`가 해당 파일이 gate marker를 받는지 확인한다.
 
-- A test can have multiple markers.
-- `personal` tests must remain available but should not be part of the active default runtime check unless explicitly requested.
-- `db` tests must document required env vars or fixtures.
-- Real LLM provider checks must be `slow` and must not run by default.
+## 3. Named Gate
 
-## 4. Required Command Sets
+`pytest --gate <name>`은 marker expression을 사람이 기억하지 않아도 되도록 고정한 운영 명령이다.
 
-These command sets are target contracts for P29-4 marker work. Until markers are applied, use the existing explicit pytest paths from task docs.
+| Gate | 명령 | 쓰는 시점 |
+| --- | --- | --- |
+| `fast` | `pytest --gate fast -q --tb=short` | 로컬 개발, GitHub Actions 기본 CI. `slow`, `db`, `personal` 제외. |
+| `contracts` | `pytest --gate contracts -q --tb=short` | API/schema/boundary/invariant 변경 전후. |
+| `runtime` | `pytest --gate runtime -q --tb=short` | Docker/Postgres/serving mirror/backfill 변경 후. |
+| `dags` | `pytest --gate dags -q --tb=short` | Airflow DAG 또는 scheduling 변경 후. |
+| `pre-dashboard` | `pytest --gate pre-dashboard -q --tb=short` | dashboard 진입 전 전체 active surface 점검. |
+| `personal` | `pytest --gate personal -q --tb=short` | archived Personal Track을 명시적으로 점검할 때만. |
+| `all` | `pytest --gate all -q --tb=short` | gate deselection 없이 pytest 기본 수집을 실행할 때. |
 
-Fast local check:
-
-```bash
-conda run -n pytest-pretrend pytest -m "not slow and not db and not personal" -q --tb=short
-```
-
-Contract and invariant check:
-
-```bash
-conda run -n pytest-pretrend pytest -m "contract or invariant" -q --tb=short
-```
-
-Phase 2 backend/runtime check:
+환경 변수로도 같은 정책을 적용할 수 있다.
 
 ```bash
-conda run -n pytest-pretrend pytest -m "db or contract or invariant" -q --tb=short
+PRETREND_PYTEST_GATE=fast pytest -q --tb=short
 ```
 
-DAG check:
+기존 marker expression은 디버깅용으로만 사용한다.
 
 ```bash
-conda run -n pytest-pretrend pytest -m "dag" -q --tb=short
+pytest -m "not slow and not db and not personal" -q --tb=short
+pytest -m "contract or invariant" -q --tb=short
+pytest -m "dag" -q --tb=short
 ```
 
-Pre-dashboard check:
+## 4. 테스트 그룹별 계약
 
-```bash
-conda run -n pytest-pretrend pytest -m "not personal" -q --tb=short
-```
+| 그룹 | 보호하는 운영 약속 | 기본 marker |
+| --- | --- | --- |
+| `api_contract` | FastAPI endpoint의 auth, response schema, error behavior. | `contract` |
+| `gold_feature` | Gold Parquet SOT의 grain, required columns, PIT rule, lineage. | `invariant`, `contract` |
+| `gold_sync` | Gold Parquet -> Postgres mirror의 upsert, watermark, idempotency. | `db`, `invariant` |
+| `similarity` | min-gap, score/rank 범위, historical comparison 의미. | `invariant` |
+| `explainability` | evidence-bound, prediction-free, fail-open, cache behavior. | `invariant` |
+| `boundary` | Observability와 archived Personal Track의 import boundary. | `contract` |
+| `dag` | Airflow DAG import와 task graph shape. | `dag`, `contract` |
+| `runtime_reproducibility` | Docker compose, mounted volume, sensitive-file exclude, restore/backfill runbook. | `contract`, `invariant` |
+| `personal_archive` | frozen Personal Track 회귀 자산 보존. | `personal`, `slow` |
 
-P30 reproducible runtime gate:
+## 5. Docker/P30 재현성 Gate
+
+Docker dev/test image에서는 named gate를 우선 사용한다.
 
 ```bash
 docker compose config --quiet
 docker compose build
 docker compose up -d postgres api
 docker compose ps
-docker build -t pretrend-dev -f Dockerfile.dev .
-docker run --rm pretrend-dev pytest -q --tb=short
-docker run --rm pretrend-dev pytest tests/ops/ -q --tb=short
+docker build -t pretrend-dev -f docker/Dockerfile.dev .
+docker run --rm pretrend-dev pytest --gate fast -q --tb=short
+docker run --rm pretrend-dev pytest --gate runtime -q --tb=short
 ```
 
-P30 volume and sensitive-file gate:
+volume과 민감 파일 제외는 pytest 밖의 운영 명령으로 확인한다.
 
 ```bash
 docker compose exec -T postgres sh -c 'test -d /var/lib/postgresql/data'
@@ -108,7 +98,7 @@ docker run --rm --entrypoint sh pretrend-api-test -c 'test ! -e /app/.env && tes
 docker run --rm --entrypoint sh pretrend-dev -c 'test ! -e /app/.env && test ! -d /app/data && test ! -d /app/logs && test ! -d /app/result && test -d /app/tests && test -d /app/docs'
 ```
 
-P30 restore gate:
+restore gate는 active DB가 아니라 별도 DB에서 수행한다.
 
 ```bash
 docker compose exec -T postgres sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc -f /backups/pretrend_test.dump'
@@ -119,19 +109,20 @@ docker compose exec -T postgres sh -c 'psql -U "$POSTGRES_USER" -d pretrend_rest
 docker compose exec -T postgres sh -c 'dropdb -U "$POSTGRES_USER" pretrend_restore_check'
 ```
 
-Pre-Cloudflare check:
+pytest에서는 `tests/ops/test_restore_shadow_db.py`가 shadow DB 이름과 `pg_restore` command plan을 먼저 고정한다. 실제 dump 복구까지 확인하려면 `PRETREND_RESTORE_CHECK_DUMP`에 dump 경로를 지정하고 `pytest tests/ops/test_restore_shadow_db.py -q --tb=short`를 실행한다.
+
+DB contract 테스트는 connection 확인에서 끝내지 않는다. 다만 운영 DB에 synthetic row를 넣지 않는다. `tests/ops/test_db_synthetic_data_contract.py`는 `PRETREND_TEST_DATABASE_URL`이 가리키는 격리 test DB에서만 실행되며, DB 이름이 `pretrend_test*`가 아니면 실패한다. 이 DB는 Alembic head까지 migrate된 상태여야 하고, 테스트는 핵심 serving table에 synthetic row를 insert/read한 뒤 test DB 내부에서만 cleanup한다.
+
+Docker test profile은 운영 DB와 분리된 Postgres/TimescaleDB와 test runner를 제공한다. `test-runner`는 pytest 실행 전에 test DB에 Alembic migration을 먼저 적용한다.
 
 ```bash
-conda run -n pytest-pretrend pytest -m "not personal" -q --tb=short
+docker compose --profile test up -d postgres-test
+docker compose --profile test run --rm test-runner
 ```
 
-Manual Personal regression:
+## 6. 운영 SQL Check
 
-```bash
-conda run -n pytest-pretrend pytest tests/archive/personal/ -q --tb=short
-```
-
-Operational SQL checks remain outside pytest until explicit DB fixtures are added:
+데이터 최신성과 row coverage는 pytest fixture로 완전히 흡수되기 전까지 SQL 운영 점검으로 유지한다.
 
 ```sql
 SELECT COUNT(*), MAX(trade_date) FROM gold_macro_features;
@@ -142,45 +133,19 @@ SELECT COUNT(*), MAX(query_date) FROM similarity_gold;
 SELECT use_case, COUNT(*), MAX(query_date) FROM explainability_cache GROUP BY 1;
 ```
 
-Airflow CLI checks require the project environment:
+## 7. 남은 자동화 후보
 
-```bash
-env \
-  AIRFLOW_HOME=/home/redtable/Desktop/ethan/pretrend/pretrend_ai/airflow_pretrend \
-  PYTHONPATH=/home/redtable/Desktop/ethan/pretrend/pretrend_ai/src \
-  AIRFLOW__CORE__DAGS_FOLDER=/home/redtable/Desktop/ethan/pretrend/pretrend_ai/dags \
-  AIRFLOW__CORE__LOAD_EXAMPLES=False \
-  AIRFLOW__CORE__DEFAULT_TIMEZONE=Asia/Seoul \
-  conda run -n airflow-pretrend airflow dags list-import-errors
-```
-
-Forbidden prediction/recommendation checks are allowlist-aware. Raw recursive grep is not expected to return zero because it will match invariant definitions, negative tests, archived Personal assets, and docs that describe forbidden terms. Use these checks instead:
-
-```bash
-conda run -n pytest-pretrend pytest tests/observability/explainability/test_invariant_filter.py -q
-conda run -n pytest-pretrend pytest tests/observability/test_boundary_imports.py tests/observability/regime/test_strategy_shim_exports.py -q
-```
-
-Operational API/cache forbidden-term checks should inspect live response bodies and `explainability_cache.report_json`, not documentation text or negative fixtures.
-
-## 5. Missing Test TODO
-
-The following gaps were identified during P29 and should become explicit tests or documented operational checks.
-
-| Gap | Why it matters | Candidate marker |
+| 후보 | 이유 | Marker |
 | --- | --- | --- |
-| Boundary import grep test | Added in P29 hotfix: `tests/observability/test_boundary_imports.py` protects Observability from frozen Personal imports | `contract` |
-| Shim export compatibility test | Added in P29 hotfix: `tests/observability/regime/test_strategy_shim_exports.py` protects package-level shim exports | `contract` |
-| Model-migration-feature schema alignment test | P29-1 had to verify six serving tables manually | `db`, `invariant` |
-| Alembic shadow upgrade/downgrade test | Rebuildability should be protected outside manual stage gates | `db`, `invariant`, `slow` |
-| API forbidden term live-response test | API and explanations must remain observation-only | `invariant` |
-| End-to-end DAG chain smoke | P29-2 verified manual reruns, but no single automated test covers sync -> similarity -> explainability | `dag`, `db`, `slow` |
-| Airflow project-env guard | Documented in `docs/operation_guide.md`; future automation can wrap the project env command | `dag`, `contract` |
-| Personal DAG paused-state check | P29 hotfix paused the three Personal DAGs; future automation can assert paused state from project metadata | `contract`, `dag` |
-| Explainability scope/window contract test | Historical LLM backfill should not pollute cache before scope/window is explicit | `contract`, `invariant` |
+| Alembic shadow upgrade/downgrade | schema rebuild 가능성을 수동 확인에 남기지 않기 위함. | `db`, `invariant`, `slow` |
+| API forbidden term live-response | 문서/negative fixture가 아니라 실제 응답이 observer-only인지 확인. | `invariant` |
+| Airflow metadata paused-state check | archived execution DAG가 의도치 않게 켜지는 것을 방지. | `dag`, `contract` |
 
-## 6. Change History
+## 8. 변경 이력
 
-- 2026-05-15: Initial draft. P29-3.
-- 2026-05-15: Added allowlist-aware forbidden-term guidance, boundary import test reference, shim export test reference, and Airflow project-env guard follow-up notes.
-- 2026-05-15: Added P30 reproducible runtime, volume/sensitive-file, and separate-DB restore gates.
+- 2026-05-15: P29 운영 invariant 테스트 계약 초안 작성.
+- 2026-05-15: P30 runtime, volume, restore gate 추가.
+- 2026-05-17: `pytest --gate` named gate와 경로 기반 marker 분류 계약 추가.
+- 2026-05-17: shadow restore command plan과 observability chain smoke를 P2 pytest anchor로 승격.
+- 2026-05-17: 운영 장애 시나리오 카탈로그와 synthetic test data 기준 연결.
+- 2026-05-17: DB contract 테스트는 운영 DB rollback 대신 격리된 `pretrend_test*` DB synthetic row insert/read로 검증하도록 명시.

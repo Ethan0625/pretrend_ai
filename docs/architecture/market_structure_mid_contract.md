@@ -3,16 +3,15 @@
 Markers: architecture, contract
 Status: active
 
-> 🔄 **Observability Track 자료 — "시장 구조 관측" 컨텍스트로 재해석**
+> 🟢 **Market Data Platform 관측 계약**
 >
-> 본 문서는 2026Q2 방향 재정의 후 Observability Track의 시장 관측 자료로 재해석됩니다.
-> "투자 의사결정"이 아닌 **"Mid-term regime (RISK_ON/OFF) 관측"** 컨텍스트로 활용됩니다.
-> P29-4 분류: **Observability Track 자산, Phase 1 추출 완료**.
+> 본 문서는 Gold feature layer를 소비해 **Mid-term regime (RISK_ON/OFF)**을 관측하는 계약입니다.
+> 투자 의사결정이나 매매 지시가 아니라 read-only observation context로 활용됩니다.
 > 코드 모듈은 Phase 1 P19에서 `observability/regime/horizon/mid_engine.py`로 이전 완료되었습니다.
 > 기존 `strategy_engine/axis_horizon_state/mid_engine.py` import path는 shim으로 backward compat을 유지합니다.
-> 참조: [`track_separation.md`](./track_separation.md), [`REFACTOR_2026Q2.md`](../../.agent/REFACTOR_2026Q2.md)
+> 참조: [`track_separation.md`](./track_separation.md)
 
-## Document Status
+## 문서 상태
 | Item | Value |
 | --- | --- |
 | Status | **Active (Observability 자료, 시장 관측 컨텍스트)** |
@@ -20,16 +19,16 @@ Status: active
 | Effective Date | 2026-02-22 |
 | Change Tracking | docs/changelog.md |
 
-## Capability Matrix
-| Capability | Status | Notes |
+## 기능 매트릭스
+| 기능 | 상태 | 비고 |
 | --- | --- | --- |
 | Core scope | Active | 본 문서의 계약/설계 범위 |
 | Extension ports | Reserved | v1+ 확장 포트는 인터페이스만 정의 |
 | Numeric scoring/tuning | Not supported | 본 문서 범위에서 금지 |
 
-## TOC
+## 목차
 - [1. 문서 목적](#1-문서-목적)
-- [2. Scope & Non-Goals](#2-scope--non-goals)
+- [2. 범위와 제외 범위](#2-scope--non-goals)
 - [3. Inputs](#3-inputs)
 - [4. Outputs](#4-outputs)
 - [5. Grain/Key](#5-grainkey)
@@ -47,15 +46,15 @@ Status: active
 - 중기 레짐 모듈(`ms_mid_term_regime`)의 계약을 고정한다.
 - Macro/EOD/Flow 입력을 통합하는 중기 상태 인터페이스를 정의한다.
 
-### Non-goals
+### 제외 범위
 - 레짐 판정 수치/컷오프 정의
 
-## 2. Scope & Non-Goals
+## 2. 범위와 제외 범위
 ### Scope
 - Gold Macro + Gold EOD + (가능 시) breadth/flow proxy를 입력으로 사용한다.
 - Composer에 전달할 `mid_regime` 상태를 산출한다.
 
-### Non-goals
+### 제외 범위
 - 장기/단기 모듈 결과 직접 산출
 - Universe 후보 생성
 
@@ -63,7 +62,7 @@ Status: active
 ### 책임
 - 중기 레짐 판단 입력 스키마를 정의한다.
 
-### Non-goals
+### 제외 범위
 - Flow/Breadth 원천 테이블 구조 확정
 
 필수 입력:
@@ -88,7 +87,7 @@ Status: active
 ### 책임
 - Composer 소비용 중기 레짐 출력을 고정한다.
 
-### Non-goals
+### 제외 범위
 - confidence 임계값 수치 정의
 
 출력 컬럼:
@@ -104,7 +103,7 @@ Status: active
 ### 책임
 - 중기 모듈 출력 유일성 기준을 정의한다.
 
-### Non-goals
+### 제외 범위
 - 멀티리전/멀티유니버스 분리
 
 - Grain: `trade_date`
@@ -114,7 +113,7 @@ Status: active
 ### 책임
 - 출력 상태 일관성을 강제한다.
 
-### Non-goals
+### 제외 범위
 - 모델 성능 보장
 
 - `mid_regime`는 ENUM 외 값 금지
@@ -125,7 +124,7 @@ Status: active
 ### 책임
 - 계약 기반 검증 기준을 제공한다.
 
-### Non-goals
+### 제외 범위
 - 테스트 실행 환경 제한
 
 - **MM1**: 입력/출력 컬럼 계약 검증
@@ -135,8 +134,8 @@ Status: active
 
 ---
 
-## Change History
-| Date | Summary | References |
+## 변경 이력
+| 날짜 | 요약 | 참조 |
 | --- | --- | --- |
 | 2026-02-22 | Mid Engine v1.1 반영: breadth 계산을 ratio에서 spread(`iwm_ret_20d - spy_ret_20d`)로 변경 | docs/changelog.md |
-| 2026-02-13 | 파일명 버전 제거 및 문서 표준 블록(Document Status/Capability Matrix) 적용 | docs/changelog.md |
+| 2026-02-13 | 파일명 버전 제거 및 문서 표준 블록(문서 상태/기능 매트릭스) 적용 | docs/changelog.md |

@@ -178,7 +178,7 @@ SELECT create_hypertable(
 - P24-2 SQLAlchemy 모델은 본 문서의 컬럼 순서, 타입, nullability, PK, macro CHECK constraint를 그대로 따른다.
 - P24-3 Alembic migration은 본 문서의 테이블 정의, hypertable axis, chunk interval, index 이름 정책을 구현한다.
 
-## 9. Non-Goals
+## 9. 제외 범위
 
 - Parquet contract 변경.
 - Macro lineage 컬럼 신설.

@@ -4,7 +4,7 @@ Market Position Engine — Axis×Horizon State → 표준 상태 벡터.
 run_universe, risk_gate 판정 로직.
 Composer 계약의 핵심 상태 벡터 생성 단계.
 
-SOT: docs/strategy_engine_design.md §A3
+SOT: docs/architecture/strategy_engine_design.md §A3
 Contract: docs/architecture/market_structure_composer_contract.md §4, §6
 
 v0 판정 규칙 (상태 조합 기반):

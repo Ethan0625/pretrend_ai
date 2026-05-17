@@ -4,7 +4,7 @@ Axis × Horizon State builder — 3-state 집약 + 근거(detail) 통합 빌더.
 4개 axis를 long/mid/short 3개 상태로 집약하고, horizon별 detail JSON을 함께 저장한다.
 Grain: (trade_date) — 1 row per business day.
 
-SOT: docs/strategy_engine_design.md §A3, §E
+SOT: docs/architecture/strategy_engine_design.md §A3, §E
 Storage: data/strategy/axis_horizon_state/decision_date=YYYY-MM-DD/axis_horizon_state_YYYYMMDD.parquet
 """
 from __future__ import annotations

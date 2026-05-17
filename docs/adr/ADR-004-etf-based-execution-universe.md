@@ -1,16 +1,19 @@
 # ADR-004: ETF 기반 실행 Universe (개별 종목 대신)
 
-> ⚠️ **Mixed** — ETF SOT(32종)는 공유, picking 로직은 Personal Track. 분류: [`README.md`](README.md)
+Markers: architecture, contract, legacy
+Status: reference
 
-## Status
-Accepted
+> ⚠️ **참고 / 보관된 전략 맥락** — ETF SOT(32종)는 데이터 참고 자료로 유효하며, picking 로직은 현재 공개 운영 표면이 아닙니다. 분류: [`README.md`](../../README.md)
 
-## Date
+## 상태
+채택
+
+## 날짜
 2026-01-10 (초기 설계), 2026-02-22 (Universe v1 확정)
 
 ---
 
-## Context
+## 배경
 
 전략 신호를 실제 포트폴리오 매매로 연결하기 위해 어떤 자산을 매매 대상으로 삼을지 결정해야 했다.
 
@@ -23,7 +26,7 @@ Accepted
 
 ---
 
-## Decision
+## 결정
 
 **실행 Universe를 36개 ETF로 구성한다 (SECTOR 14, BOND 5, COMMODITY 7, COUNTRY 5, INDEX 5개 등).**
 
@@ -34,7 +37,7 @@ Tactical(신호 기반 선택): SECTOR / BOND / COMMODITY / COUNTRY 그룹에서
 
 ---
 
-## Rationale
+## 근거
 
 **1. 거시 신호와 자산군의 직접 매핑**
 이 시스템의 Long Engine은 거시 경제 Regime을 판단한다.
@@ -63,7 +66,7 @@ SPY, QQQ, TLT 등 대형 ETF는 유동성이 매우 높아
 
 ---
 
-## Alternatives Considered
+## 검토한 대안
 
 | 대안 | 거부 이유 |
 |---|---|
@@ -73,7 +76,7 @@ SPY, QQQ, TLT 등 대형 ETF는 유동성이 매우 높아
 
 ---
 
-## Consequences
+## 영향
 
 **수용한 트레이드오프**
 - 개별 종목 Alpha 불가. ETF 내부 비효율(저성과 종목 포함)을 피할 수 없음.

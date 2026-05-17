@@ -3,18 +3,17 @@
 Markers: architecture, contract
 Status: active
 
-> 🔄 **Observability Track 자료 — "시장 구조 관측" 컨텍스트로 재해석**
+> 🟢 **Market Data Platform 관측 계약**
 >
-> 본 문서는 2026Q2 방향 재정의 후 Observability Track의 시장 관측 자료로 재해석됩니다.
-> "투자 의사결정"이 아닌 **"12-slot AHS (Axis × Horizon State) 관측 매트릭스"** 컨텍스트로 활용됩니다.
-> P29-4 분류: **Observability Track 자산, Phase 1 추출 완료**.
+> 본 문서는 Gold feature layer를 소비해 **12-slot AHS (Axis × Horizon State) 관측 매트릭스**를 구성하는 계약입니다.
+> 투자 의사결정이나 매매 지시가 아니라 read-only observation context로 활용됩니다.
 > `axis_horizon_state/builder.py`는 Phase 1 P19에서 `observability/regime/horizon/builder.py`로 이전 완료되었습니다.
 > 기존 `strategy_engine/axis_horizon_state/` import path는 shim으로 backward compat을 유지합니다.
 > `market_position/`은 Phase 1 P20에서 `observability/regime/position/`으로 이전 완료되었습니다.
 > 기존 `strategy_engine/market_position/` import path는 shim으로 backward compat을 유지합니다.
-> 참조: [`track_separation.md`](./track_separation.md), [`REFACTOR_2026Q2.md`](../../.agent/REFACTOR_2026Q2.md)
+> 참조: [`track_separation.md`](./track_separation.md)
 
-## Document Status
+## 문서 상태
 | Item | Value |
 | --- | --- |
 | Status | **Active (Observability 자료, 시장 관측 컨텍스트)** |
@@ -22,16 +21,16 @@ Status: active
 | Effective Date | 2026-02-13 |
 | Change Tracking | docs/changelog.md |
 
-## Capability Matrix
-| Capability | Status | Notes |
+## 기능 매트릭스
+| 기능 | 상태 | 비고 |
 | --- | --- | --- |
 | Core scope | Active | 본 문서의 계약/설계 범위 |
 | Extension ports | Reserved | v1+ 확장 포트는 인터페이스만 정의 |
 | Numeric scoring/tuning | Not supported | 본 문서 범위에서 금지 |
 
-## TOC
+## 목차
 - [1. 문서 목적](#1-문서-목적)
-- [2. Scope & Non-Goals](#2-scope--non-goals)
+- [2. 범위와 제외 범위](#2-scope--non-goals)
 - [3. Inputs](#3-inputs)
 - [4. Outputs (필수)](#4-outputs-필수)
 - [5. Grain/Key](#5-grainkey)
@@ -55,15 +54,15 @@ Status: active
 - 해석 원칙: long/mid/short는 근거 데이터 축이 아니라 4축(정책/매크로, 가격/변동성, 수급/구조, 심리)을 서로 다른 관측 시점(horizon)으로 해석한 결과를 표준화한 출력이다.
 - 하위 모듈 분리를 유지하면서 상위 소비 인터페이스를 표준화한다.
 
-### Non-goals
+### 제외 범위
 - 합성 점수식/가중치/컷오프 수치 정의
 
-## 2. Scope & Non-Goals
+## 2. 범위와 제외 범위
 ### Scope
 - 입력: long/mid/short 계약 출력
 - 출력: `run_universe`, `risk_gate`를 포함한 Composer 상태 벡터
 
-### Non-goals
+### 제외 범위
 - 장/중/단기 상태 자체 재계산
 - Universe 후보 계산
 - Allocation 실행 로직 계산
@@ -72,7 +71,7 @@ Status: active
 ### 책임
 - 3개 모듈 출력 스키마 결합 기준을 정의한다.
 
-### Non-goals
+### 제외 범위
 - 모듈별 계산식 튜닝
 
 입력 컬럼:
@@ -99,7 +98,7 @@ Policy Config 입력:
 ### 책임
 - Universe/Allocation 공통 소비 스키마를 확정한다.
 
-### Non-goals
+### 제외 범위
 - `run_universe`, `risk_gate` 판정 수치화
 
 출력 컬럼:
@@ -148,7 +147,7 @@ notes: ["mid_regime_risk_off", "short_signal_panic", "increase_blocked"]
 ### 책임
 - Composer 출력 유일성 기준을 정의한다.
 
-### Non-goals
+### 제외 범위
 - 다중 유니버스 버전 관리
 
 - Grain: `trade_date`
@@ -158,7 +157,7 @@ notes: ["mid_regime_risk_off", "short_signal_panic", "increase_blocked"]
 ### 책임
 - Composer-중심 의존 구조를 강제한다.
 
-### Non-goals
+### 제외 범위
 - 실행 비용 최적화 상세 규칙
 
 - Universe/Allocation은 Composer 출력만 의존 (개별 모듈 직접 참조 금지)
@@ -172,7 +171,7 @@ notes: ["mid_regime_risk_off", "short_signal_panic", "increase_blocked"]
 ### 책임
 - Composer 계약 검증 기준을 제공한다.
 
-### Non-goals
+### 제외 범위
 - 테스트 구현 프레임워크 제한
 
 - **MSC1**: Composer 출력 스키마 검증 (policy resolved 필드 포함)
@@ -182,7 +181,7 @@ notes: ["mid_regime_risk_off", "short_signal_panic", "increase_blocked"]
 
 ---
 
-## Change History
-| Date | Summary | References |
+## 변경 이력
+| 날짜 | 요약 | 참조 |
 | --- | --- | --- |
-| 2026-02-13 | 파일명 버전 제거 및 문서 표준 블록(Document Status/Capability Matrix) 적용 | docs/changelog.md |
+| 2026-02-13 | 파일명 버전 제거 및 문서 표준 블록(문서 상태/기능 매트릭스) 적용 | docs/changelog.md |

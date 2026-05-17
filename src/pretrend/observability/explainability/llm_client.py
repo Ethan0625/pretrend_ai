@@ -8,6 +8,8 @@ import time
 from pathlib import Path
 from typing import Protocol
 
+from pretrend.observability.explainability.codex_binary import resolve_codex_bin
+
 
 FORBIDDEN_TERMS = (
     "predicted_",
@@ -121,10 +123,16 @@ class VSCodeCodexProvider:
                 ],
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 cwd=str(project_dir),
                 timeout=timeout_s,
             )
-            response = output_path.read_text().strip() if output_path.exists() else ""
+            response = (
+                output_path.read_text(encoding="utf-8", errors="replace").strip()
+                if output_path.exists()
+                else ""
+            )
             if result.returncode != 0:
                 raise LLMCallError(result.stderr.strip() or result.stdout.strip() or "codex failed")
             return response or result.stdout.strip()
@@ -132,18 +140,10 @@ class VSCodeCodexProvider:
             output_path.unlink(missing_ok=True)
 
     def _resolve_codex_bin(self) -> Path:
-        explicit = self.codex_bin or os.getenv("PRETREND_CODEX_BIN")
-        if explicit:
-            path = Path(explicit)
-            if path.exists():
-                return path
-            raise LLMCallError(f"Codex binary not found: {path}")
-
-        ext_root = Path.home() / ".vscode-server" / "extensions"
-        candidates = sorted(ext_root.glob("openai.chatgpt-*/bin/linux-x86_64/codex"))
-        if candidates:
-            return candidates[-1]
-        raise LLMCallError("Codex binary not found")
+        try:
+            return resolve_codex_bin(self.codex_bin)
+        except FileNotFoundError as exc:
+            raise LLMCallError(str(exc)) from exc
 
 
 def get_provider(name: str | None = None) -> LLMProvider:

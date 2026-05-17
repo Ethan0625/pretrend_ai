@@ -1,10 +1,14 @@
 # Agent Adoption Notes — Codex 도입 평가 및 운영 기준
 
-> 🟢 **공통 가이드 (두 트랙 공유) — Workflow / Agent 운영 규칙**
+Markers: operation, agent
+Status: reference
+
+> 🟢 **AI 보조 개발 운영 기준**
 >
-> 본 문서는 Codex(Agent) 도입 평가 결과를 정리한 운영 가이드이며, 두 트랙 모두에 적용됩니다.
-> 현재 운영 규칙 SOT: [`.agent/WORKFLOW.md`](../.agent/WORKFLOW.md), [`.agent/DIRECTION.md`](../.agent/DIRECTION.md), [`architecture/track_separation.md`](architecture/track_separation.md)
-> 본 문서는 평가 시점 기록으로 보존되며, 최신 규칙은 `.agent/WORKFLOW.md`를 우선 참조합니다.
+> 본 문서는 Codex(Agent)를 실제 개발 보조 도구로 사용하며 얻은 운영 기준과 한계를 정리합니다.
+> 공개 독자는 이 문서를 AI 도구 사용 방식과 검토 체계의 설명으로 읽으면 됩니다.
+> 내부 운영 규칙 SOT: [`.agent/WORKFLOW.md`](../../.agent/WORKFLOW.md), [`.agent/DIRECTION.md`](../../.agent/DIRECTION.md)
+> 본 문서는 평가 시점 기록으로 보존되며, 최신 내부 규칙은 `.agent/WORKFLOW.md`를 우선 참조합니다.
 
 ## 1. 목적
 
