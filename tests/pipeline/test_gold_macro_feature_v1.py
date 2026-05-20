@@ -14,6 +14,7 @@ import pytest
 from pretrend.pipeline.features.gold_macro_features import (
     build_gold_macro_features,
     build_release_calendar,
+    load_silver_macro,
 )
 
 
@@ -113,6 +114,38 @@ def _run_gold() -> pd.DataFrame:
         df_calendar=_build_calendar(),
         trade_dates=TRADE_DATES,
     )
+
+
+def test_load_silver_macro_scopes_to_requested_window(tmp_path):
+    """Gold Macro should not read historical Silver partitions outside its input window."""
+    root = tmp_path / "silver" / "macro" / "macro_features"
+    current_dir = root / "year=2024" / "month=06"
+    current_dir.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(
+        [
+            {
+                "indicator_id": "CPI_US_ALL_ITEMS_SA",
+                "date": date(2024, 6, 1),
+                "value": 305.0,
+            }
+        ]
+    ).to_parquet(current_dir / "macro_features_202406.parquet", index=False)
+
+    old_dir = root / "year=2003" / "month=01"
+    old_dir.mkdir(parents=True, exist_ok=True)
+    (old_dir / "macro_features_200301.parquet").write_text(
+        "not a parquet file",
+        encoding="utf-8",
+    )
+
+    loaded = load_silver_macro(
+        root,
+        start_date=date(2024, 6, 1),
+        end_date=date(2024, 6, 30),
+    )
+
+    assert len(loaded) == 1
+    assert loaded.iloc[0]["date"] == date(2024, 6, 1)
 
 
 def test_ofs_104_release_calendar_fallback_keeps_gold_buildable_when_coverage_is_partial():

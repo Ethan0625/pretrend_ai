@@ -16,6 +16,7 @@ Status: active
 - [`data_ingest_datasources.md`](data_ingest_datasources.md)
 - [`../architecture/gold_design_contract.md`](../architecture/gold_design_contract.md)
 - [`../architecture/gold_postgres_schema.md`](../architecture/gold_postgres_schema.md)
+- [`../architecture/pipeline_window_policy.md`](../architecture/pipeline_window_policy.md)
 - [`../operation/reproducible_runtime_contract.md`](../operation/reproducible_runtime_contract.md)
 
 ---
@@ -81,6 +82,8 @@ data/
 ```
 
 파티션 overwrite가 기본 멱등성 전략이다. EOD는 `(symbol, year, month)` 또는 `trade_date` 단위 partition을 사용하고, Macro/Calendar는 `(year, month)` partition을 사용한다.
+
+처리/재처리 윈도우는 데이터 구조와 별도 운영 계약이다. Scheduled pipeline은 [`../architecture/pipeline_window_policy.md`](../architecture/pipeline_window_policy.md)의 윈도우를 기준으로 파일 후보를 먼저 partition 단계에서 좁힌 뒤 parquet를 읽는다.
 
 Canonical root:
 

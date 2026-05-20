@@ -9,6 +9,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Optional, Sequence, List, Dict, Any
 
+from dateutil.relativedelta import relativedelta
 import pandas as pd
 
 from pretrend.pipeline.ingest.base import IngestContext
@@ -167,7 +168,11 @@ class MacroJobRunner:
         bronze_vintage_result = self._run_bronze_vintages(start_date, end_date, run_id)
         bronze_econ_events_result = self._run_bronze_econ_events(start_date, end_date, run_id)
         silver_result = self._run_silver_features(start_date, end_date, run_id)
-        silver_calendar_result = self._run_silver_calendar(run_id)
+        silver_calendar_result = self._run_silver_calendar(
+            run_id=run_id,
+            fred_partitions=bronze_vintage_result.partitions or [],
+            econ_partitions=bronze_econ_events_result.partitions or [],
+        )
         gold_macro_result = self._run_gold_macro_features(start_date, end_date, run_id)
 
         logger.info(
@@ -365,19 +370,30 @@ class MacroJobRunner:
     # ---------------------------
     # 내부 단계: Silver Calendar (fred_vintages + econ_events)
     # ---------------------------
-    def _run_silver_calendar(self, run_id: str) -> MacroTaskResult:
+    def _run_silver_calendar(
+        self,
+        run_id: str,
+        fred_partitions: Sequence[str] | None = None,
+        econ_partitions: Sequence[str] | None = None,
+    ) -> MacroTaskResult:
         """Bronze Calendar → Silver Calendar (fred_vintages + econ_events)."""
         cal_cfg = CalendarConfig(data_root=self.config.data_root)
         total_rows = 0
 
         # ── fred_vintages Silver ──
-        logger.info("[Silver] calendar fred_vintages start.")
+        logger.info(
+            "[Silver] calendar fred_vintages start. partitions=%s",
+            fred_partitions if fred_partitions is not None else "all",
+        )
         fred_ctx = FredVintagesRunContext(
             run_id=run_id,
             ingestion_ts=pd.Timestamp.utcnow(),
             cfg=cal_cfg,
         )
-        bronze_fred = load_bronze_fred_vintages(cal_cfg)
+        bronze_fred = load_bronze_fred_vintages(
+            cal_cfg,
+            partitions=fred_partitions,
+        )
         if bronze_fred.empty:
             logger.warning("[Silver] No bronze vintage data. Skip fred_vintages.")
         else:
@@ -387,13 +403,19 @@ class MacroJobRunner:
             logger.info("[Silver] calendar fred_vintages done. rows=%s", len(silver_fred))
 
         # ── econ_events Silver ──
-        logger.info("[Silver] calendar econ_events start.")
+        logger.info(
+            "[Silver] calendar econ_events start. partitions=%s",
+            econ_partitions if econ_partitions is not None else "all",
+        )
         econ_ctx = EconEventsRunContext(
             run_id=run_id,
             ingestion_ts=pd.Timestamp.utcnow(),
             cfg=cal_cfg,
         )
-        bronze_econ = load_bronze_econ_events(cal_cfg)
+        bronze_econ = load_bronze_econ_events(
+            cal_cfg,
+            partitions=econ_partitions,
+        )
         if bronze_econ.empty:
             logger.warning("[Silver] No bronze econ_events data. Skip econ_events.")
         else:
@@ -419,16 +441,33 @@ class MacroJobRunner:
             start_date, end_date,
         )
 
+        gold_input_start = start_date - relativedelta(
+            months=self.config.lookback_months + 6
+        )
+
         # 1) Silver macro 로드
-        df_macro = load_silver_macro(self.config.silver_root)
+        df_macro = load_silver_macro(
+            self.config.silver_root,
+            start_date=gold_input_start,
+            end_date=end_date,
+        )
         if df_macro.empty:
             logger.warning("[Gold] No Silver macro data. Skip Gold.")
             return MacroTaskResult(row_count=0, partitions=[])
 
         # 2) Silver Calendar 로드
         cal_cfg = CalendarConfig(data_root=self.config.data_root)
-        df_econ = load_silver_econ_events(cal_cfg)
-        df_vintages = load_silver_fred_vintages(cal_cfg)
+        calendar_partitions = self._extract_partitions_from_dates(
+            pd.Series(pd.date_range(gold_input_start, end_date).date)
+        )
+        df_econ = load_silver_econ_events(
+            cal_cfg,
+            partitions=calendar_partitions,
+        )
+        df_vintages = load_silver_fred_vintages(
+            cal_cfg,
+            partitions=calendar_partitions,
+        )
 
         # 3) Calendar fallback cascade → df_calendar
         df_calendar = build_release_calendar(df_macro, df_econ, df_vintages)

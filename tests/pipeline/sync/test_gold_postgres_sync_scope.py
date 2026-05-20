@@ -9,6 +9,8 @@ import pytest
 from pretrend.pipeline.sync.gold_postgres import (
     _file_in_scope,
     _filter_by_lower_bound,
+    _load_eod_parquet,
+    _load_macro_parquet,
     _sync_lower_bound,
 )
 
@@ -81,3 +83,69 @@ def test_ofs_001_historical_start_scope_includes_prepended_partition(
         date(2003, 1, 31),
         date(2024, 6, 11),
     ]
+
+
+def test_ofs_001_macro_sync_loader_does_not_read_excluded_partitions(
+    tmp_path: Path,
+) -> None:
+    """OFS-001: sync loader must prune files before parquet reads."""
+    root = tmp_path / "gold" / "macro" / "macro_features"
+    current_dir = root / "year=2024" / "month=06"
+    current_dir.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(
+        [
+            {
+                "indicator_id": "CPI_US_ALL_ITEMS_SA",
+                "trade_date": date(2024, 6, 11),
+                "selected_value": 305.0,
+            }
+        ]
+    ).to_parquet(
+        current_dir / "gold_macro_features_202406.parquet",
+        index=False,
+    )
+
+    old_dir = root / "year=2003" / "month=01"
+    old_dir.mkdir(parents=True, exist_ok=True)
+    (old_dir / "gold_macro_features_200301.parquet").write_text(
+        "not a parquet file",
+        encoding="utf-8",
+    )
+
+    loaded = _load_macro_parquet(root, lower_bound=date(2024, 6, 1))
+
+    assert len(loaded) == 1
+    assert loaded.iloc[0]["trade_date"] == date(2024, 6, 11)
+
+
+def test_ofs_001_eod_sync_loader_does_not_read_excluded_partitions(
+    tmp_path: Path,
+) -> None:
+    """OFS-001: symbol-partitioned sync loader must prune before parquet reads."""
+    root = tmp_path / "gold" / "eod" / "eod_features"
+    current_dir = root / "symbol=SPY" / "year=2024" / "month=06"
+    current_dir.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(
+        [
+            {
+                "symbol": "SPY",
+                "trade_date": date(2024, 6, 11),
+                "close": 100.0,
+            }
+        ]
+    ).to_parquet(
+        current_dir / "gold_eod_features_202406.parquet",
+        index=False,
+    )
+
+    old_dir = root / "symbol=SPY" / "year=2003" / "month=01"
+    old_dir.mkdir(parents=True, exist_ok=True)
+    (old_dir / "gold_eod_features_200301.parquet").write_text(
+        "not a parquet file",
+        encoding="utf-8",
+    )
+
+    loaded = _load_eod_parquet(root, lower_bound=date(2024, 6, 1))
+
+    assert len(loaded) == 1
+    assert loaded.iloc[0]["trade_date"] == date(2024, 6, 11)

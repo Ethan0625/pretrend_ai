@@ -185,14 +185,72 @@ def _file_in_scope(path: Path, lower_bound: date | None) -> bool:
     return date(year, month, 1) >= _month_start(lower_bound)
 
 
+def _iter_month_starts(start: date, end: date):
+    current = _month_start(start)
+    end_month = _month_start(end)
+    while current <= end_month:
+        yield current
+        current = (pd.Timestamp(current) + pd.DateOffset(months=1)).date()
+
+
+def _is_tmp_path(path: Path) -> bool:
+    return any(part.startswith("_tmp_run=") for part in path.parts)
+
+
+def _list_gold_parquet_files(
+    gold_root: Path,
+    lower_bound: date | None,
+    *,
+    symbol_partitioned: bool,
+) -> list[Path]:
+    if lower_bound is None:
+        return [
+            path
+            for path in sorted(gold_root.rglob("*.parquet"))
+            if not _is_tmp_path(path)
+        ]
+
+    end = date.today()
+    files: list[Path] = []
+    if symbol_partitioned:
+        symbol_roots = sorted(gold_root.glob("symbol=*"))
+        for symbol_root in symbol_roots:
+            for month_start in _iter_month_starts(lower_bound, end):
+                month_dir = (
+                    symbol_root
+                    / f"year={month_start.year:04d}"
+                    / f"month={month_start.month:02d}"
+                )
+                files.extend(
+                    path for path in month_dir.glob("*.parquet") if not _is_tmp_path(path)
+                )
+    else:
+        for month_start in _iter_month_starts(lower_bound, end):
+            month_dir = (
+                gold_root
+                / f"year={month_start.year:04d}"
+                / f"month={month_start.month:02d}"
+            )
+            files.extend(
+                path for path in month_dir.glob("*.parquet") if not _is_tmp_path(path)
+            )
+    return sorted(set(files))
+
+
 def _read_parquet_files(
     gold_root: Path,
     columns: list[str],
     lower_bound: date | None,
+    *,
+    symbol_partitioned: bool = False,
 ) -> pd.DataFrame:
     files = [
         path
-        for path in sorted(gold_root.rglob("*.parquet"))
+        for path in _list_gold_parquet_files(
+            gold_root,
+            lower_bound,
+            symbol_partitioned=symbol_partitioned,
+        )
         if _file_in_scope(path, lower_bound)
     ]
     if not files:
@@ -248,7 +306,12 @@ def _load_macro_parquet(gold_root: Path, lower_bound: date | None) -> pd.DataFra
 
 
 def _load_eod_parquet(gold_root: Path, lower_bound: date | None) -> pd.DataFrame:
-    return _read_parquet_files(gold_root, EOD_COLUMNS, lower_bound)
+    return _read_parquet_files(
+        gold_root,
+        EOD_COLUMNS,
+        lower_bound,
+        symbol_partitioned=True,
+    )
 
 
 def _sync_lower_bound(watermark: date | None, lookback_days: int) -> date | None:

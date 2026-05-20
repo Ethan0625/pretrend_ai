@@ -3,6 +3,8 @@
 Markers: architecture, contract
 Status: active
 
+참조: Macro/EOD sync lookback은 [`pipeline_window_policy.md`](pipeline_window_policy.md)의 upstream rebuild window와 lockstep으로 관리한다.
+
 ## 1. 목적 / 범위
 
 본 문서는 Gold Parquet layer를 Postgres + TimescaleDB mirror로 동기화하는 정책 SOT다.
@@ -37,6 +39,8 @@ else:
 ```
 
 ## 3. Lookback Window
+
+본 섹션의 값은 [`pipeline_window_policy.md`](pipeline_window_policy.md)의 Gold -> Postgres sync window 정책을 따른다.
 
 ### 3.1 Macro
 

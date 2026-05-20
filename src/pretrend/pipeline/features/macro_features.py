@@ -75,12 +75,42 @@ class MacroFeatureRunContext:
 # 2. Bronze Reader
 # =========================
 
+def _iter_month_starts(start: dt.date, end: dt.date) -> Iterable[dt.date]:
+    current = start.replace(day=1)
+    end_month = end.replace(day=1)
+    while current <= end_month:
+        yield current
+        current = (pd.Timestamp(current) + pd.DateOffset(months=1)).date()
+
+
+def _list_bronze_macro_files(ctx: MacroFeatureRunContext) -> list[Path]:
+    files: list[Path] = []
+    seen: set[Path] = set()
+    for month_start in _iter_month_starts(ctx.load_start_date, ctx.feature_end_date):
+        year = month_start.year
+        month = month_start.month
+        month_dir = ctx.cfg.bronze_root / f"year={year:04d}" / f"month={month:02d}"
+        if ctx.cfg.target_indicators:
+            candidates = [
+                month_dir / f"{indicator_id}_{year:04d}{month:02d}.parquet"
+                for indicator_id in ctx.cfg.target_indicators
+            ]
+        else:
+            candidates = list(month_dir.glob("*.parquet"))
+
+        for path in candidates:
+            if path.exists() and path not in seen:
+                seen.add(path)
+                files.append(path)
+    return sorted(files)
+
+
 def load_bronze_macro(ctx: MacroFeatureRunContext) -> pd.DataFrame:
     """
     Bronze macro econ_indicators에서 필요한 구간만 로드.
     - 로드 구간: [load_start_date, feature_end_date]
     """
-    files = list(ctx.cfg.bronze_root.rglob("*.parquet"))
+    files = _list_bronze_macro_files(ctx)
     if not files:
         print(f"[SilverMacro] No parquet under {ctx.cfg.bronze_root}. Return empty.")
         return pd.DataFrame()
