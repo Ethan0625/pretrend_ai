@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Sequence
 
 import pandas as pd
 
@@ -24,9 +24,63 @@ from pretrend.pipeline.calendar.fred_vintages import (
 # Bronze Loaders
 # =========================
 
-def load_bronze_econ_events(cfg: CalendarConfig) -> pd.DataFrame:
-    """Load all Bronze econ_events parquet files."""
-    files = list(cfg.bronze_econ_events_root.rglob("*.parquet"))
+def _normalize_partition_keys(
+    partitions: Sequence[str] | None,
+) -> set[str] | None:
+    if partitions is None:
+        return None
+
+    keys: set[str] = set()
+    for partition in partitions:
+        normalized = partition.replace("\\", "/").strip("/")
+        parts = normalized.split("/")
+        year_part = next((p for p in parts if p.startswith("year=")), None)
+        month_part = next((p for p in parts if p.startswith("month=")), None)
+        if not year_part or not month_part:
+            continue
+        year = int(year_part.split("=", 1)[1])
+        month = int(month_part.split("=", 1)[1])
+        keys.add(f"year={year:04d}/month={month:02d}")
+    return keys
+
+
+def _partition_key_from_path(path: Path) -> str | None:
+    month_part = path.parent.name
+    year_part = path.parent.parent.name
+    if not year_part.startswith("year=") or not month_part.startswith("month="):
+        return None
+    try:
+        year = int(year_part.split("=", 1)[1])
+        month = int(month_part.split("=", 1)[1])
+    except ValueError:
+        return None
+    return f"year={year:04d}/month={month:02d}"
+
+
+def _list_partition_parquets(
+    root: Path,
+    partitions: Sequence[str] | None = None,
+) -> list[Path]:
+    keys = _normalize_partition_keys(partitions)
+    if keys == set():
+        return []
+
+    files: list[Path] = []
+    for path in root.rglob("*.parquet"):
+        if any(part.startswith("_tmp_run=") for part in path.parts):
+            continue
+        if keys is not None and _partition_key_from_path(path) not in keys:
+            continue
+        files.append(path)
+    return sorted(files)
+
+
+def load_bronze_econ_events(
+    cfg: CalendarConfig,
+    partitions: Sequence[str] | None = None,
+) -> pd.DataFrame:
+    """Load Bronze econ_events parquet files, optionally scoped to partitions."""
+    files = _list_partition_parquets(cfg.bronze_econ_events_root, partitions)
     if not files:
         print(
             f"[CalendarRunner] No econ_events parquet under "
@@ -38,9 +92,12 @@ def load_bronze_econ_events(cfg: CalendarConfig) -> pd.DataFrame:
     )
 
 
-def load_bronze_fred_vintages(cfg: CalendarConfig) -> pd.DataFrame:
-    """Load all Bronze fred_vintages parquet files."""
-    files = list(cfg.bronze_fred_vintages_root.rglob("*.parquet"))
+def load_bronze_fred_vintages(
+    cfg: CalendarConfig,
+    partitions: Sequence[str] | None = None,
+) -> pd.DataFrame:
+    """Load Bronze fred_vintages parquet files, optionally scoped to partitions."""
+    files = _list_partition_parquets(cfg.bronze_fred_vintages_root, partitions)
     if not files:
         print(
             f"[CalendarRunner] No fred_vintages parquet under "
@@ -56,9 +113,12 @@ def load_bronze_fred_vintages(cfg: CalendarConfig) -> pd.DataFrame:
 # Silver Loaders
 # =========================
 
-def load_silver_econ_events(cfg: CalendarConfig) -> pd.DataFrame:
-    """Load all Silver econ_events parquet files."""
-    files = list(cfg.silver_econ_events_root.rglob("*.parquet"))
+def load_silver_econ_events(
+    cfg: CalendarConfig,
+    partitions: Sequence[str] | None = None,
+) -> pd.DataFrame:
+    """Load Silver econ_events parquet files, optionally scoped to partitions."""
+    files = _list_partition_parquets(cfg.silver_econ_events_root, partitions)
     if not files:
         print(
             f"[CalendarRunner] No Silver econ_events parquet under "
@@ -70,9 +130,12 @@ def load_silver_econ_events(cfg: CalendarConfig) -> pd.DataFrame:
     )
 
 
-def load_silver_fred_vintages(cfg: CalendarConfig) -> pd.DataFrame:
-    """Load all Silver fred_vintages parquet files."""
-    files = list(cfg.silver_fred_vintages_root.rglob("*.parquet"))
+def load_silver_fred_vintages(
+    cfg: CalendarConfig,
+    partitions: Sequence[str] | None = None,
+) -> pd.DataFrame:
+    """Load Silver fred_vintages parquet files, optionally scoped to partitions."""
+    files = _list_partition_parquets(cfg.silver_fred_vintages_root, partitions)
     if not files:
         print(
             f"[CalendarRunner] No Silver fred_vintages parquet under "

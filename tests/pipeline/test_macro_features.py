@@ -16,6 +16,7 @@ from pretrend.pipeline.features.macro_features import (
     MacroFeatureConfig,
     MacroFeatureRunContext,
     build_macro_features,
+    load_bronze_macro,
 )
 
 
@@ -44,6 +45,53 @@ def _make_ctx(start: str, end: str) -> MacroFeatureRunContext:
         cfg=cfg,
         lookback_months=12,
     )
+
+
+def test_load_bronze_macro_scopes_to_required_partitions(tmp_path: Path):
+    """
+    Incremental Silver Macro should not read historical partitions outside its load window.
+    """
+    bronze_root = tmp_path / "bronze" / "macro" / "econ_indicators"
+    current_dir = bronze_root / "year=2024" / "month=06"
+    current_dir.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(
+        [
+            {
+                "indicator_id": INDICATOR_CPI_HEADLINE,
+                "date": date(2024, 6, 1),
+                "value": 300.0,
+            }
+        ]
+    ).to_parquet(
+        current_dir / "CPI_US_ALL_ITEMS_SA_202406.parquet",
+        index=False,
+    )
+
+    old_dir = bronze_root / "year=2003" / "month=01"
+    old_dir.mkdir(parents=True, exist_ok=True)
+    (old_dir / "CPI_US_ALL_ITEMS_SA_200301.parquet").write_text(
+        "not a parquet file",
+        encoding="utf-8",
+    )
+
+    cfg = MacroFeatureConfig(
+        bronze_root=bronze_root,
+        silver_root=tmp_path / "silver" / "macro" / "macro_features",
+        target_indicators=[INDICATOR_CPI_HEADLINE],
+    )
+    ctx = MacroFeatureRunContext(
+        feature_start_date=date(2024, 6, 1),
+        feature_end_date=date(2024, 6, 30),
+        run_id="scoped_macro",
+        ingestion_ts=pd.Timestamp("2024-07-01"),
+        cfg=cfg,
+        lookback_months=12,
+    )
+
+    loaded = load_bronze_macro(ctx)
+
+    assert len(loaded) == 1
+    assert loaded.iloc[0]["date"] == date(2024, 6, 1)
 
 
 # ------------------------------------------------------------------

@@ -3,6 +3,8 @@
 Markers: architecture, contract
 Status: active
 
+참조: scheduled pipeline의 증분 처리/재처리 윈도우 산정 기준은 [`pipeline_window_policy.md`](pipeline_window_policy.md)를 따른다.
+
 ## 1. 일일 runtime 순서
 
 Phase 2 runtime은 향후 dashboard가 읽을 API data를 만드는 로컬 scheduled pipeline이다.
@@ -86,6 +88,8 @@ env \
 ```
 
 Runtime window를 놓친 뒤 recovery 순서:
+
+일상 증분 윈도우 밖의 historical prepend/backfill은 [`pipeline_window_policy.md`](pipeline_window_policy.md)의 Backfill 예외 절차를 따른다.
 
 1. Container 상태 확인.
 

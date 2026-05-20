@@ -211,3 +211,58 @@ class TestWriteIdempotent:
         )
         assert not loaded.empty
         assert "asset_group" in loaded.columns
+
+    def test_ge5_load_silver_scopes_to_requested_window_and_symbols(self, tmp_path):
+        """Gold EOD should not read excluded historical or other-symbol partitions."""
+        from pretrend.pipeline.features.eod_features import (
+            EodFeatureConfig,
+            EodFeatureRunContext,
+            write_silver_eod_features,
+        )
+
+        cfg = EodFeatureConfig(data_root=tmp_path)
+        ctx = EodFeatureRunContext(
+            feature_start_date=date(2024, 6, 1),
+            feature_end_date=date(2024, 6, 30),
+            run_id="test_load_scope",
+            ingestion_ts=pd.Timestamp("2024-07-01"),
+            cfg=cfg,
+        )
+
+        silver = _make_silver_df(symbols=["SPY"], n_days=3)
+        silver["trade_date"] = pd.to_datetime(silver["trade_date"])
+        write_silver_eod_features(silver, ctx)
+
+        old_dir = (
+            cfg.silver_root
+            / "symbol=SPY"
+            / "year=2003"
+            / "month=01"
+        )
+        old_dir.mkdir(parents=True, exist_ok=True)
+        (old_dir / "eod_features_200301.parquet").write_text(
+            "not a parquet file",
+            encoding="utf-8",
+        )
+
+        other_symbol_dir = (
+            cfg.silver_root
+            / "symbol=TLT"
+            / "year=2024"
+            / "month=06"
+        )
+        other_symbol_dir.mkdir(parents=True, exist_ok=True)
+        (other_symbol_dir / "eod_features_202406.parquet").write_text(
+            "not a parquet file",
+            encoding="utf-8",
+        )
+
+        loaded = load_silver_eod_features(
+            cfg.silver_root,
+            start_date=date(2024, 6, 1),
+            end_date=date(2024, 6, 30),
+            symbols=["SPY"],
+        )
+
+        assert len(loaded) == 3
+        assert set(loaded["symbol"]) == {"SPY"}

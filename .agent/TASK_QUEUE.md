@@ -58,7 +58,7 @@ v2026.05.12
 
 ## Active Queue
 
-No active leaf task is registered after P30 completion. New work should be registered as a parent/leaf task before execution.
+No active leaf task is registered. Phase 3 사전 결정 완료 (`docs/architecture/frontend_decisions.md`, 2026-05-19). 다음 진입은 Phase 3 dashboard parent + leaf task 작성.
 
 Backlog:
 - P29 hotfix backlog: resolved after P29.
@@ -67,11 +67,10 @@ Backlog:
   - `hotfix-P29-2.A` Personal Track DAG operational state mismatch: project Airflow metadata에서 3개 Personal DAG paused 확인.
   - `follow-up-P29-1.C` Forbidden-prefix grep allowlist: testing contract에 allowlist-aware 기준 반영.
   - `follow-up-P29-2.B` Airflow CLI environment guard: operation guide에 project env command 추가.
-- Phase 3 dashboard 설계 시 explainability scope/window contract 결정:
-  - 현재 `explainability_cache` key는 `use_case + query_date + model_id + prompt_version`이며 window/scope를 구분하지 않는다.
-  - historical full LLM backfill은 `snapshot / rolling_Nd / full_history_to_date` 등 설명 단위와 cache key/API contract를 먼저 정한 뒤 진행한다.
-  - Phase 3 MVP는 latest snapshot explanation 또는 on-demand explanation을 우선 검토한다.
+- Phase 3 사전 결정 (resolved 2026-05-19): `docs/architecture/frontend_decisions.md` 신설. `apps/web/` + Recharts 기본 + 한국어 UI + single trade_date explainability 확정. 대시보드 검증 후 `frontend_contract.md`로 승격 예정.
+- Phase 3 dashboard parent + leaf task 작성: design_sample (`.agent/design_sample/`) + frontend_decisions.md를 reference로, P28 11 endpoint를 consumer로 사용. 예상 leaf 7개 (scaffolding / layout / screens / charts / API client / docker integration / docs).
 - 외부 노출 운영 등록: Phase 3 dashboard 로컬 검증 완료 후 trigger. 도메인/계정/토큰 의존.
+- Phase 3 후반 결정 (Recharts vs Visx): ETF heatmap / similarity replay 구현 시점에 Recharts 한계 검증 후 Visx 도입 여부 결정.
 
 ---
 

@@ -728,6 +728,7 @@ PYTHONPATH=src python -m pretrend.pipeline.eod_job \
 * 관측 런타임 아키텍처:
   * `/docs/architecture/system_map_2026q2.md`
   * `/docs/architecture/runtime_flow.md`
+  * `/docs/architecture/pipeline_window_policy.md`
   * `/docs/architecture/boundary_contract.md`
   * `/docs/api/observability_api_contract.md`
 * 전략 설계/계약(보관/reference):

@@ -14,7 +14,7 @@ import os
 import shutil
 from datetime import date, datetime
 from pathlib import Path
-from typing import List, Optional, Sequence
+from typing import Iterable, List, Optional, Sequence
 
 import pandas as pd
 
@@ -72,6 +72,54 @@ GOLD_EOD_FEATURE_COLUMNS: List[str] = [
 # ── Loader ──────────────────────────────────────────────
 
 
+def _iter_month_starts(start: date, end: date) -> Iterable[date]:
+    current = start.replace(day=1)
+    end_month = end.replace(day=1)
+    while current <= end_month:
+        yield current
+        current = (pd.Timestamp(current) + pd.DateOffset(months=1)).date()
+
+
+def _is_tmp_path(path: Path) -> bool:
+    return any(part.startswith("_tmp_run=") for part in path.parts)
+
+
+def _list_silver_eod_files(
+    silver_root: Path,
+    start_date: Optional[date],
+    end_date: Optional[date],
+    symbols: Optional[List[str]],
+) -> list[Path]:
+    if symbols:
+        symbol_dirs = [silver_root / f"symbol={symbol}" for symbol in symbols]
+    else:
+        symbol_dirs = sorted(silver_root.glob("symbol=*"))
+
+    if start_date is None or end_date is None:
+        files = [
+            path
+            for symbol_dir in symbol_dirs
+            for path in symbol_dir.rglob("*.parquet")
+            if not _is_tmp_path(path)
+        ]
+        return sorted(set(files))
+
+    files: list[Path] = []
+    seen: set[Path] = set()
+    for symbol_dir in symbol_dirs:
+        for month_start in _iter_month_starts(start_date, end_date):
+            month_dir = (
+                symbol_dir
+                / f"year={month_start.year:04d}"
+                / f"month={month_start.month:02d}"
+            )
+            for path in month_dir.glob("*.parquet"):
+                if not _is_tmp_path(path) and path not in seen:
+                    seen.add(path)
+                    files.append(path)
+    return sorted(files)
+
+
 def load_silver_eod_features(
     silver_root: Path,
     start_date: Optional[date] = None,
@@ -86,7 +134,7 @@ def load_silver_eod_features(
     start_date, end_date : 날짜 필터 (optional)
     symbols : 심볼 필터 (optional)
     """
-    files = list(silver_root.rglob("*.parquet"))
+    files = _list_silver_eod_files(silver_root, start_date, end_date, symbols)
     if not files:
         logger.warning("[GoldEOD] No Silver EOD parquet under %s", silver_root)
         return pd.DataFrame()

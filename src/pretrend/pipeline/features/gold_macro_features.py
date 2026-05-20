@@ -226,13 +226,78 @@ def _zscore_12m(
 
 # ── Integration helpers (loaders, calendar builder, writer) ───
 
+def _iter_month_starts(start: date, end: date):
+    current = start.replace(day=1)
+    end_month = end.replace(day=1)
+    while current <= end_month:
+        yield current
+        current = (pd.Timestamp(current) + pd.DateOffset(months=1)).date()
 
-def load_silver_macro(silver_macro_root: Path) -> pd.DataFrame:
+
+def _file_month_in_range(
+    path: Path,
+    start_date: Optional[date],
+    end_date: Optional[date],
+) -> bool:
+    if start_date is None and end_date is None:
+        return True
+
+    year = None
+    month = None
+    for part in path.parts:
+        if part.startswith("year="):
+            year = int(part.split("=", 1)[1])
+        elif part.startswith("month="):
+            month = int(part.split("=", 1)[1])
+    if year is None or month is None:
+        return True
+
+    file_month = date(year, month, 1)
+    if start_date is not None and file_month < start_date.replace(day=1):
+        return False
+    if end_date is not None and file_month > end_date.replace(day=1):
+        return False
+    return True
+
+
+def _list_silver_macro_files(
+    silver_macro_root: Path,
+    start_date: Optional[date],
+    end_date: Optional[date],
+) -> list[Path]:
+    if start_date is None or end_date is None:
+        return [
+            path
+            for path in sorted(silver_macro_root.rglob("*.parquet"))
+            if _file_month_in_range(path, start_date, end_date)
+            and not any(part.startswith("_tmp_run=") for part in path.parts)
+        ]
+
+    files: list[Path] = []
+    for month_start in _iter_month_starts(start_date, end_date):
+        month_dir = (
+            silver_macro_root
+            / f"year={month_start.year:04d}"
+            / f"month={month_start.month:02d}"
+        )
+        files.extend(
+            path
+            for path in month_dir.glob("*.parquet")
+            if not any(part.startswith("_tmp_run=") for part in path.parts)
+        )
+    return sorted(set(files))
+
+
+def load_silver_macro(
+    silver_macro_root: Path,
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+) -> pd.DataFrame:
     """Silver macro features에서 Gold 입력 컬럼만 로드.
 
     Returns DataFrame with columns: indicator_id, date, value.
     """
-    files = list(silver_macro_root.rglob("*.parquet"))
+    files = _list_silver_macro_files(silver_macro_root, start_date, end_date)
     if not files:
         logger.warning(
             "[GoldMacro] No Silver macro parquet under %s", silver_macro_root
@@ -240,6 +305,10 @@ def load_silver_macro(silver_macro_root: Path) -> pd.DataFrame:
         return pd.DataFrame(columns=["indicator_id", "date", "value"])
     df = pd.concat((pd.read_parquet(f) for f in files), ignore_index=True)
     df["date"] = pd.to_datetime(df["date"]).dt.date
+    if start_date is not None:
+        df = df[df["date"] >= start_date]
+    if end_date is not None:
+        df = df[df["date"] <= end_date]
     return df[["indicator_id", "date", "value"]].copy()
 
 

@@ -5,6 +5,7 @@ import pandas as pd
 from pretrend.pipeline.features.eod_features import (
     EodFeatureConfig,
     EodFeatureRunContext,
+    load_bronze_eod,
     write_silver_eod_features,
 )
 
@@ -54,6 +55,84 @@ def _make_df(price: float) -> pd.DataFrame:
             "ingestion_ts": [pd.Timestamp("2024-02-01")],
         }
     )
+
+
+def _write_bronze_eod_partition(
+    root: Path,
+    symbol: str,
+    trade_date: str,
+    df: pd.DataFrame,
+) -> Path:
+    out_dir = (
+        root
+        / "source=YF"
+        / "theme=GENERIC"
+        / f"symbol={symbol}"
+        / f"trade_date={trade_date}"
+    )
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / "eod.parquet"
+    df.to_parquet(out_path, index=False)
+    return out_path
+
+
+def _make_bronze_df(symbol: str, trade_date: str) -> pd.DataFrame:
+    df = _make_df(100.0)
+    df["symbol"] = symbol
+    df["trade_date"] = [pd.Timestamp(trade_date).date()]
+    return df
+
+
+def test_load_bronze_eod_scopes_to_requested_dates_and_symbols(tmp_path):
+    """
+    Incremental EOD Silver should not read unrelated Bronze partitions before filtering.
+    """
+    cfg = EodFeatureConfig(data_root=tmp_path, min_history_days=5)
+    cfg.target_symbols = ["SPY"]
+
+    _write_bronze_eod_partition(
+        cfg.bronze_root,
+        "SPY",
+        "2024-05-31",
+        _make_bronze_df("SPY", "2024-05-31"),
+    )
+
+    old_dir = (
+        cfg.bronze_root
+        / "source=YF"
+        / "theme=GENERIC"
+        / "symbol=SPY"
+        / "trade_date=2003-01-02"
+    )
+    old_dir.mkdir(parents=True, exist_ok=True)
+    (old_dir / "eod.parquet").write_text("not a parquet file", encoding="utf-8")
+
+    other_symbol_dir = (
+        cfg.bronze_root
+        / "source=YF"
+        / "theme=GENERIC"
+        / "symbol=QQQ"
+        / "trade_date=2024-05-31"
+    )
+    other_symbol_dir.mkdir(parents=True, exist_ok=True)
+    (other_symbol_dir / "eod.parquet").write_text(
+        "not a parquet file",
+        encoding="utf-8",
+    )
+
+    ctx = EodFeatureRunContext(
+        feature_start_date=date(2024, 6, 3),
+        feature_end_date=date(2024, 6, 3),
+        run_id="scoped_load",
+        ingestion_ts=pd.Timestamp("2024-06-04"),
+        cfg=cfg,
+    )
+
+    loaded = load_bronze_eod(ctx)
+
+    assert len(loaded) == 1
+    assert loaded.iloc[0]["symbol"] == "SPY"
+    assert loaded.iloc[0]["trade_date"] == date(2024, 5, 31)
 
 
 def test_eod_write_overwrites_partition(tmp_path):

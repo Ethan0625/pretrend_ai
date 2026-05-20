@@ -72,6 +72,33 @@ class EodFeatureRunContext:
 # 2. Bronze Reader
 # =========================
 
+def _iter_load_dates(start: dt.date, end: dt.date) -> Iterable[dt.date]:
+    for ts in pd.date_range(start=start, end=end, freq="D"):
+        yield ts.date()
+
+
+def _list_bronze_eod_files(ctx: EodFeatureRunContext) -> list[Path]:
+    if not ctx.cfg.target_symbols:
+        return sorted(ctx.cfg.bronze_root.rglob("eod.parquet"))
+
+    files: list[Path] = []
+    seen: set[Path] = set()
+    for symbol in ctx.cfg.target_symbols:
+        for trade_date in _iter_load_dates(
+            ctx.load_start_date,
+            ctx.feature_end_date,
+        ):
+            pattern = (
+                f"source=*/theme=*/symbol={symbol}/"
+                f"trade_date={trade_date.isoformat()}/eod.parquet"
+            )
+            for path in ctx.cfg.bronze_root.glob(pattern):
+                if path not in seen:
+                    seen.add(path)
+                    files.append(path)
+    return sorted(files)
+
+
 def load_bronze_eod(ctx: EodFeatureRunContext) -> pd.DataFrame:
     """
     Bronze EOD에서 필요한 구간만 로드.
@@ -85,7 +112,7 @@ def load_bronze_eod(ctx: EodFeatureRunContext) -> pd.DataFrame:
       open, high, low, close, adj_close, volume,
       currency, run_id, ingestion_ts
     """
-    files = list(ctx.cfg.bronze_root.rglob("eod.parquet"))
+    files = _list_bronze_eod_files(ctx)
     if not files:
         raise FileNotFoundError(f"[SilverEOD] No eod.parquet under {ctx.cfg.bronze_root}")
 

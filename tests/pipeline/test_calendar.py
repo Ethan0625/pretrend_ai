@@ -27,6 +27,11 @@ from pretrend.pipeline.calendar.fred_vintages import (
     write_silver_fred_vintages,
 )
 from pretrend.pipeline.calendar.config import CalendarConfig
+from pretrend.pipeline.calendar.runner import (
+    load_bronze_econ_events,
+    load_bronze_fred_vintages,
+)
+from pretrend.pipeline.macro_job import MacroJobConfig, MacroJobRunner
 
 
 # ── Helpers ──────────────────────────────────────────────────
@@ -93,6 +98,20 @@ def _load_all_parquets_under(path: Path) -> pd.DataFrame:
     files = sorted(path.rglob("*.parquet"))
     assert files, f"no parquet files found under {path}"
     return pd.concat([pd.read_parquet(p) for p in files], ignore_index=True)
+
+
+def _write_partition_parquet(
+    df: pd.DataFrame,
+    root: Path,
+    dataset: str,
+    year: int,
+    month: int,
+) -> Path:
+    out_dir = root / f"year={year:04d}" / f"month={month:02d}"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / f"{dataset}_{year:04d}{month:02d}.parquet"
+    df.to_parquet(out_path, index=False)
+    return out_path
 
 
 # ════════════════════════════════════════════════════════════
@@ -354,3 +373,161 @@ class TestTimezone:
         assert pd.isna(silver.iloc[0]["release_ts_utc"])
         assert silver.iloc[0]["release_date_utc"] is None
         assert silver.iloc[0]["has_timestamp"] == False  # noqa: E712
+
+
+class TestOperationalScope:
+    """Guardrails for incremental DAG runs touching only current partitions."""
+
+    def test_bronze_loaders_scope_to_requested_partitions(self, tmp_path: Path):
+        cfg = CalendarConfig(data_root=tmp_path)
+
+        old_fred = _make_fred_bronze(
+            observation_date="2003-01-01",
+            vintage_date="2003-02-01",
+        )
+        new_fred = _make_fred_bronze(
+            observation_date="2026-04-01",
+            vintage_date="2026-05-15",
+        )
+        _write_partition_parquet(
+            old_fred,
+            cfg.bronze_fred_vintages_root,
+            "fred_vintages",
+            2003,
+            1,
+        )
+        _write_partition_parquet(
+            new_fred,
+            cfg.bronze_fred_vintages_root,
+            "fred_vintages",
+            2026,
+            4,
+        )
+
+        loaded_fred = load_bronze_fred_vintages(
+            cfg,
+            partitions=["year=2026/month=04"],
+        )
+
+        assert len(loaded_fred) == 1
+        assert (
+            pd.Timestamp(loaded_fred.iloc[0]["observation_date"]).date()
+            == date(2026, 4, 1)
+        )
+
+        old_econ = _make_econ_bronze(observation_date="2003-01-01")
+        new_econ = _make_econ_bronze(
+            observation_date="2026-04-01",
+            release_date_local="2026-05-13",
+        )
+        _write_partition_parquet(
+            old_econ,
+            cfg.bronze_econ_events_root,
+            "econ_events",
+            2003,
+            1,
+        )
+        _write_partition_parquet(
+            new_econ,
+            cfg.bronze_econ_events_root,
+            "econ_events",
+            2026,
+            4,
+        )
+
+        loaded_econ = load_bronze_econ_events(
+            cfg,
+            partitions=["year=2026/month=04"],
+        )
+
+        assert len(loaded_econ) == 1
+        assert (
+            pd.Timestamp(loaded_econ.iloc[0]["observation_date"]).date()
+            == date(2026, 4, 1)
+        )
+
+    def test_macro_silver_calendar_keeps_untouched_history(
+        self,
+        tmp_path: Path,
+    ):
+        cfg = CalendarConfig(data_root=tmp_path)
+
+        old_fred_silver = normalize_fred_vintages(
+            _make_fred_bronze(
+                observation_date="2003-01-01",
+                vintage_date="2003-02-01",
+            ),
+            _fred_ctx(tmp_path, run_id="old_run"),
+        )
+        write_silver_fred_vintages(
+            old_fred_silver,
+            _fred_ctx(tmp_path, run_id="old_run"),
+        )
+        old_econ_silver = normalize_econ_events(
+            _make_econ_bronze(observation_date="2003-01-01"),
+            _econ_ctx(tmp_path, run_id="old_run"),
+        )
+        write_silver_econ_events(
+            old_econ_silver,
+            _econ_ctx(tmp_path, run_id="old_run"),
+        )
+
+        _write_partition_parquet(
+            _make_fred_bronze(
+                observation_date="2026-04-01",
+                vintage_date="2026-05-15",
+            ),
+            cfg.bronze_fred_vintages_root,
+            "fred_vintages",
+            2026,
+            4,
+        )
+        _write_partition_parquet(
+            _make_econ_bronze(
+                observation_date="2026-04-01",
+                release_date_local="2026-05-13",
+            ),
+            cfg.bronze_econ_events_root,
+            "econ_events",
+            2026,
+            4,
+        )
+
+        runner = MacroJobRunner(MacroJobConfig(data_root=tmp_path))
+        result = runner._run_silver_calendar(
+            run_id="new_run",
+            fred_partitions=["year=2026/month=04"],
+            econ_partitions=["year=2026/month=04"],
+        )
+
+        assert result.row_count == 2
+
+        old_fred_file = (
+            cfg.silver_fred_vintages_root
+            / "year=2003"
+            / "month=01"
+            / "fred_vintages_200301.parquet"
+        )
+        old_econ_file = (
+            cfg.silver_econ_events_root
+            / "year=2003"
+            / "month=01"
+            / "econ_events_200301.parquet"
+        )
+        new_fred_file = (
+            cfg.silver_fred_vintages_root
+            / "year=2026"
+            / "month=04"
+            / "fred_vintages_202604.parquet"
+        )
+        new_econ_file = (
+            cfg.silver_econ_events_root
+            / "year=2026"
+            / "month=04"
+            / "econ_events_202604.parquet"
+        )
+
+        assert pd.read_parquet(old_fred_file).iloc[0]["run_id_silver"] == "old_run"
+        assert pd.read_parquet(old_econ_file).iloc[0]["run_id_silver"] == "old_run"
+        assert pd.read_parquet(new_fred_file).iloc[0]["run_id_silver"] == "new_run"
+        assert pd.read_parquet(new_econ_file).iloc[0]["run_id_silver"] == "new_run"
