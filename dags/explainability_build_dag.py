@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from datetime import date, datetime, timedelta
 from types import SimpleNamespace
@@ -63,6 +64,7 @@ except ModuleNotFoundError:  # pragma: no cover - pytest env smoke import fallba
 DAG_ID = "explainability_build_dag"
 SCHEDULE = "0 13 * * *"
 TAGS = ["observability", "explainability"]
+DEFAULT_PROVIDER = "mock"
 
 DEFAULT_ARGS: Dict[str, Any] = {
     "owner": "pretrend",
@@ -166,9 +168,13 @@ def _resolve_query_dates(context: dict[str, Any] | None = None) -> list[date]:
 def _resolve_provider(context: dict[str, Any] | None = None):
     conf = _dag_run_conf(context or {})
     provider_name = conf.get("provider")
-    provider_key = str(provider_name).strip() if provider_name is not None else "mock"
+    provider_key = str(provider_name).strip() if provider_name is not None else ""
     if not provider_key:
-        provider_key = "mock"
+        provider_key = (
+            os.getenv("PRETREND_EXPLAINABILITY_PROVIDER", "").strip()
+            or os.getenv("PRETREND_LLM_PROVIDER", "").strip()
+            or DEFAULT_PROVIDER
+        )
     if provider_key.lower() == "mock":
         provider = MockProvider()
     else:

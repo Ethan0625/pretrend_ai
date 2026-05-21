@@ -141,6 +141,46 @@ services:
       retries: 3
       start_period: 10s
 
+  web-node:
+    image: node:22-alpine
+    container_name: pretrend-web-node
+    profiles:
+      - web-dev
+    working_dir: /workspace/apps/web
+    ports:
+      - "${WEB_DEV_HOST_PORT:-5173}:5173"
+    volumes:
+      - .:/workspace
+      - pretrend-web-node-modules:/workspace/apps/web/node_modules
+    environment:
+      VITE_API_URL: ${VITE_API_URL:-}
+      VITE_API_KEY: ${VITE_API_KEY:-}
+      VITE_API_PROXY_TARGET: ${VITE_API_PROXY_TARGET:-http://api:8000}
+    command: ["sh", "-c", "npm install && npm run dev -- --host 0.0.0.0"]
+
+  web:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.web
+      args:
+        VITE_API_URL: ${VITE_API_URL:-}
+    image: pretrend-web:${PRETREND_WEB_TAG:-local}
+    container_name: pretrend-web
+    restart: unless-stopped
+    environment:
+      PRETREND_API_KEY: ${PRETREND_API_KEY:?PRETREND_API_KEY is required}
+    ports:
+      - "${WEB_HOST_PORT:-3000}:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost/healthz >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
   worker:
     build:
       context: .
@@ -218,6 +258,8 @@ services:
       - ${PRETREND_AIRFLOW_LOG_DIR:-./airflow_pretrend/logs}:/opt/airflow/logs
       - ${PRETREND_HOST_DAGS_DIR:-./dags}:/opt/airflow/dags:ro
       - ${PRETREND_HOST_SRC_DIR:-./src}:/opt/airflow/src:ro
+      - ${PRETREND_CODEX_BIN_DIR:-./codex-bin}:/opt/pretrend/codex-bin:ro
+      - ${PRETREND_CODEX_HOME_DIR:-./codex-home}:/home/airflow/.codex
     environment:
       AIRFLOW__CORE__EXECUTOR: SequentialExecutor
       AIRFLOW__CORE__LOAD_EXAMPLES: "False"
@@ -240,6 +282,14 @@ services:
       PRETREND_REPORT_API_URL: ${PRETREND_REPORT_API_URL:-http://api:8000/api/v1/report/strategy/analyze}
       PRETREND_GOLD_SYNC_FULL: ${PRETREND_GOLD_SYNC_FULL:-0}
       PRETREND_GOLD_SYNC_START_DATE: ${PRETREND_GOLD_SYNC_START_DATE:-}
+      PRETREND_CODEX_BIN: ${PRETREND_CODEX_BIN:-}
+      PRETREND_CODEX_BIN_DIR: /opt/pretrend/codex-bin
+      PRETREND_CODEX_HOME_DIR: /home/airflow/.codex
+      PRETREND_CODEX_BYPASS_SANDBOX: ${PRETREND_CODEX_BYPASS_SANDBOX:-0}
+      PRETREND_EXPLAINABILITY_PROVIDER: ${PRETREND_EXPLAINABILITY_PROVIDER:-api_vscode_codex}
+      PRETREND_EXPLAINABILITY_ANALYZER_API_URL: ${PRETREND_EXPLAINABILITY_ANALYZER_API_URL:-http://api:8000/api/v1/report/explainability/analyze}
+      PRETREND_EXPLAINABILITY_ANALYZER_HEALTH_URL: ${PRETREND_EXPLAINABILITY_ANALYZER_HEALTH_URL:-http://api:8000/health}
+      PRETREND_LLM_PROVIDER: ${PRETREND_LLM_PROVIDER:-vscode_codex}
       PYTHONPATH: /opt/airflow/src
     depends_on:
       postgres:
@@ -282,6 +332,8 @@ services:
       - ${PRETREND_AIRFLOW_LOG_DIR:-./airflow_pretrend/logs}:/opt/airflow/logs
       - ${PRETREND_HOST_DAGS_DIR:-./dags}:/opt/airflow/dags:ro
       - ${PRETREND_HOST_SRC_DIR:-./src}:/opt/airflow/src:ro
+      - ${PRETREND_CODEX_BIN_DIR:-./codex-bin}:/opt/pretrend/codex-bin:ro
+      - ${PRETREND_CODEX_HOME_DIR:-./codex-home}:/home/airflow/.codex
     environment:
       AIRFLOW__CORE__EXECUTOR: SequentialExecutor
       AIRFLOW__CORE__LOAD_EXAMPLES: "False"
@@ -301,6 +353,14 @@ services:
       PRETREND_REPORT_API_URL: ${PRETREND_REPORT_API_URL:-http://api:8000/api/v1/report/strategy/analyze}
       PRETREND_GOLD_SYNC_FULL: ${PRETREND_GOLD_SYNC_FULL:-0}
       PRETREND_GOLD_SYNC_START_DATE: ${PRETREND_GOLD_SYNC_START_DATE:-}
+      PRETREND_CODEX_BIN: ${PRETREND_CODEX_BIN:-}
+      PRETREND_CODEX_BIN_DIR: /opt/pretrend/codex-bin
+      PRETREND_CODEX_HOME_DIR: /home/airflow/.codex
+      PRETREND_CODEX_BYPASS_SANDBOX: ${PRETREND_CODEX_BYPASS_SANDBOX:-0}
+      PRETREND_EXPLAINABILITY_PROVIDER: ${PRETREND_EXPLAINABILITY_PROVIDER:-api_vscode_codex}
+      PRETREND_EXPLAINABILITY_ANALYZER_API_URL: ${PRETREND_EXPLAINABILITY_ANALYZER_API_URL:-http://api:8000/api/v1/report/explainability/analyze}
+      PRETREND_EXPLAINABILITY_ANALYZER_HEALTH_URL: ${PRETREND_EXPLAINABILITY_ANALYZER_HEALTH_URL:-http://api:8000/health}
+      PRETREND_LLM_PROVIDER: ${PRETREND_LLM_PROVIDER:-vscode_codex}
       PYTHONPATH: /opt/airflow/src
     depends_on:
       airflow-init:
@@ -324,6 +384,8 @@ services:
       - ${PRETREND_AIRFLOW_LOG_DIR:-./airflow_pretrend/logs}:/opt/airflow/logs
       - ${PRETREND_HOST_DAGS_DIR:-./dags}:/opt/airflow/dags:ro
       - ${PRETREND_HOST_SRC_DIR:-./src}:/opt/airflow/src:ro
+      - ${PRETREND_CODEX_BIN_DIR:-./codex-bin}:/opt/pretrend/codex-bin:ro
+      - ${PRETREND_CODEX_HOME_DIR:-./codex-home}:/home/airflow/.codex
     environment:
       AIRFLOW__CORE__EXECUTOR: SequentialExecutor
       AIRFLOW__CORE__LOAD_EXAMPLES: "False"
@@ -343,8 +405,19 @@ services:
       PRETREND_REPORT_API_URL: ${PRETREND_REPORT_API_URL:-http://api:8000/api/v1/report/strategy/analyze}
       PRETREND_GOLD_SYNC_FULL: ${PRETREND_GOLD_SYNC_FULL:-0}
       PRETREND_GOLD_SYNC_START_DATE: ${PRETREND_GOLD_SYNC_START_DATE:-}
+      PRETREND_CODEX_BIN: ${PRETREND_CODEX_BIN:-}
+      PRETREND_CODEX_BIN_DIR: /opt/pretrend/codex-bin
+      PRETREND_CODEX_HOME_DIR: /home/airflow/.codex
+      PRETREND_CODEX_BYPASS_SANDBOX: ${PRETREND_CODEX_BYPASS_SANDBOX:-0}
+      PRETREND_EXPLAINABILITY_PROVIDER: ${PRETREND_EXPLAINABILITY_PROVIDER:-api_vscode_codex}
+      PRETREND_EXPLAINABILITY_ANALYZER_API_URL: ${PRETREND_EXPLAINABILITY_ANALYZER_API_URL:-http://api:8000/api/v1/report/explainability/analyze}
+      PRETREND_EXPLAINABILITY_ANALYZER_HEALTH_URL: ${PRETREND_EXPLAINABILITY_ANALYZER_HEALTH_URL:-http://api:8000/health}
+      PRETREND_LLM_PROVIDER: ${PRETREND_LLM_PROVIDER:-vscode_codex}
       PYTHONPATH: /opt/airflow/src
     depends_on:
       airflow-init:
         condition: service_completed_successfully
     command: scheduler
+
+volumes:
+  pretrend-web-node-modules:

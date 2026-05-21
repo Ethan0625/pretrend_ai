@@ -13,6 +13,7 @@ from pretrend.observability.explainability.llm_client import (
     LLMProvider,
     check_invariant_or_raise,
     check_report_invariant_or_raise,
+    explainability_timeout_s,
     get_provider,
 )
 from pretrend.observability.similarity.producer import _get_engine
@@ -59,7 +60,7 @@ def explain_similarity(
         _user_prompt(view, payload),
         max_tokens=1200,
         temperature=0.1,
-        timeout_s=60,
+        timeout_s=explainability_timeout_s(),
     )
     check_invariant_or_raise(raw)
     report = SimilarityReport.model_validate_json(raw)
@@ -93,7 +94,17 @@ def _load_similarity_payload(engine: Engine, query_date: date, view: str) -> dic
 
 def _user_prompt(view: str, payload: dict) -> str:
     return (
-        "다음 similarity 입력을 기반으로 SimilarityReport JSON을 작성하세요. "
+        "다음 similarity 입력을 기반으로 SimilarityReport JSON을 작성하세요.\n"
+        "반드시 아래 JSON schema의 top-level key만 사용하세요. key를 한국어로 바꾸거나 추가하지 마세요.\n"
+        "{"
+        '"query_date":"YYYY-MM-DD",'
+        '"view":"regime 또는 gold",'
+        '"summary":"유사 구간의 공통 관측 특징을 2~4문장으로 설명",'
+        '"neighbors":[{"neighbor_date":"YYYY-MM-DD","score":0.0,"rank":1,"match_reasons":["관측 근거 문장"]}],'
+        '"disclaimer":"관측 해석이며 투자 조언이 아니라는 문장"'
+        "}\n"
+        "neighbors는 입력된 상위 유사 구간 중 최대 5개만 사용하세요. "
+        "출력은 markdown 없이 순수 JSON object 하나만 허용됩니다. "
         "예측, 추천, 목표가격, 매수/매도 신호 표현은 금지합니다.\n"
         f"VIEW: {view}\n"
         f"INPUT_JSON:\n{json.dumps(payload, ensure_ascii=False, default=str)}"

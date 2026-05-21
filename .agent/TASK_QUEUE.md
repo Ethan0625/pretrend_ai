@@ -32,7 +32,7 @@ v2026.05.12
 
 ---
 
-## 상태 요약 (2026-05-15)
+## 상태 요약 (2026-05-21)
 
 | 항목 | 상태 | Source(anchor) |
 |---|---|---|
@@ -53,12 +53,14 @@ v2026.05.12
 | Infrastructure (Bronze/Silver/Gold, Macro/EOD DAG) | OPERATIONAL | 운영 유지 |
 | **Phase 2 stage gate** | DONE | P22~P29 완료 + P29 follow-up hotfix 반영. Phase 3 dashboard 진입 준비 |
 | **P30 Reproducible Runtime & Data Bootstrap** | DONE | `.agent/task/P30_parent_reproducible_runtime.md` |
+| **P31 Observability Dashboard** | DONE | `.agent/task/archive/P31/P31_parent_observability_dashboard.md` |
+| **Phase 3 코드/UI layer** | DONE | P31 — `apps/web/` + 8 screen + 4 chart + docker 통합 |
 
 ---
 
 ## Active Queue
 
-No active leaf task is registered. Phase 3 사전 결정 완료 (`docs/architecture/frontend_decisions.md`, 2026-05-19). 다음 진입은 Phase 3 dashboard parent + leaf task 작성.
+No active leaf task is registered. Phase 3 코드/UI layer는 P31에서 완료했다. 다음 진입은 Cloudflare Tunnel 운영 등록이며, 도메인/계정/토큰 셋업이 준비된 뒤 별도 task로 진행한다.
 
 Backlog:
 - P29 hotfix backlog: resolved after P29.
@@ -67,16 +69,37 @@ Backlog:
   - `hotfix-P29-2.A` Personal Track DAG operational state mismatch: project Airflow metadata에서 3개 Personal DAG paused 확인.
   - `follow-up-P29-1.C` Forbidden-prefix grep allowlist: testing contract에 allowlist-aware 기준 반영.
   - `follow-up-P29-2.B` Airflow CLI environment guard: operation guide에 project env command 추가.
-- Phase 3 사전 결정 (resolved 2026-05-19): `docs/architecture/frontend_decisions.md` 신설. `apps/web/` + Recharts 기본 + 한국어 UI + single trade_date explainability 확정. 대시보드 검증 후 `frontend_contract.md`로 승격 예정.
-- Phase 3 dashboard parent + leaf task 작성: design_sample (`.agent/design_sample/`) + frontend_decisions.md를 reference로, P28 11 endpoint를 consumer로 사용. 예상 leaf 7개 (scaffolding / layout / screens / charts / API client / docker integration / docs).
-- 외부 노출 운영 등록: Phase 3 dashboard 로컬 검증 완료 후 trigger. 도메인/계정/토큰 의존.
-- Phase 3 후반 결정 (Recharts vs Visx): ETF heatmap / similarity replay 구현 시점에 Recharts 한계 검증 후 Visx 도입 여부 결정.
+- Phase 3 dashboard (resolved 2026-05-21): P31에서 `apps/web/` + 8 screen + Recharts chart + docker `web` 서비스를 완료.
+- `frontend_decisions.md` → `frontend_contract.md` 승격 재평가: P31 로컬 E2E는 PASS이나 운영 1주 안정화 조건 미충족으로 보류. 1주 운영 후 재평가.
+- 외부 노출 운영 등록: Phase 3 dashboard 로컬 검증 완료 후 trigger됨. 실제 진행은 도메인/계정/토큰 결정 이후 별도 task.
+- Phase 4+ 후보: ETF heatmap(Visx 검토), similarity replay, window-aware explainability, 외부 사용자 auth/onboarding.
 
 ---
 
 ## Completed (2026Q2~)
 
 > Personal Track 자산의 Completed Log는 `.agent/task/archive/TASK_QUEUE_pre-2026Q2.md` 참조.
+
+### P31 — Observability Dashboard (apps/web/ + 8 screen + Recharts)
+
+- **결과**: Phase 3 코드/UI layer를 완료했다. `apps/web/` dashboard, read-only API consumer, 한국어 UI, 8 screen, Recharts chart, Docker web runtime을 하나의 로컬 운영 표면으로 묶었다.
+- **Artifacts**:
+  - `apps/web/`
+  - `docker/Dockerfile.web`, `docker/nginx.conf`, `docker/Dockerfile.web.dockerignore`
+  - `docker-compose.yml` (`web`, `web-node`)
+  - `.env.example`
+  - `docs/architecture/frontend_decisions.md`
+  - `docs/architecture/observability_layout.md`
+  - `docs/changelog.md`
+- **Verification**:
+  - `docker compose --profile web-dev run --rm web-node sh -lc "npm run build"` PASS.
+  - `docker compose build web` PASS.
+  - `docker compose up -d web` PASS; `pretrend-web` healthy.
+  - `GET /` served SPA HTML at `localhost:3000`.
+  - `GET /api/v1/meta` through nginx same-origin proxy PASS.
+  - 금지 prefix grep for updated web chart/page scope 0.
+  - `frontend_decisions.md` contract 승격은 운영 1주 안정화 조건 미충족으로 보류.
+- **Source(anchor)**: `.agent/task/archive/P31/P31_parent_observability_dashboard.md`
 
 ### P30 — Reproducible Runtime & Data Bootstrap
 
@@ -421,8 +444,8 @@ Backlog:
 
 ## 다음 단계
 
-1. Phase 3 React dashboard task 후보 검토.
-2. 외부 노출 운영 등록은 Phase 3 dashboard 로컬 검증 이후 별도 task로 진행한다.
+1. Cloudflare Tunnel 운영 등록 task를 도메인/계정/토큰 준비 후 시작한다.
+2. `frontend_decisions.md` → `frontend_contract.md` 승격은 P31 운영 1주 안정화 후 재평가한다.
 
 P21은 외부 strategy_engine 의존이 없어 P18 axis_features 패턴으로 완료했다. 디렉토리 명은 `rotation`으로 확정했다.
 

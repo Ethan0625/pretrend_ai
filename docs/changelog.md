@@ -16,6 +16,19 @@ Status: reference
 
 > 참고: changelog 과거 섹션은 작성 시점 원문을 보존한다.
 
+## v2026.05.21 — P31 완료: Phase 3 Observability Dashboard
+
+### feat(observability): React 대시보드 + 8 screen + Recharts chart
+- `apps/web/`에 Vite + React + TypeScript 기반 dashboard를 도입하고 design tokens를 이전했다.
+- TypeScript API client, TanStack Query hooks, same-origin nginx proxy 기준의 API 소비 경계를 구성했다.
+- Overview / Regime / Similarity / Macro / EOD / Explain / Lineage / DAGs 8 screen을 한국어 UI label + 영문 schema/meta 기준으로 구현했다.
+- Recharts 기반 `RegimeTimeline`, `MacroTimeline`, `EodTimeline`, `SimilarityScoreChart`를 추가했다. Regime timeline은 별도 시계열 endpoint 확정 전까지 placeholder임을 화면에 명시한다.
+- `docker/Dockerfile.web`, `docker/nginx.conf`, docker-compose `web`/`web-node` 서비스를 추가해 `localhost:3000` 운영 serve와 `localhost:5173` dev serve를 분리했다.
+- 운영 `web`은 브라우저 번들에 API key를 굽지 않고 nginx가 `PRETREND_API_KEY`를 서버 측에서 `X-API-Key`로 주입한다.
+- 검증: frontend typecheck PASS, production build PASS, `docker compose build web` PASS, `pretrend-web` healthy, `GET /api/v1/meta` proxy smoke PASS.
+- `frontend_decisions.md` → `frontend_contract.md` 승격은 보류한다. P31 로컬 E2E는 통과했지만 운영 1주 안정화 조건이 아직 충족되지 않았으므로 follow-up으로 재평가한다.
+- **Phase 3 코드/UI layer 완료.** Cloudflare Tunnel 외부 노출 등록은 도메인/계정/토큰 결정 후 별도 운영 task로 진행한다.
+
 ## v2026.05.15 — P29 완료: Phase 2 Stage Gate
 
 ### docs(observability): 코드/운영/문서 stage gate 정합 검증 완료

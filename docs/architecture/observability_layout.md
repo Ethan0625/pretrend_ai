@@ -35,9 +35,8 @@ pretrend_ai/
 │   ├── backtest/             # legacy execution reference
 │   ├── paper/                # legacy execution reference
 │   └── broker/               # legacy execution reference
-├── apps/                     # API/dashboard
-│   ├── api/                  # FastAPI
-│   └── web/                  # React + Vite
+├── apps/
+│   └── web/                  # React + Vite dashboard
 ├── migrations/               # Alembic schema migration
 ├── dags/                     # data platform / archived execution DAG 명시
 ├── tests/                    # gate와 domain별 위치 분리
@@ -71,6 +70,11 @@ pretrend_ai/
 | `src/pretrend/api/` | Observability | FastAPI 골격, 설정, auth, async DB session, Pydantic schema | Phase 2 — P28 완료 |
 | `src/pretrend/api/routers/` | Observability | 7 router(health, meta, regime, similarity, macro, eod, explain) | Phase 2 — P28 완료 |
 | `tests/api/` | Observability | API auth / health / router 단위 테스트 | Phase 2 — P28 완료 |
+| `apps/web/src/main.tsx` | Observability | Vite + React + TypeScript dashboard entry | Phase 3 — P31 완료 |
+| `apps/web/src/api/` | Observability | TypeScript API client + TanStack Query hooks | Phase 3 — P31 완료 |
+| `apps/web/src/components/` | Observability | Topbar / Sidebar / Toolbar / primitive UI | Phase 3 — P31 완료 |
+| `apps/web/src/pages/` | Observability | Overview / Regime / Similarity / Macro / EOD / Explain / Lineage / DAGs 8 screen | Phase 3 — P31 완료 |
+| `apps/web/src/charts/` | Observability | Recharts timeline / score chart components | Phase 3 — P31 완료 |
 | `src/pretrend/models/` | Observability | SQLAlchemy + Pydantic | Phase 2 — Gold mirror (P24 완료) |
 | `src/pretrend/config.py` | Observability | 환경/DB 설정 | Phase 0 |
 | `postgres:gold_macro_features` | Observability | Gold Macro Postgres + TimescaleDB hypertable mirror | Phase 2 — P24 완료 |
@@ -88,10 +92,12 @@ pretrend_ai/
 | `src/pretrend/pipeline/strategy_engine/{allocation, policy_selector, sell_advisor, universe}` | Legacy execution | 투자 판단 실험 | 동결 |
 | `src/pretrend/backtest/` | Legacy execution | 백테스트 | 동결 |
 | `src/pretrend/paper/`, `src/pretrend/broker/` | Legacy execution | 페이퍼/브로커 | 동결 |
-| `apps/web/` | Observability | React Dashboard | Phase 3 |
+| `apps/web/` | Observability | React Dashboard | Phase 3 — P31 완료 |
 | `docker/Dockerfile.api` | Observability | FastAPI container image | Phase 2 — P28 완료 |
+| `docker/Dockerfile.web` | Observability | Frontend container image (Node build → nginx serve) | Phase 3 — P31 완료 |
 | `requirements/api.txt` | Observability | FastAPI container 전용 최소 Python runtime dependency | Phase 2 — P28 완료 |
 | `docker-compose.yml` (`api` 서비스) | Observability | 로컬 FastAPI 운영 컨테이너 | Phase 2 — P28 완료 |
+| `docker-compose.yml` (`web`, `web-node` 서비스) | Observability | dashboard 운영/개발 컨테이너 | Phase 3 — P31 완료 |
 | `migrations/` | Observability | Alembic | Phase 2 — Gold schema revision 0002 (P24 완료) |
 | `dags/paper_trading_dag.py`, `dags/broker_mock_trading_dag.py` | Legacy execution | 페이퍼/모의 거래 DAG | 동결 |
 | `dags/macro_pipeline_dag.py`, `dags/eod_pipeline_dag.py` | Infrastructure | 데이터 수집 DAG | 운영 |
@@ -119,6 +125,12 @@ P29 이후 신규 세션은 아래 문서를 우선 참조한다.
 | `PRETREND_API_KEY` | 필수 | `/api/v1/*` 요청의 `X-API-Key` 인증 기준값. `/health`는 인증 예외 |
 | `PRETREND_API_CORS_ORIGINS` | 선택 | Phase 3 dashboard 대비 CORS origin 목록 |
 | `PRETREND_API_TRUSTED_HOSTS` | 선택 | FastAPI TrustedHostMiddleware 허용 host 목록 |
+| `WEB_HOST_PORT` | 선택 | nginx 기반 dashboard host port. 기본 `3000` |
+| `WEB_DEV_HOST_PORT` | 선택 | Vite dev server host port. 기본 `5173` |
+| `VITE_API_URL` | 선택 | Vite build/dev API base URL. 운영 `web`은 빈 값으로 두고 nginx same-origin proxy 사용 |
+| `VITE_API_KEY` | 선택 | Vite dev server 직접 API 호출 시에만 사용. 운영 `web` bundle에는 굽지 않음 |
+| `VITE_API_PROXY_TARGET` | 선택 | `web-node` dev proxy 대상. 기본 `http://api:8000` |
+| `PRETREND_WEB_TAG` | 선택 | `pretrend-web` image tag. 기본 `local` |
 
 ## 4. Import 규칙
 
@@ -188,3 +200,4 @@ grep -rn "from pretrend.strategy_engine\|from pretrend.backtest\|from pretrend.p
 - 2026-05-14: P26으로 `src/pretrend/observability/similarity/`, similarity Postgres schema, canonical market-state feature producer, `similarity_build_dag`, historical `what_to_hold` backfill을 도입.
 - 2026-05-14: P27로 `src/pretrend/observability/explainability/` LLM layer, `explainability_cache`, `explainability_build_dag`를 도입.
 - 2026-05-14: P28로 `src/pretrend/api/` FastAPI read-only API, API key auth, 로컬 docker-compose `api` 서비스를 도입. Phase 2 코드/데이터 layer를 완료하고 외부 노출 운영은 Phase 3 dashboard 이후 별도 task로 분리.
+- 2026-05-21: P31로 `apps/web/` React dashboard, 8 screen, Recharts chart, docker-compose `web`/`web-node` 서비스를 도입. Phase 3 코드/UI layer를 완료하고 외부 노출 운영은 별도 task로 유지.

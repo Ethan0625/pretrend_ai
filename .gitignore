@@ -12,6 +12,7 @@ __pycache__/
 # --- 빌드 / 배포 산출물 ---
 build/
 dist/
+apps/web/dist/
 .eggs/
 *.egg-info/
 *.manifest
@@ -24,6 +25,8 @@ env/
 ENV/
 .conda/
 pip-wheel-metadata/
+node_modules/
+apps/web/node_modules/
 
 # --- 환경 변수 파일 / 시크릿 ---
 .env

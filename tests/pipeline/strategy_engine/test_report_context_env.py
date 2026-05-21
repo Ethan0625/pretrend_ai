@@ -97,6 +97,32 @@ def test_codex_bin_resolver_uses_os_specific_vscode_path(tmp_path) -> None:
     assert resolved == codex
 
 
+def test_codex_bin_resolver_does_not_pick_linux_bin_on_windows(tmp_path) -> None:
+    bin_dir = tmp_path / "codex-bin"
+    bin_dir.mkdir()
+    (bin_dir / "codex").write_text("#!/bin/sh\n", encoding="utf-8")
+
+    codex_dir = (
+        tmp_path
+        / ".vscode"
+        / "extensions"
+        / "openai.chatgpt-1.2.3"
+        / "bin"
+        / "windows-x86_64"
+    )
+    codex_dir.mkdir(parents=True)
+    codex = codex_dir / "codex.exe"
+    codex.write_text("", encoding="utf-8")
+
+    resolved = resolve_codex_bin(
+        env={"PRETREND_CODEX_BIN_DIR": str(bin_dir), "PATH": ""},
+        system="Windows",
+        home=tmp_path,
+    )
+
+    assert resolved == codex
+
+
 def test_codex_bin_resolver_keeps_explicit_path_strict(tmp_path) -> None:
     missing = tmp_path / "missing-codex"
 

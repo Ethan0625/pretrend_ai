@@ -13,6 +13,7 @@ from pretrend.observability.explainability.llm_client import (
     LLMProvider,
     check_invariant_or_raise,
     check_report_invariant_or_raise,
+    explainability_timeout_s,
     get_provider,
 )
 from pretrend.observability.similarity.producer import _get_engine
@@ -57,7 +58,7 @@ def explain_macro(
         _user_prompt(payload),
         max_tokens=1200,
         temperature=0.1,
-        timeout_s=60,
+        timeout_s=explainability_timeout_s(),
     )
     check_invariant_or_raise(raw)
     report = MacroReport.model_validate_json(raw)
@@ -86,7 +87,15 @@ def _load_macro_payload(engine: Engine, query_date: date) -> dict[str, Any]:
 
 def _user_prompt(payload: dict) -> str:
     return (
-        "다음 macro 입력을 기반으로 MacroReport JSON을 작성하세요. "
+        "다음 macro 입력을 기반으로 MacroReport JSON을 작성하세요.\n"
+        "반드시 아래 JSON schema의 top-level key만 사용하세요. key를 한국어로 바꾸거나 추가하지 마세요.\n"
+        "{"
+        '"query_date":"YYYY-MM-DD",'
+        '"indicators":[{"indicator_id":"문자열","current_value":0.0,"delta_3m":0.0,"regime":"문자열 또는 null","narrative":"지표 해석 문장"}],'
+        '"disclaimer":"관측 해석이며 투자 조언이 아니라는 문장"'
+        "}\n"
+        "indicators는 입력된 지표 중 최대 5개만 사용하세요. "
+        "출력은 markdown 없이 순수 JSON object 하나만 허용됩니다. "
         "예측, 추천, 목표가격, 매수/매도 신호 표현은 금지합니다.\n"
         f"INPUT_JSON:\n{json.dumps(payload, ensure_ascii=False, default=str)}"
     )

@@ -1,29 +1,29 @@
-# Explainability Design
+# Explainability 설계
 
 Markers: architecture, contract
 Status: active
 
-> Observability Track P27 SOT. This document defines the LLM explanation layer for cached market-structure reports.
+> Observability Track P27 SOT. 이 문서는 시장 구조 관측 결과를 설명문으로 변환하는 LLM 설명 계층의 계약을 정의한다.
 
 ## 1. 목적과 범위
 
-The explainability layer turns existing Postgres observability data into structured Korean-language reports for API and dashboard use. It explains observed market structure, historical similarity, and macro conditions. It does not forecast returns, recommend trades, or provide buy/sell guidance.
+Explainability 계층은 Postgres에 적재된 observability 데이터를 API와 대시보드에서 사용할 수 있는 구조화된 한국어 설명문으로 변환한다. 설명 대상은 관측된 시장 구조, 과거 유사 구간, 거시 상태이며, 수익률 예측·매매 추천·매수/매도 판단은 생성하지 않는다.
 
-Inputs are existing Postgres mirror/cache tables only:
+입력은 기존 Postgres mirror/cache table로 제한한다.
 
 - `similarity_regime`
 - `similarity_gold`
 - `gold_market_state_similarity_feature`
 - `gold_macro_features`
-- regime runtime snapshots as normalized input where needed
+- 필요한 경우 정규화된 regime runtime snapshot
 
-No external news, social, web, or user chat data is collected in P27.
+P27에서는 외부 뉴스, 소셜 데이터, 웹 데이터, 사용자 채팅 데이터를 수집하지 않는다.
 
-## 2. Invariant
+## 2. 불변 조건
 
-The layer is observation-only. It must not produce predictions, recommendations, target prices, or trading signals.
+이 계층은 관측 설명 전용이다. 예측, 추천, 목표가, 매매 신호를 생성하면 안 된다.
 
-Forbidden terms:
+금지 용어:
 
 - `predicted_`
 - `forecast_`
@@ -35,13 +35,13 @@ Forbidden terms:
 - `sell_signal`
 - `trading_signal`
 
-Existing observational schema names such as `short_signal_code` and `short_signal_confidence` are allowed because they are regime-state identifiers, not trading recommendations.
+`short_signal_code`, `short_signal_confidence`처럼 기존 관측 schema에 존재하는 이름은 regime 상태 식별자이므로 허용한다. 단, 설명문이 이를 매매 추천 의미로 확장하면 안 된다.
 
-## 3. Provider Boundary
+## 3. Provider 경계
 
-P27 uses a protocol-based provider boundary. The only implemented provider in P27 is `VSCodeCodexProvider`, which wraps the existing VSCode extension Codex binary subprocess pattern. OpenAI SDK/API is not used in P27.
+P27은 protocol 기반 provider 경계를 둔다. 직접 실행 provider는 `VSCodeCodexProvider`이며, VS Code extension에 포함된 Codex binary를 subprocess로 호출한다. Docker 운영 경로에서는 Airflow가 Codex를 직접 실행하지 않고 `ApiCodexProvider`를 통해 FastAPI internal analyzer endpoint에 위임한다. OpenAI SDK/API는 P27 구현 대상이 아니다.
 
-Gemini and Ollama are future extension points, not P27 implementation targets.
+Gemini와 Ollama는 향후 확장 지점이며 P27 구현 대상은 아니다.
 
 ```python
 class LLMProvider(Protocol):
@@ -62,39 +62,47 @@ class LLMProvider(Protocol):
         ...
 ```
 
-Provider selection:
+Provider 선택:
 
-- `PRETREND_LLM_PROVIDER`: default `vscode_codex`
-- `PRETREND_CODEX_BIN`: optional explicit Codex binary path; when empty, OS-specific Codex paths are auto-discovered
+- `PRETREND_EXPLAINABILITY_PROVIDER`: Airflow `explainability_build_dag` provider. Docker Compose 기본값은 `api_vscode_codex`다.
+- `PRETREND_EXPLAINABILITY_ANALYZER_API_URL`: Airflow에서 호출하는 internal analyzer endpoint. 기본값은 `http://api:8000/api/v1/report/explainability/analyze`다.
+- `PRETREND_LLM_PROVIDER`: 기본값은 `vscode_codex`다.
+- `PRETREND_CODEX_BIN`: Codex binary의 명시 경로다. 비어 있으면 OS별 후보 경로를 자동 탐색한다.
+- `PRETREND_CODEX_BIN_DIR`: Docker API mode에서 Linux `codex` executable을 `/opt/pretrend/codex-bin`에 read-only mount하기 위한 host directory다.
+- `PRETREND_CODEX_BYPASS_SANDBOX`: API 컨테이너 내부 Codex sandbox를 우회해야 하는 경우에만 `1`로 둔다. 기본 실행은 `workspace-write` sandbox를 사용한다.
 
-Caller policy:
+호출 정책:
 
-- Direct explainer calls use `get_provider()` when no provider is injected.
-- Airflow `explainability_build_dag` defaults to its in-DAG mock provider unless DAG conf explicitly sets a non-mock `provider`.
-- Real LLM DAG runs are manual verification only, for example `{"provider": "vscode_codex"}`.
+- Host-local 직접 실행은 provider가 주입되지 않았을 때 `get_provider()`를 사용한다.
+- Airflow `explainability_build_dag`는 Docker Compose에서 `api_vscode_codex` provider를 사용한다. DAG는 Codex binary를 직접 실행하지 않고 FastAPI internal analyzer endpoint를 호출한다.
+- FastAPI `report` router가 Strategy Engine Telegram report analyzer와 같은 `subprocess + --output-last-message` 방식으로 Codex를 실행한다.
+- 이 구조는 OS 차이를 흡수하기 위한 것이다. Windows host에서는 VS Code extension의 `codex.exe`/`codex.cmd` 후보를 찾고, Docker API 컨테이너에서는 Linux `codex` 실행 파일을 mount해 사용한다.
+- `mock` provider는 pytest와 명시적 manual conf `{"provider": "mock"}` 용도다.
+- Dashboard API는 동일한 `use_case`, `query_date`에 mock row와 real row가 함께 있으면 non-mock cache row를 우선 반환한다.
 
-Retry and timeout:
+재시도와 timeout:
 
-- call retry: 3 attempts
+- call retry: 3회
 - backoff: 1s / 2s / 4s
-- default call timeout: 60s
-- default health check timeout: 10s
+- 기본 call timeout: 60s
+- 기본 health check timeout: 10s
 
-Health check policy:
+Health check 정책:
 
-- `VSCodeCodexProvider.health_check()` verifies binary discovery and executable invocation.
-- DAG task startup must fail fast if health check fails.
-- Actual LLM response generation is optional manual verification; unit and DAG integration tests use mock providers.
+- `VSCodeCodexProvider.health_check()`는 binary 탐색과 실행 가능 여부를 확인한다.
+- `ApiCodexProvider.health_check()`는 internal analyzer API 접근성과 API key 설정을 확인한다.
+- DAG task 시작 시 health check가 실패하면 빠르게 실패해야 한다.
+- 실제 LLM 응답 생성은 runtime smoke 또는 manual verification 대상이며, unit/DAG integration test는 mock provider를 사용한다.
 
-## 4. Use Cases
+## 4. Use Case
 
-User-facing reports are 3 kinds:
+사용자-facing report는 3종이다.
 
 - similarity
 - regime
 - macro
 
-Cache `use_case` enum has 4 values because similarity has two independent views:
+Cache `use_case` enum은 similarity가 두 개의 독립 view를 가지므로 4개 값을 가진다.
 
 - `similarity_regime`
 - `similarity_gold`
@@ -322,29 +330,30 @@ Schedule:
 - `max_active_runs=1`
 - task retries: 3
 
-Rationale:
+스케줄 근거:
 
-- Gold sync runs at 11:00 KST.
-- Similarity build runs at 12:00 KST.
-- Explainability runs at 13:00 KST with a 1-hour buffer.
+- Gold sync는 11:00 KST에 실행된다.
+- Similarity build는 12:00 KST에 실행된다.
+- Explainability는 1시간 buffer를 두고 13:00 KST에 실행된다.
 
-Default daily behavior:
+기본 일일 실행:
 
-- yesterday trade date
-- 4 cache use cases: `similarity_regime`, `similarity_gold`, `regime`, `macro`
+- 기준일은 전일 trade date다.
+- 4개 cache use case를 생성한다: `similarity_regime`, `similarity_gold`, `regime`, `macro`
 
 Manual backfill:
 
-- DAG conf `{"days_back": N}` uses the mock provider by default
-- DAG conf `{"days_back": N, "provider": "mock"}` is equivalent and explicit
-- real VSCode Codex calls are optional manual verification with explicit provider conf
+- Docker Compose runtime에서는 `.env`/compose 기본값에 따라 `api_vscode_codex` provider를 사용한다.
+- 코드 단위 기본값은 test 안정성을 위해 `mock`이다. 따라서 `.env` 없이 module만 import하는 테스트에서는 mock provider가 기본이다.
+- DAG conf `{"days_back": N, "provider": "mock"}`는 synthetic/mock cache를 명시적으로 생성할 때만 사용한다.
+- Host-local 직접 검증이 필요한 경우 `{"provider": "vscode_codex"}`를 명시할 수 있지만, Docker 운영 경로의 표준은 `api_vscode_codex`다.
 
-Historical full backfill policy:
+과거 전체 backfill 정책:
 
-- Current cache identity is `use_case + query_date + model_id + prompt_version`.
-- It does not distinguish explanation scope/window, such as snapshot, rolling 20D, rolling 120D, or full-history-to-date.
-- Do not run historical full LLM backfill until the Phase 3 dashboard defines the explanation scope and the cache/API contract is updated if needed.
-- Phase 3 MVP should prefer latest snapshot explanation or on-demand generation over prefilled historical mock explanations.
+- 현재 cache identity는 `use_case + query_date + model_id + prompt_version`이다.
+- 이 identity는 snapshot, rolling 20D, rolling 120D, full-history-to-date 같은 설명 scope/window를 구분하지 않는다.
+- Phase 3 dashboard에서 설명 scope를 확정하고 필요 시 cache/API 계약을 확장하기 전까지 과거 전체 LLM backfill은 실행하지 않는다.
+- Phase 3 MVP는 대량 mock 설명을 미리 채우기보다 최신 snapshot 설명 또는 on-demand generation을 우선한다.
 
 ## 10. Validation SQL
 

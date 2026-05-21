@@ -13,6 +13,13 @@ except ModuleNotFoundError:  # pragma: no cover - pytest env smoke import fallba
 _FALLBACK_TASKS: dict[str, Any] = {}
 
 
+class _FallbackTask(SimpleNamespace):
+    def __rshift__(self, other):
+        self.downstream_task_ids.add(other.task_id)
+        other.upstream_task_ids.add(self.task_id)
+        return other
+
+
 try:
     from airflow.decorators import dag, task
 except ModuleNotFoundError:  # pragma: no cover - pytest env smoke import fallback
@@ -43,7 +50,7 @@ except ModuleNotFoundError:  # pragma: no cover - pytest env smoke import fallba
             task_id = kwargs.get("task_id") or fn.__name__
 
             def _task(*_args, **_kwargs):
-                task_obj = SimpleNamespace(
+                task_obj = _FallbackTask(
                     task_id=task_id,
                     upstream_task_ids=set(),
                     downstream_task_ids=set(),
@@ -123,6 +130,15 @@ def _current_context() -> dict[str, Any]:
     tags=TAGS,
 )
 def similarity_build():
+    @task(task_id="build_market_state_features")
+    def build_market_state_features_task() -> dict[str, Any]:
+        from pretrend.observability.similarity.runtime_source import (
+            build_market_state_similarity_features_from_runtime,
+        )
+
+        query_start, query_end = _resolve_query_range(_current_context())
+        return build_market_state_similarity_features_from_runtime(query_start, query_end)
+
     @task(task_id="build_regime")
     def build_regime_task() -> dict[str, Any]:
         from pretrend.observability.similarity.builder import build_similarity_regime
@@ -137,8 +153,10 @@ def similarity_build():
         query_start, query_end = _resolve_query_range(_current_context())
         return build_similarity_gold(query_start, query_end)
 
-    build_regime_task()
+    market_state_features = build_market_state_features_task()
+    regime_similarity = build_regime_task()
     build_gold_task()
+    market_state_features >> regime_similarity
 
 
 similarity_build_dag = similarity_build()

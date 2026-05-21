@@ -123,3 +123,57 @@ async def test_strategy_report_analyze_requires_api_key(async_client) -> None:
     )
 
     assert response.status_code == 401
+
+
+@pytest.mark.anyio
+async def test_explainability_analyze_uses_codex_analyzer_endpoint(
+    async_client,
+    api_headers,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[dict] = []
+
+    def _fake_generate_json(*, system_prompt: str, user_prompt: str, timeout: int):
+        calls.append(
+            {
+                "system_prompt": system_prompt,
+                "user_prompt": user_prompt,
+                "timeout": timeout,
+            }
+        )
+        return '{"query_date":"2026-05-14"}'
+
+    monkeypatch.setattr(
+        "pretrend.api.routers.report.generate_json_via_analyzer",
+        _fake_generate_json,
+    )
+
+    response = await async_client.post(
+        "/api/v1/report/explainability/analyze",
+        headers=api_headers,
+        json={
+            "system_prompt": "system",
+            "user_prompt": "user",
+            "timeout": 12,
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"raw_text": '{"query_date":"2026-05-14"}'}
+    assert calls == [
+        {
+            "system_prompt": "system",
+            "user_prompt": "user",
+            "timeout": 12,
+        }
+    ]
+
+
+@pytest.mark.anyio
+async def test_explainability_analyze_requires_api_key(async_client) -> None:
+    response = await async_client.post(
+        "/api/v1/report/explainability/analyze",
+        json={"system_prompt": "system", "user_prompt": "user"},
+    )
+
+    assert response.status_code == 401

@@ -1,0 +1,78 @@
+* {
+  box-sizing: border-box;
+}
+
+html {
+  min-height: 100%;
+  color-scheme: light;
+  background: var(--paper-0);
+}
+
+body {
+  min-width: 320px;
+  min-height: 100vh;
+  margin: 0;
+  color: var(--fg-default-on-paper);
+  background: var(--paper-0);
+  font-family: var(--font-sans);
+  font-size: var(--t-body);
+  line-height: var(--lh-body);
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+a {
+  color: inherit;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+.app-shell {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding: var(--space-5);
+}
+
+.intro-panel {
+  width: min(100%, 720px);
+  border: var(--border-thin) solid var(--paper-3);
+  border-radius: var(--radius-3);
+  background: var(--paper-1);
+  box-shadow: var(--shadow-2);
+  padding: clamp(var(--space-5), 5vw, var(--space-7));
+}
+
+.eyebrow {
+  margin: 0 0 var(--space-3);
+  color: var(--fg-muted-on-paper);
+  font-family: var(--font-mono);
+  font-size: var(--t-label);
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+h1 {
+  margin: 0;
+  color: var(--fg-strong-on-paper);
+  font-size: var(--t-h1);
+  line-height: var(--lh-tight);
+  letter-spacing: 0;
+}
+
+.intro-copy {
+  max-width: 58ch;
+  margin: var(--space-4) 0 0;
+  color: var(--fg-muted-on-paper);
+}

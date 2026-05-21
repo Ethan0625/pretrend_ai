@@ -82,7 +82,7 @@ def eod_pipeline():
     """
     EOD Bronze→Silver→Gold 전체를 한 번에 수행하는 Airflow DAG.
 
-    - data_interval_start를 US/Eastern으로 변환하여 대상 거래일을 결정.
+    - data_interval_end를 US/Eastern으로 변환하여 대상 거래일을 결정.
       backfill/scheduled run 모두 논리 실행일 기준으로 처리.
     - Bronze ingest(Observability SOT 32개 ETF) → Silver Feature → Gold fact mart 순차 실행.
     """
@@ -98,9 +98,11 @@ def eod_pipeline():
         _bootstrap_summary: Dict[str, Any],
         **context: Any,
     ) -> Dict[str, Any]:
-        # 1) Airflow data_interval_start → US/Eastern 변환 (backfill 호환)
-        data_interval_start = context["data_interval_start"]
-        now_et = data_interval_start.in_tz("US/Eastern")
+        # 1) Airflow data_interval_end → US/Eastern 변환 (backfill 호환)
+        # Cron DAG의 logical date는 interval start라서 이를 기준으로 잡으면
+        # daily run이 하루 늦은 거래일을 처리한다.
+        data_interval_end = context["data_interval_end"]
+        now_et = data_interval_end.in_tz("US/Eastern")
 
         # 2) 마지막 완전한 거래일 계산
         target_date: date = get_last_us_trading_date(now_et)

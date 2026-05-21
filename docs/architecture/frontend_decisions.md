@@ -1,7 +1,7 @@
 # Frontend Decisions
 
-Version: 2026.05.19
-Status: **Working — Decisions in progress.** Promote to `frontend_contract.md` after Phase 3 dashboard local E2E 검증 완료.
+Version: 2026.05.21
+Status: **Working — P31 local E2E PASS, contract promotion pending.** Promote to `frontend_contract.md` after 1-week operational stability check.
 Markers: architecture, observability, phase-3
 
 > 📝 **Lifecycle**: 본 문서는 Phase 3 대시보드 구현 진입 전 **사전 결정 SOT**다. 대시보드 로컬 E2E 검증 완료 + 운영 사용 1주 이상 안정화 후 `docs/architecture/frontend_contract.md`로 승격된다. 승격 시 본 파일은 archive 또는 contract로 git mv.
@@ -27,14 +27,22 @@ Phase 2 stage gate (P29) 완료 직후 시점. Phase 3 React Dashboard parent + 
 |---|---|
 | 위치 | `apps/web/` (top-level, REFACTOR_2026Q2.md §2.3 원안 유지) |
 | 빌드 | Vite + React + TypeScript |
-| 패키지 매니저 | npm 또는 pnpm — Phase 3-1 첫 leaf에서 확정 |
+| 패키지 매니저 | npm |
+| 개발/검증 기준 | Docker Compose (`web-node`) |
+| 런타임 기준 | Docker Compose `web` service + nginx static serve |
 
 **근거**:
 - React/TS는 Python 패키지(`src/pretrend/`) 안에 못 들어감. top-level 위치 필수.
 - `apps/web/` 컨벤션이 향후 `apps/{cli,worker}` 확장 여지.
 - `.agent/design_sample/ui_kits/observability/README.md`가 이미 `apps/web/` 가정.
+- host Node/npm 설치 여부에 의존하지 않도록 Docker를 frontend 표준 실행 환경으로 둔다.
 
 **Out-of-Scope**: mobile / desktop app. 현재 web만.
+
+**Dashboard API 인증 기준**:
+- Docker `web` runtime은 브라우저 번들에 API key를 굽지 않는다.
+- nginx same-origin proxy가 `PRETREND_API_KEY`를 서버 측에서 `X-API-Key`로 주입한다.
+- `VITE_API_KEY`는 `web-node`/Vite dev server로 직접 개발할 때만 사용한다.
 
 ### 2.2 차트 라이브러리 — Recharts 기본 + 필요 시 Visx 추가
 
@@ -113,12 +121,12 @@ Phase 2 stage gate (P29) 완료 직후 시점. Phase 3 React Dashboard parent + 
 
 Phase 3 parent + leaf 분해 시 본 결정을 반영:
 
-1. **scaffolding leaf** — `apps/web/` Vite + React + TS 골격, design tokens 이전, Recharts 의존 추가.
+1. **scaffolding leaf** — `apps/web/` Vite + React + TS 골격, design tokens 이전, Recharts 의존 추가, Docker 기반 npm 검증.
 2. **layout leaf** — Topbar / Sidebar / Toolbar / main grid (design_sample 1:1 이전).
 3. **screen leaves** — Regime / Similarity / Macro / EOD / Explain / Overview (각 1 endpoint 매핑, 한국어 라벨).
 4. **차트 leaf** — Recharts 기본 차트 (timeline). heatmap은 후반 결정.
 5. **API client leaf** — TypeScript types (fixtures.js shape → TS) + fetch wrapper + auth header.
-6. **integration leaf** — docker-compose `web` 서비스 + Dockerfile.web + 로컬 E2E.
+6. **integration leaf** — docker-compose `web` 서비스 기준의 API 연결 / 로컬 E2E를 확장 검증.
 7. **docs/queue/changelog leaf** — 본 문서 → contract 승격 가능 시점 평가.
 
 ---
@@ -127,12 +135,22 @@ Phase 3 parent + leaf 분해 시 본 결정을 반영:
 
 다음 조건 모두 충족 시 승격:
 
-- [ ] Phase 3 dashboard 로컬 E2E 검증 PASS (모든 screen 200 응답, 차트 렌더 OK).
-- [ ] 4 결정 모두 실제 구현에서 유효 입증 (구현 중 결정 번복 0).
+- [x] Phase 3 dashboard 로컬 E2E 검증 PASS (모든 screen 200 응답, 차트 렌더 OK).
+- [x] 4 결정 모두 실제 구현에서 유효 입증 (구현 중 결정 번복 0).
 - [ ] design tokens (`apps/web/src/styles/tokens.css`)가 `colors_and_type.css`와 정합 + 운영 1주 이상 변경 0.
-- [ ] 한국어 UI 라벨이 사용자 검증 완료.
-- [ ] Recharts 기본 + Visx 추가 시점 명확화 (어떤 차트가 Visx인가).
-- [ ] Cloudflare Tunnel 외부 노출 전 (외부 노출은 contract 승격 trigger 아님 — 별도 운영 task).
+- [x] 한국어 UI 라벨이 사용자 검증 완료.
+- [x] Recharts 기본 + Visx 추가 시점 명확화 (어떤 차트가 Visx인가).
+- [x] Cloudflare Tunnel 외부 노출 전 (외부 노출은 contract 승격 trigger 아님 — 별도 운영 task).
+
+### 5.1 P31 승격 평가 (2026-05-21)
+
+**평가 결과: 미승격.**
+
+- P31 로컬 E2E는 통과했다: frontend typecheck/build, `docker compose build web`, `pretrend-web` healthy, nginx same-origin `/api/v1/meta` smoke PASS.
+- 구현 중 4개 사전 결정(`apps/web/`, Recharts 기본, 한국어 UI + 영문 메타, single trade_date explainability)은 번복되지 않았다.
+- 운영 `web`은 브라우저 bundle에 API key를 굽지 않고 nginx proxy가 서버 측에서 `X-API-Key`를 주입한다.
+- 미승격 사유는 단 하나다: `tokens.css` 운영 1주 이상 변경 0 조건이 아직 충족되지 않았다.
+- 재평가 시점: P31 운영 1주 후. 조건 충족 시 `frontend_contract.md`로 승격한다.
 
 승격 작업:
 - `git mv docs/architecture/frontend_decisions.md docs/architecture/frontend_contract.md`.
@@ -156,3 +174,4 @@ Phase 3 parent + leaf 분해 시 본 결정을 반영:
 ## 7. 변경 이력
 
 - 2026-05-19: 초안 작성 (Phase 3 사전 결정 SOT). 4 결정 채택 — `apps/web/` / Recharts 기본 / 한국어 UI + 영문 메타 / single trade_date explainability. 승격 lifecycle 명시.
+- 2026-05-21: P31 local E2E 평가. 구현 결정 4개는 유효하나 운영 1주 안정화 조건 미충족으로 contract 승격 보류.

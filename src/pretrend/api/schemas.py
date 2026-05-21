@@ -125,3 +125,13 @@ class StrategyReportAnalyzeRequest(BaseModel):
 
 class StrategyReportAnalyzeResponse(BaseModel):
     analysis_text: str | None = None
+
+
+class ExplainabilityAnalyzeRequest(BaseModel):
+    system_prompt: str
+    user_prompt: str
+    timeout: int | None = None
+
+
+class ExplainabilityAnalyzeResponse(BaseModel):
+    raw_text: str | None = None

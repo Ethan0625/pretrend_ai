@@ -66,8 +66,16 @@ DEFAULT_ARGS: Dict[str, Any] = {
 # ── 헬퍼: 마지막 거래일 계산 ──────────────────────────────
 
 def _last_us_trading_date(anchor: pendulum.DateTime) -> date:
-    """anchor 기준 직전 완전한 미국 거래일 (주말 롤백, 공휴일 미반영)."""
-    candidate = (anchor - timedelta(days=1)).date()
+    """anchor 기준 마지막 완전한 미국 거래일 (주말 롤백, 공휴일 미반영)."""
+    anchor_et = anchor.in_tz("US/Eastern")
+    market_close_hour = 16
+    buffer_hours = 2
+
+    if anchor_et.hour < market_close_hour + buffer_hours:
+        candidate = (anchor_et - timedelta(days=1)).date()
+    else:
+        candidate = anchor_et.date()
+
     while candidate.weekday() >= 5:
         candidate -= timedelta(days=1)
     return candidate
@@ -249,8 +257,8 @@ def strategy_engine_pipeline():
         from pretrend.pipeline.strategy_engine.config import StrategyEngineConfig
         from pretrend.pipeline.strategy_engine.strategy_job import StrategyJobRunner
 
-        data_interval_start = context["data_interval_start"]
-        decision_date = _last_us_trading_date(data_interval_start)
+        data_interval_end = context["data_interval_end"]
+        decision_date = _last_us_trading_date(data_interval_end)
 
         data_root = Path(os.getenv("PRETREND_DATA_ROOT", "data"))
         config = StrategyEngineConfig(data_root=data_root)

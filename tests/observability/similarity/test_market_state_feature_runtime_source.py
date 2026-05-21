@@ -5,31 +5,22 @@ from pathlib import Path
 
 import pandas as pd
 import pytest
-from pydantic import ValidationError
-from sqlalchemy import Engine, create_engine, text
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy import Engine, text
 
-from pretrend.config import get_settings
 from pretrend.observability.similarity.runtime_source import (
+    _default_strategy_root,
     build_market_state_similarity_features_from_runtime,
     load_market_state_runtime_source,
 )
+from tests.observability.db_test_utils import isolated_test_engine
+
+
+REQUIRED_TABLES = {"gold_market_state_similarity_feature"}
 
 
 @pytest.fixture(scope="module")
 def pg_engine() -> Engine:
-    try:
-        database_url = get_settings().database_url
-    except ValidationError as exc:
-        pytest.skip(f"postgres settings unavailable for similarity tests: {exc}")
-
-    engine = create_engine(database_url)
-    try:
-        with engine.connect() as conn:
-            conn.execute(text("SELECT 1"))
-    except SQLAlchemyError as exc:
-        pytest.skip(f"postgres unavailable for similarity tests: {exc}")
-    return engine
+    return isolated_test_engine(REQUIRED_TABLES)
 
 
 @pytest.fixture()
@@ -147,6 +138,17 @@ def test_load_market_state_runtime_source(strategy_root: Path) -> None:
     assert dict(zip(rotation["asset_name"], rotation["group_state_now"]))[
         "INFORMATION_TECH"
     ] == "STRONG"
+
+
+def test_default_strategy_root_uses_data_root_env(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    data_root = tmp_path / "mounted-data"
+    monkeypatch.setenv("PRETREND_DATA_ROOT", str(data_root))
+    monkeypatch.delenv("PRETREND_DATA_DIR", raising=False)
+
+    assert _default_strategy_root() == data_root / "strategy"
 
 
 def test_build_market_state_similarity_features_from_runtime_idempotent(

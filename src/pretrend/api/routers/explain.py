@@ -5,7 +5,7 @@ from datetime import date
 from typing import Literal
 
 from fastapi import APIRouter, Depends
-from sqlalchemy import select
+from sqlalchemy import case, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from pretrend.api.auth import require_api_key
@@ -56,7 +56,10 @@ async def _load_explain(
             ExplainabilityCache.use_case == use_case,
             ExplainabilityCache.query_date == query_date,
         )
-        .order_by(ExplainabilityCache.built_at.desc())
+        .order_by(
+            case((ExplainabilityCache.model_id == "mock", 1), else_=0),
+            ExplainabilityCache.built_at.desc(),
+        )
         .limit(1)
     )
     row = result.scalar_one_or_none()

@@ -488,11 +488,14 @@ The chunk policy is required for first backfill. Daily scheduled runs use only t
 The builder accepts a query date range:
 
 ```text
+build_market_state_similarity_features_from_runtime(query_start, query_end)
 build_similarity_regime(query_start, query_end)
 build_similarity_gold(query_start, query_end)
 ```
 
-For each `query_date`, the builder must:
+`build_market_state_similarity_features_from_runtime`는 `data/strategy` runtime snapshot에서 `gold_market_state_similarity_feature`를 먼저 upsert한다. Docker/Airflow runtime에서는 `PRETREND_DATA_ROOT` 또는 `PRETREND_DATA_DIR` 기준의 `/app/data/strategy`를 읽는다.
+
+For each `query_date`, the similarity builder must:
 
 1. calculate Top-N from the same normalized feature matrix,
 2. delete existing rows for that `query_date` and view,
@@ -518,6 +521,7 @@ Reason:
 - Gold Postgres sync runs at 11:00 KST.
 - Similarity starts one hour later to provide a buffer.
 - DAG has no hard dependency chain to sync DAG.
+- Inside `similarity_build_dag`, `build_market_state_features` must run before `build_regime`. `build_gold` can run independently because it reads Gold mirror tables directly.
 
 Daily default query window:
 

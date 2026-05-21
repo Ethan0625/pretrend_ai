@@ -410,7 +410,9 @@ docker compose --profile airflow up -d airflow-webserver airflow-scheduler
 
 UI는 `http://localhost:8080`에서 확인한다. Admin account는 `.env`의 `AIRFLOW_ADMIN_USER`, `AIRFLOW_ADMIN_PASSWORD`로 생성 또는 갱신된다. 둘 중 하나가 비어 있으면 `airflow-init`은 실패해야 한다.
 
-`strategy_engine_dag`는 LLM report generation을 `PRETREND_REPORT_API_URL`을 통해 FastAPI service에 위임한다. Airflow는 scheduler/data-runner이며, 선택된 API runtime이 Codex analyzer execution을 소유한다. Docker API mode에서는 `api` container가 담당한다. Linux `codex` binary를 `PRETREND_CODEX_BIN_DIR`에 복사 또는 mount하고, Codex state는 `PRETREND_CODEX_HOME_DIR`로 mount한다. Host-local FastAPI mode에서는 Windows host process가 VS Code extension binary/session을 재사용하고, Airflow는 `http://host.docker.internal:8100/...`을 호출한다.
+`strategy_engine_dag`는 LLM report generation을 `PRETREND_REPORT_API_URL`을 통해 FastAPI service에 위임한다. `explainability_build_dag`도 Docker runtime에서는 `PRETREND_EXPLAINABILITY_PROVIDER=api_vscode_codex`를 사용해 FastAPI internal analyzer endpoint에 위임한다. Airflow는 scheduler/data-runner이며, 선택된 API runtime이 Codex analyzer execution을 소유한다. Docker API mode에서는 `api` container가 담당한다. Linux `codex` binary를 `PRETREND_CODEX_BIN_DIR`에 복사 또는 mount하고, Codex state는 `PRETREND_CODEX_HOME_DIR`로 mount한다. Host-local FastAPI mode에서는 Windows host process가 VS Code extension binary/session을 재사용하고, Airflow는 `http://host.docker.internal:8100/...`을 호출한다.
+
+이 경계는 OS 차이를 줄이기 위한 운영 계약이다. Windows host에서는 VS Code extension의 `codex.exe`/`codex.cmd`를 탐색하고, Docker container에서는 Linux `codex` 실행 파일을 `/opt/pretrend/codex-bin`에서 탐색한다. 따라서 Airflow container가 직접 host용 Codex binary를 실행하는 구조를 표준으로 두지 않는다.
 
 Host-local FastAPI mode:
 

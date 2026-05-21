@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -16,7 +17,7 @@ from pretrend.pipeline.config.eod_observability import LABEL_BY_SYMBOL_V1
 from pretrend.pipeline.utils.snapshot import load_strategy_snapshot
 
 
-DEFAULT_STRATEGY_ROOT = Path("data/strategy")
+DEFAULT_DATA_ROOT = Path("data")
 
 MARKET_STATE_COLUMNS = [
     "trade_date",
@@ -61,7 +62,7 @@ def load_market_state_runtime_source(
     query_end: date,
     strategy_root: Path | str | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    root = Path(strategy_root) if strategy_root is not None else DEFAULT_STRATEGY_ROOT
+    root = Path(strategy_root) if strategy_root is not None else _default_strategy_root()
     axis = _load_snapshot(root, "axis_horizon_state")
     position = _load_snapshot(root, "market_position")
     next_step = load_next_step_for_runtime(
@@ -239,6 +240,11 @@ def _build_rotation_source(
     )
     grouped["group_state_now"] = grouped["relative_strength"].map(_rotation_state)
     return grouped[columns].reset_index(drop=True)
+
+
+def _default_strategy_root() -> Path:
+    data_root = os.getenv("PRETREND_DATA_ROOT") or os.getenv("PRETREND_DATA_DIR")
+    return Path(data_root) / "strategy" if data_root else DEFAULT_DATA_ROOT / "strategy"
 
 
 def _resolve_universe_trade_date(universe: pd.DataFrame) -> pd.Series:

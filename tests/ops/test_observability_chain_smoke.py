@@ -6,8 +6,9 @@ from typing import Any
 
 import pandas as pd
 import pytest
-from sqlalchemy import Engine, create_engine, text
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy import Engine, text
+
+from tests.observability.db_test_utils import isolated_test_engine
 
 
 pytestmark = [pytest.mark.db, pytest.mark.slow, pytest.mark.invariant]
@@ -61,35 +62,7 @@ class FakeSimilarityProvider:
 
 @pytest.fixture(scope="module")
 def pg_engine() -> Engine:
-    try:
-        from pretrend.config import get_settings
-
-        database_url = get_settings().database_url
-    except Exception as exc:
-        pytest.skip(f"postgres settings unavailable for OFS-202 smoke: {exc}")
-
-    engine = create_engine(database_url)
-    try:
-        with engine.connect() as conn:
-            rows = conn.execute(
-                text(
-                    """
-                    SELECT table_name
-                    FROM information_schema.tables
-                    WHERE table_schema = 'public'
-                      AND table_name = ANY(:tables)
-                    """
-                ),
-                {"tables": sorted(REQUIRED_TABLES)},
-            ).scalars()
-            existing = set(rows)
-    except SQLAlchemyError as exc:
-        pytest.skip(f"postgres unavailable for OFS-202 smoke: {exc}")
-
-    missing = REQUIRED_TABLES - existing
-    if missing:
-        pytest.skip(f"OFS-202 tables are not migrated: {sorted(missing)}")
-    return engine
+    return isolated_test_engine(REQUIRED_TABLES)
 
 
 @pytest.fixture()

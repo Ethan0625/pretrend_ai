@@ -8,10 +8,15 @@ from starlette.concurrency import run_in_threadpool
 
 from pretrend.api.auth import require_api_key
 from pretrend.api.schemas import (
+    ExplainabilityAnalyzeRequest,
+    ExplainabilityAnalyzeResponse,
     StrategyReportAnalyzeRequest,
     StrategyReportAnalyzeResponse,
 )
 from pretrend.observability.explainability.context import generate_llm_analysis
+from pretrend.observability.explainability.legacy_report.analyzer import (
+    generate_json_via_analyzer,
+)
 from pretrend.pipeline.strategy_engine.json_safety import make_json_safe
 
 router = APIRouter(
@@ -70,3 +75,24 @@ async def analyze_strategy_report(
         logger.warning("strategy report analysis failed; returning null analysis_text", exc_info=True)
         analysis_text = None
     return StrategyReportAnalyzeResponse(analysis_text=analysis_text)
+
+
+@router.post("/explainability/analyze", response_model=ExplainabilityAnalyzeResponse)
+async def analyze_explainability_report(
+    request: ExplainabilityAnalyzeRequest,
+) -> ExplainabilityAnalyzeResponse:
+    timeout = request.timeout or _env_int(
+        "REPORT_ANALYZER_TIMEOUT",
+        DEFAULT_REPORT_LLM_TIMEOUT,
+    )
+    try:
+        raw_text = await run_in_threadpool(
+            generate_json_via_analyzer,
+            system_prompt=request.system_prompt,
+            user_prompt=request.user_prompt,
+            timeout=timeout,
+        )
+    except Exception:
+        logger.warning("explainability analysis failed; returning null raw_text", exc_info=True)
+        raw_text = None
+    return ExplainabilityAnalyzeResponse(raw_text=raw_text)

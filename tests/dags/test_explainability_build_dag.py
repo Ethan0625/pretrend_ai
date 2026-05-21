@@ -9,6 +9,14 @@ def _dag_module():
     return importlib.import_module("dags.explainability_build_dag")
 
 
+class FakeProvider:
+    def __init__(self, model_id: str) -> None:
+        self.model_id = model_id
+
+    def health_check(self, *, timeout_s: int = 10) -> bool:
+        return True
+
+
 def test_dag_imports_without_airflow() -> None:
     module = _dag_module()
     assert module.explainability_build_dag is not None
@@ -81,17 +89,23 @@ def test_mock_provider_health_check() -> None:
     assert provider.health_check()
 
 
-def test_default_provider_is_mock() -> None:
+def test_default_provider_is_mock(monkeypatch) -> None:
     module = _dag_module()
+    monkeypatch.delenv("PRETREND_EXPLAINABILITY_PROVIDER", raising=False)
+    monkeypatch.delenv("PRETREND_LLM_PROVIDER", raising=False)
     context = {"dag_run": SimpleNamespace(conf={})}
     provider = module._resolve_provider(context)
     assert provider.model_id == "mock"
     assert provider.health_check()
 
 
-def test_blank_provider_is_mock() -> None:
+def test_blank_provider_uses_env_provider(monkeypatch) -> None:
     module = _dag_module()
+    monkeypatch.setenv("PRETREND_EXPLAINABILITY_PROVIDER", "api_vscode_codex")
+    from pretrend.observability.explainability import llm_client
+
+    monkeypatch.setattr(llm_client, "get_provider", lambda name: FakeProvider(name))
     context = {"dag_run": SimpleNamespace(conf={"provider": " "})}
     provider = module._resolve_provider(context)
-    assert provider.model_id == "mock"
+    assert provider.model_id == "api_vscode_codex"
     assert provider.health_check()

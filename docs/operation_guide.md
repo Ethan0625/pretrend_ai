@@ -107,7 +107,7 @@ Backfill fallback 순서:
 2. 기존 pipeline 호환을 위해 `PRETREND_DATA_ROOT`가 같은 data path를 가리키게 한다.
 3. Macro/EOD data lake를 필요한 기간만 재생성한다.
 4. `gold_postgres_sync_dag`로 Gold Parquet을 serving DB에 UPSERT한다.
-5. `similarity_build_dag`는 명시한 `query_start`/`query_end` 범위로 재생성한다.
+5. `similarity_build_dag`는 명시한 `query_start`/`query_end` 범위로 재생성한다. 이 DAG는 먼저 `data/strategy` runtime snapshot에서 `gold_market_state_similarity_feature`를 upsert한 뒤 `similarity_regime`을 만들고, `similarity_gold`는 Gold mirror 기준으로 재생성한다.
 6. `explainability_build_dag`는 latest/on-demand 범위만 사용한다. historical full LLM backfill은 Phase 3 dashboard의 scope/window/cache key 계약이 정해지기 전까지 수행하지 않는다.
 
 ## Observability Runtime 운영 명령 (Phase 0~3)
@@ -215,8 +215,8 @@ curl -s -o /dev/null -w "%{http_code}\n" -H "X-API-Key: $PRETREND_API_KEY" "http
 curl -s -o /dev/null -w "%{http_code}\n" -H "X-API-Key: $PRETREND_API_KEY" "http://localhost:8000/api/v1/regime?trade_date=2024-06-03"
 curl -s -o /dev/null -w "%{http_code}\n" -H "X-API-Key: $PRETREND_API_KEY" "http://localhost:8000/api/v1/similarity?query_date=2024-06-03&view=regime&top_n=5"
 curl -s -o /dev/null -w "%{http_code}\n" -H "X-API-Key: $PRETREND_API_KEY" "http://localhost:8000/api/v1/similarity?query_date=2024-06-03&view=gold&top_n=5"
-curl -s -o /dev/null -w "%{http_code}\n" -H "X-API-Key: $PRETREND_API_KEY" "http://localhost:8000/api/v1/macro?trade_date=2024-06-03&indicator_id=CPIAUCSL"
-curl -s -o /dev/null -w "%{http_code}\n" -H "X-API-Key: $PRETREND_API_KEY" "http://localhost:8000/api/v1/macro/timeline?indicator_id=CPIAUCSL&start=2024-01-01&end=2024-06-03"
+curl -s -o /dev/null -w "%{http_code}\n" -H "X-API-Key: $PRETREND_API_KEY" "http://localhost:8000/api/v1/macro?trade_date=2024-06-03&indicator_id=CPI_US_ALL_ITEMS_SA"
+curl -s -o /dev/null -w "%{http_code}\n" -H "X-API-Key: $PRETREND_API_KEY" "http://localhost:8000/api/v1/macro/timeline?indicator_id=CPI_US_ALL_ITEMS_SA&start=2024-01-01&end=2024-06-03"
 curl -s -o /dev/null -w "%{http_code}\n" -H "X-API-Key: $PRETREND_API_KEY" "http://localhost:8000/api/v1/eod?symbol=SPY&trade_date=2024-06-03"
 curl -s -o /dev/null -w "%{http_code}\n" -H "X-API-Key: $PRETREND_API_KEY" "http://localhost:8000/api/v1/eod/timeline?symbol=SPY&start=2024-01-01&end=2024-06-03"
 curl -s -o /dev/null -w "%{http_code}\n" -H "X-API-Key: $PRETREND_API_KEY" "http://localhost:8000/api/v1/regime/explain?trade_date=2024-06-03"
@@ -683,6 +683,7 @@ ls airflow_pretrend/logs/dag_id=*/run_id=*/task_id=*/
 ### 트러블슈팅
 | 증상 | 원인 | 조치 |
 |------|------|------|
+| `docker pull` 또는 `docker compose ...`에서 `error getting credentials` / `A specified logon session does not exist` | Windows Docker Desktop credential helper(`credsStore: "desktop"`)가 현재 로그인 세션에서 정상 응답하지 않음 | Docker Desktop 재시작, sign out/sign in, `docker logout`/`docker login`을 먼저 시도. 계속 실패하면 `%USERPROFILE%\.docker\config.json`을 백업한 뒤 `credsStore`를 제거하고 public image pull을 재시도 |
 | Scheduler restart loop (`FileNotFoundError: 'airflow'`) | systemd 서비스에 PATH 미설정 | 서비스 파일에 `Environment=PATH=...` 추가 후 재배포 |
 | `.env.airflow` 변수 미적용 (TIMEZONE=utc 등) | `EnvironmentFile` 누락 또는 대시 prefix(`-`) | `EnvironmentFile=/path/.env.airflow` (대시 없이) 설정 |
 | DAG 미인식 | `DAGS_FOLDER` 경로 불일치 | `.env.airflow`의 `AIRFLOW__CORE__DAGS_FOLDER` 확인 |

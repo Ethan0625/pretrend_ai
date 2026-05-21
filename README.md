@@ -85,8 +85,10 @@ Phase 3 dashboard 진입 전 P30에서 Docker runtime, Postgres volume path, DB 
 기본 실행은 repo-local path를 사용한다.
 
 ```bash
-docker compose up -d postgres api
+docker compose up -d postgres api web
 ```
+
+Dashboard는 `http://localhost:3000`, API는 `http://localhost:8000`에서 확인한다.
 
 Postgres data와 backup 위치는 host env var로 바꿀 수 있다.
 
@@ -755,7 +757,8 @@ PYTHONPATH=src python -m pretrend.pipeline.eod_job \
 * [x] **Regime modules**: `src/pretrend/observability/` 하위 market structure feature module 정리
 * [x] **Serving layer**: Gold Postgres schema, sync DAG, similarity, explainability, FastAPI
 * [x] **Runtime 재현성**: Docker runtime, Airflow 2 profile, backup/restore, one-shot backfill
-* [ ] **Phase 3 Dashboard**: heatmap, regime timeline, similarity replay, explanation view
+* [x] **Phase 3 Dashboard**: `apps/web/` 8 screen, Recharts chart, explanation view, Docker web runtime
+* [ ] **Phase 4+ visual 확장**: ETF heatmap, similarity replay, window-aware explainability
 * [ ] **Managed runtime 검토**: 외부 hosting은 가용성/사용자 요구가 생길 때만 검토
 
 ### Infrastructure (완료)

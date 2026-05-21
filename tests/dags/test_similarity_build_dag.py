@@ -37,17 +37,20 @@ def test_dag_tasks_exist() -> None:
     task_ids = set(getattr(dag, "task_ids", set()))
     if not task_ids and hasattr(dag, "task_dict"):
         task_ids = set(dag.task_dict)
-    assert {"build_regime", "build_gold"}.issubset(task_ids)
+    assert {"build_market_state_features", "build_regime", "build_gold"}.issubset(task_ids)
 
 
-def test_dag_tasks_independent() -> None:
+def test_dag_task_dependencies() -> None:
     module = _dag_module()
     dag = module.similarity_build_dag
     task_dict = getattr(dag, "task_dict", {})
+    build_market_state_features = task_dict["build_market_state_features"]
     build_regime = task_dict["build_regime"]
     build_gold = task_dict["build_gold"]
-    assert build_regime.upstream_task_ids == set()
+    assert build_market_state_features.upstream_task_ids == set()
+    assert build_regime.upstream_task_ids == {"build_market_state_features"}
     assert build_gold.upstream_task_ids == set()
+    assert "build_regime" in build_market_state_features.downstream_task_ids
     assert "build_gold" not in build_regime.downstream_task_ids
     assert "build_regime" not in build_gold.downstream_task_ids
 

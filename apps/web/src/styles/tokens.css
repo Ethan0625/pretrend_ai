@@ -1,0 +1,312 @@
+/* ============================================================
+   Pretrend Design System — Foundations
+   Tokens for the reproducible market data platform.
+   Mirrors the contract-first, evidence-first product language:
+   Bronze → Silver → Gold data layers, PIT-safe / UNKNOWN states.
+   ============================================================ */
+
+/* --- Fonts (CDN) -------------------------------------------- */
+/* Pretendard: optimized for Korean + Latin; clean technical UI. */
+/* JetBrains Mono: code, timestamps, dataset IDs, schema labels. */
+@import url("https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css");
+@import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap");
+
+:root {
+  /* === Type stacks ======================================== */
+  --font-sans: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont,
+               system-ui, "Apple SD Gothic Neo", "Noto Sans KR", "Segoe UI",
+               Helvetica, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo,
+               "Cascadia Mono", Consolas, monospace;
+
+  /* === Neutral surfaces ==================================== */
+  /* "Ink" = dark mode primary, "Paper" = light mode primary.    */
+  --ink-0:  oklch(0.175 0.010 245);   /* base canvas (deepest)   */
+  --ink-1:  oklch(0.215 0.012 245);   /* card / panel            */
+  --ink-2:  oklch(0.260 0.013 245);   /* elevated / hover        */
+  --ink-3:  oklch(0.310 0.014 245);   /* divider, subtle border  */
+  --ink-4:  oklch(0.380 0.015 245);   /* strong border / chrome  */
+
+  --paper-0: oklch(0.985 0.004 85);   /* base canvas (warm white)*/
+  --paper-1: oklch(0.965 0.006 85);   /* card / panel            */
+  --paper-2: oklch(0.930 0.008 85);   /* elevated / hover        */
+  --paper-3: oklch(0.890 0.010 85);   /* divider                 */
+  --paper-4: oklch(0.820 0.012 85);   /* strong border           */
+
+  /* === Foreground (text) =================================== */
+  --fg-strong-on-ink:   oklch(0.985 0.004 85);
+  --fg-default-on-ink:  oklch(0.880 0.006 85);
+  --fg-muted-on-ink:    oklch(0.680 0.014 245);
+  --fg-faint-on-ink:    oklch(0.520 0.014 245);
+
+  --fg-strong-on-paper: oklch(0.180 0.012 245);
+  --fg-default-on-paper:oklch(0.260 0.014 245);
+  --fg-muted-on-paper:  oklch(0.460 0.014 245);
+  --fg-faint-on-paper:  oklch(0.620 0.012 245);
+
+  /* === Brand: data-layer palette =========================== */
+  /* Tied directly to the product's Bronze→Silver→Gold flow.    */
+  /* These are NOT decorative — they label data tier severity:  */
+  /*   bronze = raw, mutable, unverified                        */
+  /*   silver = normalized, dedup'd, contract-aligned           */
+  /*   gold   = PIT-safe SOT, the trust boundary                */
+  --bronze:        oklch(0.620 0.085 52);
+  --bronze-soft:   oklch(0.620 0.085 52 / 0.18);
+  --bronze-ink:    oklch(0.380 0.085 52);
+
+  --silver:        oklch(0.745 0.012 245);
+  --silver-soft:   oklch(0.745 0.012 245 / 0.18);
+  --silver-ink:    oklch(0.450 0.015 245);
+
+  --gold:          oklch(0.780 0.110 88);
+  --gold-soft:     oklch(0.780 0.110 88 / 0.20);
+  --gold-ink:      oklch(0.500 0.105 85);
+
+  /* === Semantic state ====================================== */
+  /* "PIT-safe" is the product's healthy state. Naming follows. */
+  --pit-safe:      oklch(0.700 0.130 168); /* teal-green        */
+  --pit-safe-soft: oklch(0.700 0.130 168 / 0.16);
+  --pit-safe-ink:  oklch(0.420 0.110 168);
+
+  --warn:          oklch(0.790 0.140 78);  /* amber             */
+  --warn-soft:     oklch(0.790 0.140 78 / 0.18);
+  --warn-ink:      oklch(0.500 0.130 70);
+
+  --danger:        oklch(0.625 0.190 25);  /* red, drift/breach */
+  --danger-soft:   oklch(0.625 0.190 25 / 0.18);
+  --danger-ink:    oklch(0.450 0.170 25);
+
+  --unknown:       oklch(0.555 0.012 245); /* fail-open UNKNOWN */
+  --unknown-soft:  oklch(0.555 0.012 245 / 0.18);
+
+  --info:          oklch(0.660 0.140 245); /* lineage / link    */
+  --info-soft:     oklch(0.660 0.140 245 / 0.18);
+
+  /* === Geometry ============================================ */
+  --radius-1: 4px;     /* chips, inline tags */
+  --radius-2: 8px;     /* fields, buttons    */
+  --radius-3: 12px;    /* cards              */
+  --radius-4: 18px;    /* hero / large panels*/
+  --radius-pill: 999px;
+
+  --border-thin: 1px;
+  --border-med:  1.5px;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --space-8: 64px;
+  --space-9: 96px;
+
+  /* === Elevation =========================================== */
+  /* Restrained. Borders do most of the work; shadows are quiet.*/
+  --shadow-1: 0 1px 0 oklch(0 0 0 / 0.04);
+  --shadow-2: 0 1px 2px oklch(0 0 0 / 0.06), 0 1px 1px oklch(0 0 0 / 0.04);
+  --shadow-3: 0 4px 12px oklch(0 0 0 / 0.08), 0 1px 2px oklch(0 0 0 / 0.04);
+  --shadow-4: 0 12px 32px oklch(0 0 0 / 0.12), 0 2px 4px oklch(0 0 0 / 0.06);
+  --shadow-inset: inset 0 1px 0 oklch(1 0 0 / 0.04);
+
+  /* === Motion ============================================== */
+  --ease-out: cubic-bezier(0.2, 0.7, 0.1, 1);
+  --ease-in-out: cubic-bezier(0.6, 0.05, 0.3, 0.95);
+  --dur-1: 120ms;
+  --dur-2: 200ms;
+  --dur-3: 320ms;
+
+  /* === Typographic scale ================================== */
+  --t-display:  clamp(40px, 5.6vw, 72px);
+  --t-h1:       clamp(32px, 3.4vw, 44px);
+  --t-h2:       clamp(24px, 2.4vw, 30px);
+  --t-h3:       18px;
+  --t-body:     16px;
+  --t-small:    14px;
+  --t-tiny:     12px;
+  --t-label:    11px; /* mono uppercase eyebrow */
+
+  --lh-tight: 1.08;
+  --lh-snug:  1.25;
+  --lh-body:  1.55;
+  --lh-loose: 1.75;
+
+  /* Tabular for all numerics in data tables.                  */
+  --num-feat: "tnum" 1, "lnum" 1, "ss01" 1;
+}
+
+/* =============================================================
+   Semantic role variables — re-mapped per surface (ink vs paper).
+   Components only ever read --fg, --bg, --border etc.
+   ============================================================= */
+:root,
+.theme-paper {
+  --bg-canvas:   var(--paper-0);
+  --bg-surface:  var(--paper-1);
+  --bg-elevated: var(--paper-2);
+  --bg-sunken:   var(--paper-2);
+
+  --border-subtle: var(--paper-3);
+  --border-default: var(--paper-4);
+
+  --fg-strong:  var(--fg-strong-on-paper);
+  --fg-default: var(--fg-default-on-paper);
+  --fg-muted:   var(--fg-muted-on-paper);
+  --fg-faint:   var(--fg-faint-on-paper);
+}
+
+.theme-ink {
+  --bg-canvas:   var(--ink-0);
+  --bg-surface:  var(--ink-1);
+  --bg-elevated: var(--ink-2);
+  --bg-sunken:   oklch(0.150 0.010 245);
+
+  --border-subtle: var(--ink-2);
+  --border-default: var(--ink-3);
+
+  --fg-strong:  var(--fg-strong-on-ink);
+  --fg-default: var(--fg-default-on-ink);
+  --fg-muted:   var(--fg-muted-on-ink);
+  --fg-faint:   var(--fg-faint-on-ink);
+
+  color-scheme: dark;
+}
+
+/* =============================================================
+   Reset + base type
+   ============================================================= */
+*,
+*::before,
+*::after { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  background: var(--bg-canvas);
+  color: var(--fg-default);
+  font-family: var(--font-sans);
+  font-size: var(--t-body);
+  line-height: var(--lh-body);
+  font-feature-settings: "ss01", "cv11";
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* =============================================================
+   Type roles — use these classes directly OR inherit via element.
+   ============================================================= */
+
+.t-display {
+  font-family: var(--font-sans);
+  font-weight: 700;
+  font-size: var(--t-display);
+  line-height: var(--lh-tight);
+  letter-spacing: -0.022em;
+  color: var(--fg-strong);
+}
+
+.t-h1 {
+  font-family: var(--font-sans);
+  font-weight: 700;
+  font-size: var(--t-h1);
+  line-height: var(--lh-tight);
+  letter-spacing: -0.018em;
+  color: var(--fg-strong);
+}
+
+.t-h2 {
+  font-family: var(--font-sans);
+  font-weight: 600;
+  font-size: var(--t-h2);
+  line-height: var(--lh-snug);
+  letter-spacing: -0.012em;
+  color: var(--fg-strong);
+}
+
+.t-h3 {
+  font-family: var(--font-sans);
+  font-weight: 600;
+  font-size: var(--t-h3);
+  line-height: var(--lh-snug);
+  letter-spacing: -0.004em;
+  color: var(--fg-strong);
+}
+
+.t-body {
+  font-family: var(--font-sans);
+  font-weight: 400;
+  font-size: var(--t-body);
+  line-height: var(--lh-body);
+}
+
+.t-small {
+  font-family: var(--font-sans);
+  font-weight: 400;
+  font-size: var(--t-small);
+  line-height: var(--lh-body);
+  color: var(--fg-muted);
+}
+
+.t-tiny {
+  font-family: var(--font-sans);
+  font-size: var(--t-tiny);
+  line-height: 1.4;
+  color: var(--fg-muted);
+}
+
+/* Eyebrow / section label — mono, uppercase, tracked.          */
+.t-label {
+  font-family: var(--font-mono);
+  font-weight: 500;
+  font-size: var(--t-label);
+  line-height: 1;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+}
+
+.t-mono {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  font-feature-settings: "ss02", "calt" 1;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Inline code & data tokens — IDs, dates, paths.               */
+.t-code {
+  font-family: var(--font-mono);
+  font-size: 0.86em;
+  padding: 0.12em 0.4em;
+  border-radius: var(--radius-1);
+  background: var(--bg-elevated);
+  color: var(--fg-strong);
+  border: 1px solid var(--border-subtle);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Tabular numerals utility for tables of metrics.              */
+.num-tab {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: var(--num-feat);
+}
+
+/* Default heading mapping (when class isn't applied).          */
+h1 { font: 700 var(--t-h1)/var(--lh-tight) var(--font-sans); letter-spacing: -0.018em; color: var(--fg-strong); margin: 0; }
+h2 { font: 600 var(--t-h2)/var(--lh-snug) var(--font-sans); letter-spacing: -0.012em; color: var(--fg-strong); margin: 0; }
+h3 { font: 600 var(--t-h3)/var(--lh-snug) var(--font-sans); color: var(--fg-strong); margin: 0; }
+p  { margin: 0; }
+code, pre, kbd, samp { font-family: var(--font-mono); }
+
+a {
+  color: var(--info);
+  text-decoration: none;
+  border-bottom: 1px solid color-mix(in oklch, var(--info) 30%, transparent);
+  transition: color var(--dur-1) var(--ease-out),
+              border-color var(--dur-1) var(--ease-out);
+}
+a:hover { color: color-mix(in oklch, var(--info) 80%, var(--fg-strong)); border-bottom-color: currentColor; }
+
+::selection {
+  background: color-mix(in oklch, var(--gold) 40%, transparent);
+  color: var(--fg-strong);
+}

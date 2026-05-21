@@ -82,6 +82,25 @@ def _require_codex_bin() -> Path:
         raise RuntimeError(str(exc)) from exc
 
 
+def _codex_exec_args() -> list[str]:
+    args = ["exec", "--skip-git-repo-check"]
+    bypass = os.getenv("PRETREND_CODEX_BYPASS_SANDBOX", "").strip().lower()
+    if bypass in {"1", "true", "yes"}:
+        args.append("--dangerously-bypass-approvals-and-sandbox")
+    else:
+        sandbox = os.getenv("PRETREND_CODEX_SANDBOX", "workspace-write").strip()
+        args.extend(["--sandbox", sandbox or "workspace-write"])
+    return args
+
+
+def _codex_resume_args() -> list[str]:
+    args = ["--skip-git-repo-check"]
+    bypass = os.getenv("PRETREND_CODEX_BYPASS_SANDBOX", "").strip().lower()
+    if bypass in {"1", "true", "yes"}:
+        args.append("--dangerously-bypass-approvals-and-sandbox")
+    return args
+
+
 def _extract_session_id(output: str) -> Optional[str]:
     match = _SESSION_ID_RE.search(output)
     return match.group(0) if match else None
@@ -143,6 +162,33 @@ def _build_report_analyzer_prompt(
 [현재 입력 payload]
 {user_content}
 """
+
+
+def generate_json_via_analyzer(
+    *,
+    system_prompt: str,
+    user_prompt: str,
+    timeout: int,
+) -> Optional[str]:
+    """Run Codex with the report analyzer's output-file invocation contract."""
+    codex_bin = _require_codex_bin()
+    project_dir = _project_root()
+    prompt = f"{system_prompt}\n\n{user_prompt}".strip()
+    result, response = _run_codex_output_command(
+        [
+            str(codex_bin),
+            *_codex_exec_args(),
+            "-C",
+            str(project_dir),
+            prompt,
+        ],
+        cwd=project_dir,
+        timeout=timeout,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.strip() or result.stdout.strip() or "Codex analyzer failed")
+    raw = response or result.stdout.strip()
+    return raw or None
 
 
 def _build_report_working_state_text(
@@ -385,8 +431,7 @@ def generate_report_via_analyzer(
         result, response = _run_codex_output_command(
             [
                 str(codex_bin),
-                "exec",
-                "--full-auto",
+                *_codex_exec_args(),
                 "-C",
                 str(project_dir),
                 prompt,
@@ -425,10 +470,8 @@ def generate_report_via_analyzer(
                 str(codex_bin),
                 "exec",
                 "resume",
+                *_codex_resume_args(),
                 session.session_id,
-                "--full-auto",
-                "-C",
-                str(project_dir),
                 prompt,
             ],
             cwd=project_dir,
@@ -449,8 +492,7 @@ def generate_report_via_analyzer(
     result, response = _run_codex_output_command(
         [
             str(codex_bin),
-            "exec",
-            "--full-auto",
+            *_codex_exec_args(),
             "-C",
             str(project_dir),
             prompt,

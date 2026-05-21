@@ -13,7 +13,7 @@ def _normal_system(system: str | None = None) -> str:
 
 def _codex_names(system: str) -> tuple[str, ...]:
     if system == "windows":
-        return ("codex.exe", "codex")
+        return ("codex.exe", "codex.cmd")
     return ("codex",)
 
 

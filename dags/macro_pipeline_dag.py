@@ -65,7 +65,9 @@ def macro_pipeline():
       - 출력은 파티션 overwrite 기반 멱등성을 전제로 한다.
 
     기준일(anchor_date):
-      - Airflow의 data_interval_start.date()를 사용(매일 스케줄에서 '실행 논리일').
+      - Airflow의 data_interval_end.date()를 사용한다.
+        Cron DAG의 logical date는 interval start라서 start 기준으로 잡으면
+        daily run이 하루 늦은 구간을 처리한다.
 
     처리 구간:
       - start_date: anchor_date - 1일(= 어제) 기준 최근 35일
@@ -90,7 +92,7 @@ def macro_pipeline():
         if data_interval_start is None or data_interval_end is None:
             raise ValueError("data_interval_start / data_interval_end is required")
 
-        anchor_date: date = data_interval_start.date()
+        anchor_date: date = data_interval_end.date()
         end_dt: date = anchor_date - timedelta(days=1)
 
         # 최근 35일 롤링 재수집

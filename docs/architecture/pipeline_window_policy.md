@@ -30,6 +30,10 @@ Status: active
 5. Upstream rolling rebuild 범위가 바뀌면 downstream sync lookback도 같이 바꾼다.
    - 예를 들어 Macro Gold가 최근 35일을 다시 쓴다면 Postgres sync도 최소 같은 35일을 다시 읽어야 한다.
 
+6. Daily scheduled DAG의 기준일은 Airflow `data_interval_end`로 산정한다.
+   - Cron DAG의 logical date는 interval start다. `data_interval_start`로 최신 거래일을 계산하면 scheduled run이 하루 늦은 partition을 처리한다.
+   - EOD, Macro, Strategy daily DAG는 `data_interval_end`를 기준으로 마지막 완료 거래일 또는 rolling window anchor를 계산한다.
+
 ## 3. 현재 처리 윈도우
 
 | 영역 | 코드 위치 | 현재 값 | 산정 기준 | 같이 확인할 값 |
@@ -88,6 +92,7 @@ Status: active
 - `tests/pipeline/test_gold_eod_features.py::test_ge5_load_silver_scopes_to_requested_window_and_symbols`
 - `tests/pipeline/test_eod_silver_writer_idempotency.py::test_load_bronze_eod_scopes_to_requested_dates_and_symbols`
 - `tests/pipeline/test_calendar.py`
+- `tests/dags/test_daily_dag_interval_contract.py`
 - `tests/pipeline/sync/test_gold_postgres_sync_scope.py`
 
 관련 변경 후에는 최소한 아래 범위를 실행한다.

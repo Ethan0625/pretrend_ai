@@ -52,5 +52,6 @@ Agent docs publication도 같은 marker vocabulary를 사용한다. Whitelist와
 | 문서 | 역할 |
 | --- | --- |
 | [operation/reproducible_runtime_contract.md](operation/reproducible_runtime_contract.md) | Docker runtime, Airflow profile, restore/backfill, 격리 test DB, 재현성 검증 절차. |
+| [operation/RUN_LOG.md](operation/RUN_LOG.md) | 로컬 운영/검증 중 발생한 재현성 이슈와 조치 내역. |
 | [testing/operational_invariant_test_contract.md](testing/operational_invariant_test_contract.md) | pytest marker/gate, runtime gate, DB synthetic row smoke 기준. |
 | [testing/operational_failure_scenario_catalog.md](testing/operational_failure_scenario_catalog.md) | `OFS-*` 운영 장애 시나리오와 synthetic test data anchor. |

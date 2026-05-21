@@ -4,11 +4,8 @@ from datetime import date, timedelta
 
 import numpy as np
 import pytest
-from pydantic import ValidationError
-from sqlalchemy import Engine, create_engine, text
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy import Engine, text
 
-from pretrend.config import get_settings
 from pretrend.observability.similarity.columns import (
     REGIME_SIMILARITY_FEATURE_COLUMNS,
 )
@@ -17,22 +14,21 @@ from pretrend.observability.similarity.builder import (
     build_similarity_regime,
     cosine_topn,
 )
+from tests.observability.db_test_utils import isolated_test_engine
+
+
+REQUIRED_TABLES = {
+    "similarity_regime",
+    "similarity_gold",
+    "gold_market_state_similarity_feature",
+    "gold_eod_features",
+    "gold_macro_features",
+}
 
 
 @pytest.fixture(scope="module")
 def pg_engine() -> Engine:
-    try:
-        database_url = get_settings().database_url
-    except ValidationError as exc:
-        pytest.skip(f"postgres settings unavailable for similarity tests: {exc}")
-
-    engine = create_engine(database_url)
-    try:
-        with engine.connect() as conn:
-            conn.execute(text("SELECT 1"))
-    except SQLAlchemyError as exc:
-        pytest.skip(f"postgres unavailable for similarity tests: {exc}")
-    return engine
+    return isolated_test_engine(REQUIRED_TABLES)
 
 
 @pytest.fixture()
