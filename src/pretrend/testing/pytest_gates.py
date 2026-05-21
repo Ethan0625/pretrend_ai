@@ -68,6 +68,9 @@ def marker_names_for_path(rel_path: str) -> set[str]:
         if "backfill" in rel:
             markers.add("invariant")
 
+    if rel.startswith("tests/web/"):
+        markers.add("contract")
+
     if rel.startswith("tests/observability/"):
         markers.add("invariant")
         if rel in {

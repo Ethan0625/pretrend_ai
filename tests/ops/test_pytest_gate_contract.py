@@ -53,6 +53,9 @@ def test_path_marker_classification_covers_operational_surfaces() -> None:
         "contract",
         "invariant",
     }
+    assert marker_names_for_path("tests/web/test_eod_symbol_universe.py") == {
+        "contract",
+    }
     assert marker_names_for_path("tests/archive/personal/test_bot/test_policy.py") == {
         "personal",
         "slow",
