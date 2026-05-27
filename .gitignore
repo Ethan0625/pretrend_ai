@@ -82,6 +82,8 @@ lightning_logs/
 data/
 !docs/data/
 !docs/data/*.md
+!apps/web/src/data/
+!apps/web/src/data/*.ts
 datasets/
 raw
 raw_data/

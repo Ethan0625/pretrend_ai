@@ -32,7 +32,7 @@ v2026.05.12
 
 ---
 
-## 상태 요약 (2026-05-21)
+## 상태 요약 (2026-05-27)
 
 | 항목 | 상태 | Source(anchor) |
 |---|---|---|
@@ -55,14 +55,35 @@ v2026.05.12
 | **P30 Reproducible Runtime & Data Bootstrap** | DONE | `.agent/task/P30_parent_reproducible_runtime.md` |
 | **P31 Observability Dashboard** | DONE | `.agent/task/archive/P31/P31_parent_observability_dashboard.md` |
 | **Phase 3 코드/UI layer** | DONE | P31 — `apps/web/` + 8 screen + 4 chart + docker 통합 |
-| **P32 Phase 3 후속작업** | DONE | `.agent/task/P32_parent_phase3_followup.md` |
-| **P33 Debug History System** | IN_PROGRESS | `.agent/task/P33_parent_debug_history.md` |
+| **P32 Phase 3 후속작업** | DONE | `.agent/task/archive/P32/P32_parent_phase3_followup.md` |
+| **P33 Debug History System** | DONE | `.agent/task/P33_parent_debug_history.md` |
+| **P34 Observability Regime Feature Pipeline 독립화** | TODO | `.agent/task/P34_parent_regime_pipeline_independence.md` |
 
 ---
 
 ## Active Queue
 
-현재 active task 없음.
+### P34 — Observability Regime Feature Pipeline 독립화
+
+**Why now**: `similarity_regime`이 Personal Track frozen 코드(`strategy_job`) 산출물에 의존해 수동 개입 없이는 Gold Macro/EOD와 날짜가 어긋난다. Observability Track 자립 파이프라인의 핵심 선행 조건.
+
+**DoD**:
+- [ ] Gold DB(`gold_eod_features`, `gold_macro_features`)만 읽어 `gold_market_state_similarity_feature`를 생성하는 Observability-native builder 완성
+- [ ] `similarity_build_dag`의 `build_market_state_features_task`가 새 경로로 교체됨
+- [ ] `data/strategy/` 없이 `similarity_regime` 갱신 확인
+- [ ] 기존 `_from_runtime()` 함수는 deprecated 표기(삭제 아님)
+- [ ] `pytest -q --tb=short` 전체 회귀 없음
+
+**Risk**: axis 모듈 입력 컬럼과 Gold DB 컬럼 불일치 → builder 내부 rename/select로 대응
+
+**Source(anchor)**: `.agent/task/P34_parent_regime_pipeline_independence.md`
+
+| Leaf | 제목 | depends_on | 상태 |
+|---|---|---|---|
+| P34-1 | Observability-native Regime Feature Builder 신설 | — | TODO |
+| P34-2 | runtime_source + DAG 교체 | P34-1 | TODO |
+
+---
 
 Backlog:
 - P29 hotfix backlog: resolved after P29.
@@ -86,11 +107,26 @@ Backlog:
 
 **Why now**: P31/P32 완료 후 포트폴리오 보강 단계. 운영 incident를 `Contract → Prevention` 구조로 추적하는 체계 신설 + 대시보드 탭 추가.
 
-**DoD**:
-- [ ] `docs/operation/debug_history.md`, `incident_template.md`, `incidents/P-001-example.md`, `docs/assets/screenshots/README.md` 생성
-- [ ] `docs/README.md`에서 `debug_history.md` 링크 접근 가능
-- [ ] dashboard "디버그 히스토리" 탭 렌더링 + build PASS
-- [ ] 기존 코드/API/architecture 문서 회귀 없음
+**결과**: Debug History 문서 체계와 dashboard 탐색 탭을 추가했다. RUN_LOG와 이번 운영 검증에서 확인한 실제 이슈를 P-101~P-104 incident로 승격하고, P-001은 작성 예시로만 유지했다.
+
+**Artifacts**:
+- `docs/operation/debug_history.md`
+- `docs/operation/incident_template.md`
+- `docs/operation/incidents/P-001-example.md`
+- `docs/operation/incidents/P-101-docker-credential-helper.md`
+- `docs/operation/incidents/P-102-postgres-crash-recovery.md`
+- `docs/operation/incidents/P-103-eod-silver-window-scan.md`
+- `docs/operation/incidents/P-104-regime-snapshot-dependency.md`
+- `docs/assets/screenshots/README.md`
+- `apps/web/src/data/incidents.ts`
+- `apps/web/src/pages/DebugHistory.tsx`
+- `apps/web/src/router.tsx`, `apps/web/src/components/Sidebar.tsx`, `apps/web/src/types/screen.ts`
+- `.gitignore` (`apps/web/src/data/` 추적 예외)
+
+**Verification**:
+- `docker compose --profile web-dev run --rm web-node sh -lc "npm run build"` PASS.
+- `/debug-history` route, Sidebar nav, Incident Index table mirror 확인.
+- `docs/README.md`에서 `debug_history.md` 링크 접근 가능.
 
 **Risk**: P33-2 Sidebar nav 수정 시 기존 항목 깨질 가능성 → 마지막에만 추가
 
@@ -99,7 +135,7 @@ Backlog:
 | Leaf | 제목 | depends_on | 상태 |
 |---|---|---|---|
 | P33-1 | Debug History 문서 체계 생성 | — | DONE |
-| P33-2 | Dashboard 디버그 히스토리 탭 | — | TODO |
+| P33-2 | Dashboard 디버그 히스토리 탭 | — | DONE |
 
 ---
 
@@ -135,7 +171,7 @@ Backlog:
   - Dashboard의 유사도 설명을 기존 날짜 Top-N 설명이 아니라 `similarity_events` 역사 이벤트 유사시기 설명으로 교체.
   - Windows에서 text bronze partition overwrite가 실패하지 않도록 `Path.replace()` 기반으로 보정.
   - Windows pytest에서 VSCode Codex health check fixture가 실행 가능한 `.cmd`를 사용하도록 보정.
-- **Source(anchor)**: `.agent/task/P32_parent_phase3_followup.md`
+- **Source(anchor)**: `.agent/task/archive/P32/P32_parent_phase3_followup.md`
 
 ### P31 — Observability Dashboard (apps/web/ + 8 screen + Recharts)
 

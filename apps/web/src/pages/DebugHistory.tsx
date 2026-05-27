@@ -30,13 +30,14 @@ export function DebugHistory() {
         <thead>
           <tr>
             <th>ID</th>
-            <th>Date</th>
-            <th>Area</th>
-            <th>Severity</th>
-            <th>Status</th>
-            <th>Symptom</th>
-            <th>Guard</th>
-            <th>Detail</th>
+            <th>날짜</th>
+            <th>영역</th>
+            <th>심각도</th>
+            <th>상태</th>
+            <th>증상</th>
+            <th>근본 원인</th>
+            <th>가드</th>
+            <th>상세</th>
           </tr>
         </thead>
         <tbody>
@@ -48,6 +49,7 @@ export function DebugHistory() {
               <td><Pill variant={severityVariant(inc.severity)}>{inc.severity}</Pill></td>
               <td><Pill variant={statusVariant(inc.status)}>{inc.status}</Pill></td>
               <td>{inc.symptom}</td>
+              <td>{inc.rootCause}</td>
               <td>{inc.guard}</td>
               <td>
                 {inc.detailPath

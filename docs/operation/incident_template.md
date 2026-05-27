@@ -1,41 +1,41 @@
 Markers: operation
 Status: active
 
-# Incident 작성 템플릿
+# 인시던트 작성 템플릿
 
-각 incident는 이 파일을 복사해 `docs/operation/incidents/P-XXX-title.md`로 저장한다.
+각 인시던트는 이 파일을 복사해 `docs/operation/incidents/P-XXX-title.md`로 저장한다.
 
 **스크린샷은 설명의 중심이 아니다.**  
-스크린샷은 Symptom 섹션에서 필요할 때만 `docs/assets/screenshots/` 아래 보조 증거로 둔다.  
-incident의 중심은 항상 아래 네 가지다.
+스크린샷은 증상 섹션에서 필요할 때만 `docs/assets/screenshots/` 아래 보조 증거로 둔다.  
+인시던트의 중심은 항상 아래 네 가지다.
 
 ```
-Broken Contract
-Root Cause
-Fix
-Guard
+깨진 계약
+근본 원인
+수정
+가드
 ```
 
-Guard가 없으면 Resolved가 아니라 Monitoring 또는 Deferred로 기록한다.
+가드가 없으면 Resolved가 아니라 Monitoring 또는 Deferred로 기록한다.
 
 ---
 
-# P-XXX — Incident Title
+# P-XXX — 인시던트 제목
 
-## 1. Summary
+## 1. 요약
 
 - ID: `P-XXX`
-- Date:
-- Area: (Dashboard / Gold Layer / Calendar / EOD / Strategy / Runtime / Airflow / Tests / Docs)
-- Severity: (Critical / High / Medium / Low)
-- Status: (Draft / Investigating / Resolved / Monitoring / Deferred)
-- Related Commit:
-- Related Tests:
-- Related Contract Docs:
+- 날짜:
+- 영역: (대시보드 / Gold 계층 / Calendar / EOD / Strategy / Runtime / Airflow / Tests / Docs)
+- 심각도: (Critical / High / Medium / Low)
+- 상태: (Draft / Investigating / Resolved / Monitoring / Deferred)
+- 관련 커밋:
+- 관련 테스트:
+- 관련 계약 문서:
 
 ---
 
-## 2. Broken Contract
+## 2. 깨진 계약
 
 어떤 계약 또는 운영 기준이 깨졌는가?
 
@@ -47,7 +47,7 @@ Gold layer는 trade_date 기준으로 release_date < trade_date 조건을 만족
 
 ---
 
-## 3. Symptom
+## 3. 증상
 
 어떤 증상으로 발견했는가?
 
@@ -63,13 +63,13 @@ Gold layer는 trade_date 기준으로 release_date < trade_date 조건을 만족
 
 ---
 
-## 4. Expected Behavior
+## 4. 기대 동작
 
 정상 동작은 무엇이어야 하는가?
 
 ---
 
-## 5. Root Cause
+## 5. 근본 원인
 
 원인은 무엇인가?
 
@@ -81,7 +81,7 @@ Gold layer는 trade_date 기준으로 release_date < trade_date 조건을 만족
 
 ---
 
-## 6. Fix
+## 6. 수정
 
 무엇을 어떻게 수정했는가?
 
@@ -92,7 +92,7 @@ Gold layer는 trade_date 기준으로 release_date < trade_date 조건을 만족
 
 ---
 
-## 7. Verification
+## 7. 검증
 
 어떻게 검증했는가?
 
@@ -103,28 +103,28 @@ Gold layer는 trade_date 기준으로 release_date < trade_date 조건을 만족
 
 ---
 
-## 8. Prevention / Guard
+## 8. 예방 / 가드
 
 같은 문제가 다시 발생하지 않게 어떤 장치를 두었는가?
 
-- test
-- contract doc update
-- helper/service extraction
-- validation rule
+- 테스트
+- 계약 문서 업데이트
+- helper/service 추출
+- 검증 규칙
 - dashboard read-only view
 - CI gate
-- runbook update
+- runbook 업데이트
 
-**Guard 없이 Resolved로 표기하지 않는다.**
+**가드 없이 Resolved로 표기하지 않는다.**
 
 ---
 
-## 9. Remaining Debt
+## 9. 남은 부채
 
 아직 남은 한계나 후속 작업은 무엇인가?
 
 ---
 
-## 10. Notes
+## 10. 메모
 
 추가 메모.
