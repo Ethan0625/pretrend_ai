@@ -9,6 +9,8 @@ export interface ToolbarProps {
   onView?: (view: SimilarityView) => void;
   onRefresh?: () => void;
   onViewJson?: () => void;
+  showViewSelector?: boolean;
+  metaText?: string;
 }
 
 export function Toolbar({
@@ -18,6 +20,8 @@ export function Toolbar({
   onView,
   onRefresh,
   onViewJson,
+  showViewSelector = true,
+  metaText,
 }: ToolbarProps) {
   return (
     <div className="toolbar">
@@ -29,15 +33,17 @@ export function Toolbar({
         value={tradeDate}
         onChange={(event) => onTradeDate?.(event.target.value)}
       />
-      <div className="seg" aria-label="유사도 뷰">
-        <button className={view === "regime" ? "on" : ""} type="button" onClick={() => onView?.("regime")}>
-          regime
-        </button>
-        <button className={view === "gold" ? "on" : ""} type="button" onClick={() => onView?.("gold")}>
-          gold
-        </button>
-      </div>
-      <span className="t-mono toolbar-meta">view={view} · top_n=10</span>
+      {showViewSelector ? (
+        <div className="seg" aria-label="유사도 뷰">
+          <button className={view === "regime" ? "on" : ""} type="button" onClick={() => onView?.("regime")}>
+            regime
+          </button>
+          <button className={view === "gold" ? "on" : ""} type="button" onClick={() => onView?.("gold")}>
+            gold
+          </button>
+        </div>
+      ) : null}
+      <span className="t-mono toolbar-meta">{metaText ?? `view=${view} · top_n=10`}</span>
       <div className="spacer" />
       <Pill variant="pit-safe">PIT-SAFE</Pill>
       <button className="btn btn-secondary btn-sm" type="button" onClick={onRefresh}>

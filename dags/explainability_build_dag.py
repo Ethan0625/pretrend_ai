@@ -90,6 +90,16 @@ class MockProvider:
         timeout_s: int,
     ) -> str:
         query_date = _extract_query_date(user_prompt)
+        if "EventSimilarityReport" in user_prompt:
+            return json.dumps(
+                {
+                    "query_date": query_date,
+                    "summary": "역사 이벤트 유사시기와 현재 관측 상태의 공통점을 요약했습니다.",
+                    "events": [],
+                    "disclaimer": "이 설명은 관측 데이터 해석이며 투자 조언이 아닙니다.",
+                },
+                ensure_ascii=False,
+            )
         if "SimilarityReport" in user_prompt:
             view = "gold" if "VIEW: gold" in user_prompt else "regime"
             return json.dumps(
@@ -208,17 +218,16 @@ def _current_context() -> dict[str, Any]:
 def explainability_build():
     @task(task_id="build_similarity")
     def build_similarity_task() -> dict[str, Any]:
-        from pretrend.observability.explainability.similarity_explainer import (
-            explain_similarity,
+        from pretrend.observability.explainability.event_similarity_explainer import (
+            explain_similarity_events,
         )
 
         context = _current_context()
         provider = _resolve_provider(context)
         query_dates = _resolve_query_dates(context)
         for query_date in query_dates:
-            explain_similarity(query_date, "regime", provider=provider)
-            explain_similarity(query_date, "gold", provider=provider)
-        return {"dates": [d.isoformat() for d in query_dates], "views": ["regime", "gold"]}
+            explain_similarity_events(query_date, provider=provider)
+        return {"dates": [d.isoformat() for d in query_dates], "use_case": "similarity_events"}
 
     @task(task_id="build_regime")
     def build_regime_task() -> dict[str, Any]:

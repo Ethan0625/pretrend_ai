@@ -49,6 +49,19 @@ async def test_explain_similarity_cache_hit(async_client, override_session, api_
 
 
 @pytest.mark.anyio
+async def test_explain_similarity_events_cache_hit(async_client, override_session, api_headers) -> None:
+    override_session(FakeSession(FakeResult(scalar=_row("similarity_events"))))
+
+    response = await async_client.get(
+        "/api/v1/similarity/events/explain?query_date=2026-05-14",
+        headers=api_headers,
+    )
+
+    assert response.status_code == 200
+    assert response.json()["use_case"] == "similarity_events"
+
+
+@pytest.mark.anyio
 async def test_explain_macro_cache_hit(async_client, override_session, api_headers) -> None:
     override_session(FakeSession(FakeResult(scalar=_row("macro"))))
 
@@ -63,7 +76,7 @@ async def test_explain_macro_cache_hit(async_client, override_session, api_heade
 
 @pytest.mark.anyio
 async def test_explain_cache_miss_returns_404(async_client, override_session, api_headers) -> None:
-    override_session(FakeSession(FakeResult(scalar=None)))
+    override_session(FakeSession(FakeResult(scalar=None), FakeResult(scalar=date(2026, 5, 13))))
 
     response = await async_client.get(
         "/api/v1/regime/explain?trade_date=2026-05-14",
@@ -71,6 +84,11 @@ async def test_explain_cache_miss_returns_404(async_client, override_session, ap
     )
 
     assert response.status_code == 404
+    body = response.json()
+    assert body["detail"] == "Not found"
+    assert body["reason"] == "not_yet_built"
+    assert body["latest_available"] == "2026-05-13"
+    assert body["query"] == {"use_case": "regime", "query_date": "2026-05-14"}
 
 
 @pytest.mark.anyio

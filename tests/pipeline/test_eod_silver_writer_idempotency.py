@@ -135,6 +135,50 @@ def test_load_bronze_eod_scopes_to_requested_dates_and_symbols(tmp_path):
     assert loaded.iloc[0]["trade_date"] == date(2024, 5, 31)
 
 
+def test_load_bronze_eod_scopes_to_requested_dates_without_symbol_filter(tmp_path):
+    """
+    Incremental EOD Silver should window Bronze reads even when all symbols are requested.
+    """
+    cfg = EodFeatureConfig(data_root=tmp_path, min_history_days=5)
+
+    _write_bronze_eod_partition(
+        cfg.bronze_root,
+        "SPY",
+        "2024-05-31",
+        _make_bronze_df("SPY", "2024-05-31"),
+    )
+    _write_bronze_eod_partition(
+        cfg.bronze_root,
+        "QQQ",
+        "2024-05-31",
+        _make_bronze_df("QQQ", "2024-05-31"),
+    )
+
+    old_dir = (
+        cfg.bronze_root
+        / "source=YF"
+        / "theme=GENERIC"
+        / "symbol=SPY"
+        / "trade_date=2003-01-02"
+    )
+    old_dir.mkdir(parents=True, exist_ok=True)
+    (old_dir / "eod.parquet").write_text("not a parquet file", encoding="utf-8")
+
+    ctx = EodFeatureRunContext(
+        feature_start_date=date(2024, 6, 3),
+        feature_end_date=date(2024, 6, 3),
+        run_id="scoped_load_all_symbols",
+        ingestion_ts=pd.Timestamp("2024-06-04"),
+        cfg=cfg,
+    )
+
+    loaded = load_bronze_eod(ctx)
+
+    assert len(loaded) == 2
+    assert set(loaded["symbol"]) == {"SPY", "QQQ"}
+    assert set(loaded["trade_date"]) == {date(2024, 5, 31)}
+
+
 def test_eod_write_overwrites_partition(tmp_path):
     """
     Second write to the same (symbol, year, month) partition replaces rows instead of appending.

@@ -5,12 +5,14 @@ import type {
   DateString,
   EodResponse,
   EodTimelineResponse,
+  EventSimilarityResponse,
   ExplainResponse,
   HealthResponse,
   MacroResponse,
   MacroTimelineResponse,
   MetaResponse,
   RegimeResponse,
+  RegimeTimelineResponse,
   SimilarityResponse,
   SimilarityView,
 } from "./types";
@@ -36,6 +38,17 @@ export function useRegime(tradeDate: OptionalParam): UseQueryResult<RegimeRespon
     queryKey: ["regime", tradeDate],
     queryFn: () => apiFetch<RegimeResponse>(withQuery("/api/v1/regime", { trade_date: tradeDate })),
     enabled: hasValue(tradeDate),
+  });
+}
+
+export function useRegimeTimeline(
+  start: OptionalParam,
+  end: OptionalParam,
+): UseQueryResult<RegimeTimelineResponse, ApiError> {
+  return useQuery({
+    queryKey: ["regime", "timeline", start, end],
+    queryFn: () => apiFetch<RegimeTimelineResponse>(withQuery("/api/v1/regime/timeline", { start, end })),
+    enabled: hasValue(start) && hasValue(end),
   });
 }
 
@@ -69,6 +82,17 @@ export function useSimilarity(
   });
 }
 
+export function useSimilarityEvents(
+  queryDate: OptionalParam,
+  enabled = true,
+): UseQueryResult<EventSimilarityResponse, ApiError> {
+  return useQuery({
+    queryKey: ["similarity", "events", queryDate],
+    queryFn: () => apiFetch<EventSimilarityResponse>(withQuery("/api/v1/similarity/events", { query_date: queryDate })),
+    enabled: enabled && hasValue(queryDate),
+  });
+}
+
 export function useSimilarityExplain(
   queryDate: OptionalParam,
   view: SimilarityView | null | undefined,
@@ -83,6 +107,18 @@ export function useSimilarityExplain(
         }),
       ),
     enabled: hasValue(queryDate) && hasValue(view),
+  });
+}
+
+export function useSimilarityEventsExplain(
+  queryDate: OptionalParam,
+  enabled = true,
+): UseQueryResult<ExplainResponse, ApiError> {
+  return useQuery({
+    queryKey: ["similarityEventsExplain", queryDate],
+    queryFn: () =>
+      apiFetch<ExplainResponse>(withQuery("/api/v1/similarity/events/explain", { query_date: queryDate })),
+    enabled: enabled && hasValue(queryDate),
   });
 }
 

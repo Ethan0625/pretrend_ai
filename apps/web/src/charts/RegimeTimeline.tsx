@@ -9,39 +9,12 @@ import {
   YAxis,
 } from "recharts";
 
-import type { RegimeFeature } from "@/api/types";
-
-import { addUtcDays, axisTick, chartColors, finiteNumber, formatDate, formatNumber, tooltipStyle } from "./common";
+import { axisTick, chartColors, formatDate, formatNumber, tooltipStyle } from "./common";
 
 export interface RegimeTimelinePoint {
   trade_date: string;
-  bias_20d: number;
-  transition_hazard_10d: number;
-}
-
-export function buildRegimeTimelinePlaceholder(
-  endDate: string,
-  feature: RegimeFeature | undefined,
-): RegimeTimelinePoint[] {
-  if (!endDate) {
-    return [];
-  }
-
-  const baseBias = pickFeatureNumber(feature, ["bias_20d", "market_bias_20d", "bias_score"], 0.08);
-  const baseHazard = pickFeatureNumber(
-    feature,
-    ["transition_hazard_10d", "transition_hazard", "hazard_10d"],
-    0.22,
-  );
-
-  return Array.from({ length: 20 }, (_, index) => {
-    const step = index - 19;
-    return {
-      trade_date: addUtcDays(endDate, step),
-      bias_20d: clamp(baseBias + Math.sin(index / 3) * 0.08 + step * 0.002, -1, 1),
-      transition_hazard_10d: clamp(baseHazard + Math.cos(index / 4) * 0.05, 0, 1),
-    };
-  });
+  short_signal_code: number | null;
+  transition_hazard_10d: number | null;
 }
 
 export function RegimeTimeline({ data, height = 280 }: { data: RegimeTimelinePoint[]; height?: number }) {
@@ -61,15 +34,15 @@ export function RegimeTimeline({ data, height = 280 }: { data: RegimeTimelinePoi
             labelFormatter={(value) => `trade_date=${formatDate(String(value))}`}
             formatter={(value, name) => [
               formatNumber(Number(value), 4),
-              name === "bias_20d" ? "20일 편향" : "10일 전환 위험",
+              name === "short_signal_code" ? "단기 신호" : "10일 전환 위험",
             ]}
           />
           <Legend
-            formatter={(value) => (value === "bias_20d" ? "20일 편향" : "10일 전환 위험")}
+            formatter={(value) => (value === "short_signal_code" ? "단기 신호" : "10일 전환 위험")}
             wrapperStyle={{ color: "var(--fg-muted)", fontSize: 11 }}
           />
           <Line
-            dataKey="bias_20d"
+            dataKey="short_signal_code"
             dot={false}
             isAnimationActive={false}
             stroke={chartColors.info}
@@ -88,21 +61,4 @@ export function RegimeTimeline({ data, height = 280 }: { data: RegimeTimelinePoi
       </ResponsiveContainer>
     </div>
   );
-}
-
-function pickFeatureNumber(feature: RegimeFeature | undefined, keys: string[], fallback: number): number {
-  if (!feature) {
-    return fallback;
-  }
-  for (const key of keys) {
-    const value = finiteNumber(feature[key]);
-    if (value !== null) {
-      return value;
-    }
-  }
-  return fallback;
-}
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.max(min, Math.min(max, value));
 }

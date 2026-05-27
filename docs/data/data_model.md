@@ -327,7 +327,7 @@ Grain: `(symbol, trade_date)`
 
 ## 8. Postgres Serving Schema
 
-Postgres는 `pretrend_obs` DB의 serving mirror/cache다. Migration 기준은 `migrations/versions/0002_gold_schema.py`, `0003_similarity_schema.py`, `0004_explainability_cache.py`다.
+Postgres는 `pretrend_obs` DB의 serving mirror/cache다. Migration 기준은 `migrations/versions/0002_gold_schema.py`, `0003_similarity_schema.py`, `0004_explainability_cache.py`, `0005_similarity_events_explainability.py`다.
 
 ### 8.1 Gold mirror tables
 
@@ -357,8 +357,10 @@ Gold sync는 `src/pretrend/pipeline/sync/gold_postgres.py`가 담당한다. `gol
 허용 `use_case`:
 
 ```text
-similarity_regime, similarity_gold, regime, macro
+similarity_events, similarity_regime, similarity_gold, regime, macro
 ```
+
+`similarity_events`는 P32 Dashboard의 유사도 설명 기준이다. `similarity_regime`, `similarity_gold`는 날짜 Top-N neighbor 설명을 위한 legacy/manual cache로 유지한다.
 
 LLM/Codex 분석 결과는 cache에 저장되지만, trading decision source로 사용하지 않는다.
 

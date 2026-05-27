@@ -23,7 +23,7 @@ class ExplainabilityCache(Base):
             name="pk_explainability_cache",
         ),
         CheckConstraint(
-            "use_case IN ('similarity_regime','similarity_gold','regime','macro')",
+            "use_case IN ('similarity_regime','similarity_gold','similarity_events','regime','macro')",
             name="ck_explainability_cache_use_case",
         ),
     )

@@ -8,6 +8,8 @@ export interface ErrorResponse {
   detail: string;
   resource?: string | null;
   query?: Record<string, JsonValue> | null;
+  reason?: string | null;
+  latest_available?: DateString | null;
   request_id?: string | null;
 }
 
@@ -37,6 +39,12 @@ export interface RegimeResponse {
   built_at: DateTimeString;
 }
 
+export interface RegimeTimelineResponse {
+  start: DateString;
+  end: DateString;
+  data: RegimeResponse[];
+}
+
 export type SimilarityView = "regime" | "gold";
 
 export interface SimilarityNeighbor {
@@ -50,6 +58,18 @@ export interface SimilarityResponse {
   query_date: DateString;
   view: SimilarityView;
   neighbors: SimilarityNeighbor[];
+}
+
+export interface EventSimilarityItem {
+  event_name: string;
+  anchor_date: DateString;
+  actual_date: DateString | null;
+  similarity_score: number | null;
+}
+
+export interface EventSimilarityResponse {
+  query_date: DateString;
+  data: EventSimilarityItem[];
 }
 
 export interface MacroFeature {
@@ -110,7 +130,7 @@ export interface EodTimelineResponse {
   data: EodFeature[];
 }
 
-export type ExplainUseCase = "similarity_regime" | "similarity_gold" | "regime" | "macro";
+export type ExplainUseCase = "similarity_regime" | "similarity_gold" | "similarity_events" | "regime" | "macro";
 
 export interface ExplainResponse {
   use_case: ExplainUseCase;

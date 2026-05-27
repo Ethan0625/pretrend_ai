@@ -16,6 +16,24 @@ Status: reference
 
 > 참고: changelog 과거 섹션은 작성 시점 원문을 보존한다.
 
+## v2026.05.21 — P32 완료: Phase 3 Dashboard Follow-up
+
+### feat(observability): Regime timeline API + 역사 이벤트 유사도 추가
+- `GET /api/v1/regime/timeline`을 추가했다. 최대 730일 range를 허용하고, row가 없는 range는 404가 아니라 `data: []`로 반환한다.
+- Regime 화면의 sine/cosine placeholder와 `bias_20d` 표시를 제거하고, 실제 feature인 `short_signal_code`, `transition_hazard_10d` 기반 timeline으로 교체했다.
+- explainability cache 404 응답은 `detail: "Not found"`를 유지하면서 `reason: "not_yet_built"`, `latest_available`을 top-level field로 제공한다.
+- `GET /api/v1/similarity/events`를 추가했다. 20개 역사 이벤트 anchor와 현재 regime feature를 기존 regime similarity와 동일한 z-score normalization 기준으로 비교한다.
+- event similarity score는 사용자 노출 기준 `0.0~1.0`이며, 내부 raw cosine이 음수이면 `0.0`으로 clamp한다.
+- `GET /api/v1/similarity/events/explain`과 `similarity_events` cache use case를 추가했다. Dashboard의 유사도 설명은 P32부터 날짜 Top-N 설명이 아니라 역사 이벤트 유사시기 설명을 사용한다.
+- Similarity 화면에 "이벤트 기준" 탭을 추가했다. `events`는 기존 `SimilarityView = "regime" | "gold"`에 섞지 않고 별도 page tab 상태로 관리한다.
+- P32 dashboard contract test를 추가해 placeholder 회귀, `bias_20d` 재도입, `SimilarityView` 오염을 pytest에서 방지한다.
+- Alembic `0005`로 `explainability_cache.use_case` constraint에 `similarity_events`를 추가했다.
+- 전체 게이트 중 발견된 테스트 안전성 이슈를 보정했다. DB write/truncate pytest는 `isolated_test_engine()` 기준으로만 실행되며, destructive DB test safety contract를 추가했다.
+- Windows 전용 실패를 보정했다: text bronze partition overwrite는 `Path.replace()`를 사용하고, VSCode Codex health check fixture는 Windows에서 `.cmd`를 사용한다.
+- `src/pretrend/ops/rebuild_explainability_cache.py`를 추가했다. `api_vscode_codex` provider로 단일 날짜 또는 기간 cache를 재생성할 수 있고, 기본 대상은 현재 dashboard surface인 `similarity_events`, `regime`, `macro`다.
+- 운영 DB 복구 확인: Gold / similarity freshness는 `2026-05-20`로 복구했고, `explainability_cache`는 2026-05-13~2026-05-20 관측일 기준으로 `similarity_events`, `regime`, `macro`를 포함한 cache를 `api_vscode_codex`로 재생성했다.
+- 검증: frontend build PASS, `docker compose build web` PASS, P32 API/web/explainability targeted tests PASS, active pytest `530 passed, 39 skipped, 2 warnings`.
+
 ## v2026.05.21 — P31 완료: Phase 3 Observability Dashboard
 
 ### feat(observability): React 대시보드 + 8 screen + Recharts chart

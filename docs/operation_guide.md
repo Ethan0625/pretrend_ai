@@ -207,7 +207,7 @@ curl -s -H "X-API-Key: $PRETREND_API_KEY" \
   "http://localhost:8000/api/v1/meta"
 ```
 
-11 endpoint / 12 smoke call 기준:
+P32 기준 API smoke call:
 
 ```bash
 curl -s -o /dev/null -w "%{http_code}\n" "http://localhost:8000/health"
@@ -215,12 +215,13 @@ curl -s -o /dev/null -w "%{http_code}\n" -H "X-API-Key: $PRETREND_API_KEY" "http
 curl -s -o /dev/null -w "%{http_code}\n" -H "X-API-Key: $PRETREND_API_KEY" "http://localhost:8000/api/v1/regime?trade_date=2024-06-03"
 curl -s -o /dev/null -w "%{http_code}\n" -H "X-API-Key: $PRETREND_API_KEY" "http://localhost:8000/api/v1/similarity?query_date=2024-06-03&view=regime&top_n=5"
 curl -s -o /dev/null -w "%{http_code}\n" -H "X-API-Key: $PRETREND_API_KEY" "http://localhost:8000/api/v1/similarity?query_date=2024-06-03&view=gold&top_n=5"
+curl -s -o /dev/null -w "%{http_code}\n" -H "X-API-Key: $PRETREND_API_KEY" "http://localhost:8000/api/v1/similarity/events?query_date=2024-06-03"
 curl -s -o /dev/null -w "%{http_code}\n" -H "X-API-Key: $PRETREND_API_KEY" "http://localhost:8000/api/v1/macro?trade_date=2024-06-03&indicator_id=CPI_US_ALL_ITEMS_SA"
 curl -s -o /dev/null -w "%{http_code}\n" -H "X-API-Key: $PRETREND_API_KEY" "http://localhost:8000/api/v1/macro/timeline?indicator_id=CPI_US_ALL_ITEMS_SA&start=2024-01-01&end=2024-06-03"
 curl -s -o /dev/null -w "%{http_code}\n" -H "X-API-Key: $PRETREND_API_KEY" "http://localhost:8000/api/v1/eod?symbol=SPY&trade_date=2024-06-03"
 curl -s -o /dev/null -w "%{http_code}\n" -H "X-API-Key: $PRETREND_API_KEY" "http://localhost:8000/api/v1/eod/timeline?symbol=SPY&start=2024-01-01&end=2024-06-03"
 curl -s -o /dev/null -w "%{http_code}\n" -H "X-API-Key: $PRETREND_API_KEY" "http://localhost:8000/api/v1/regime/explain?trade_date=2024-06-03"
-curl -s -o /dev/null -w "%{http_code}\n" -H "X-API-Key: $PRETREND_API_KEY" "http://localhost:8000/api/v1/similarity/explain?query_date=2024-06-03&view=regime"
+curl -s -o /dev/null -w "%{http_code}\n" -H "X-API-Key: $PRETREND_API_KEY" "http://localhost:8000/api/v1/similarity/events/explain?query_date=2024-06-03"
 curl -s -o /dev/null -w "%{http_code}\n" -H "X-API-Key: $PRETREND_API_KEY" "http://localhost:8000/api/v1/macro/explain?trade_date=2024-06-03"
 ```
 
@@ -232,6 +233,7 @@ smoke call은 200 또는 정상적인 404를 허용한다. 401은 `PRETREND_API_
 - `API key invalid`: 요청 헤더의 `X-API-Key`가 `.env` 값과 다르다.
 - DB 연결 실패: 컨테이너 내부에서는 `POSTGRES_HOST=postgres`, `POSTGRES_PORT=5432`로 override되어야 한다.
 - `api` healthcheck 실패: `docker compose logs api --tail 50`로 startup error를 먼저 확인한다.
+- `/health`는 200이지만 `/api/v1/meta` 등 DB 의존 endpoint가 500: `api` 프로세스는 살아 있으나 Postgres가 crash recovery 중일 수 있다. `docker compose ps postgres`와 `docker compose logs --tail=120 postgres`를 확인한다. 로그에 `database system was interrupted`, `syncing data directory (pre-fsync)`, `FATAL: the database system is starting up`가 보이면 recovery 완료를 기다린다. `postgres`가 `healthy`로 돌아오면 API 재시작 없이 정상화될 수 있다. `PANIC`, `pg_control`, `I/O error`가 반복되면 data directory를 삭제하지 말고 보존한 뒤 dump restore + Gold/similarity/cache 재생성으로 전환한다.
 - `cannot stop container ... permission denied`: snap Docker와 system Docker가 동시에 남아 있거나 Docker socket이 꼬인 상태일 수 있다. `ps -ef | grep -E "dockerd|containerd" | grep -v grep`, `snap list docker`, `which docker`로 중복 설치를 확인하고, 하나의 Docker daemon만 남긴 뒤 `sudo systemctl restart docker.socket docker`를 실행한다.
 - `could not access file "$libdir/timescaledb-2.27.0-dev"` 또는 `TimescaleDB version mismatch`: `latest-pg16` 이미지와 기존 DB catalog의 TimescaleDB version 문자열이 어긋난 상태다. `docker-compose.yml`은 `timescale/timescaledb:2.27.0-pg16`처럼 고정 tag를 사용한다. 이미 catalog가 `2.27.0-dev`로 남았으면 preload를 끈 repair 컨테이너에서 `pg_extension.extversion`을 `2.27.0`으로 정정한 뒤 compose postgres를 force recreate한다.
 - `api -> postgres:5432` TCP timeout: host port 문제가 아니라 Docker bridge forwarding 문제일 수 있다. `docker compose down --remove-orphans`로 compose network를 재생성한 뒤 `docker compose up -d postgres api`를 실행한다. `docker compose down -v`는 데이터 볼륨 삭제 위험이 있으므로 사용하지 않는다.

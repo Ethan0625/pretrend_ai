@@ -6,6 +6,7 @@ export type ScreenId =
   | "eod"
   | "explain"
   | "lineage"
-  | "dags";
+  | "dags"
+  | "debug-history";
 
 export type SimilarityView = "regime" | "gold";

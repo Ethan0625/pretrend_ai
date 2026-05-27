@@ -7,7 +7,7 @@ Status: active
 
 ## 1. 목적과 범위
 
-Explainability 계층은 Postgres에 적재된 observability 데이터를 API와 대시보드에서 사용할 수 있는 구조화된 한국어 설명문으로 변환한다. 설명 대상은 관측된 시장 구조, 과거 유사 구간, 거시 상태이며, 수익률 예측·매매 추천·매수/매도 판단은 생성하지 않는다.
+Explainability 계층은 Postgres에 적재된 observability 데이터를 API와 대시보드에서 사용할 수 있는 구조화된 한국어 설명문으로 변환한다. 설명 대상은 관측된 시장 구조, 역사 이벤트 유사시기, 거시 상태이며, 수익률 예측·매매 추천·매수/매도 판단은 생성하지 않는다.
 
 입력은 기존 Postgres mirror/cache table로 제한한다.
 
@@ -96,22 +96,53 @@ Health check 정책:
 
 ## 4. Use Case
 
-사용자-facing report는 3종이다.
+현재 Dashboard-facing report는 3종이다.
 
-- similarity
+- similarity events
 - regime
 - macro
 
-Cache `use_case` enum은 similarity가 두 개의 독립 view를 가지므로 4개 값을 가진다.
+Cache `use_case` enum은 현재 dashboard surface와 legacy/manual similarity view를 함께 지원하므로 5개 값을 가진다.
 
+- `similarity_events`
 - `similarity_regime`
 - `similarity_gold`
 - `regime`
 - `macro`
 
+`similarity_regime`, `similarity_gold`는 날짜 Top-N neighbor 설명을 위한 legacy/manual endpoint다. P32 이후 Dashboard의 유사도 설명 패널은 `similarity_events`를 사용한다.
+
 ## 5. Report Schemas
 
-### 5.1 SimilarityReport
+### 5.1 EventSimilarityReport
+
+```json
+{
+  "query_date": "YYYY-MM-DD",
+  "summary": "현재 관측 상태와 역사 이벤트 유사시기에 대한 2~4문장 관측 요약",
+  "events": [
+    {
+      "event_name": "VIX 폭발",
+      "anchor_date": "2018-02-05",
+      "actual_date": "2018-02-05",
+      "similarity_score": 0.25,
+      "match_reasons": ["전환 위험과 risk gate 상태가 유사합니다."]
+    }
+  ],
+  "disclaimer": "본 결과는 과거 유사성 관측이며 예측이 아닙니다."
+}
+```
+
+Pydantic-compatible shape:
+
+- `query_date`: date
+- `summary`: string
+- `events`: list of objects with `event_name`, `anchor_date`, `actual_date`, `similarity_score`, `match_reasons`
+- `disclaimer`: string
+
+`events`에는 `actual_date`가 있고 `similarity_score > 0`인 항목만 저장한다. 원천 score 계산은 `/api/v1/similarity/events`와 같은 normalization을 사용한다.
+
+### 5.2 SimilarityReport (legacy/manual)
 
 ```json
 {
@@ -141,7 +172,7 @@ Pydantic-compatible shape:
 - `neighbors`: list of objects with `neighbor_date`, `score`, `rank`, `match_reasons`
 - `disclaimer`: string
 
-### 5.2 RegimeReport
+### 5.3 RegimeReport
 
 ```json
 {
@@ -161,7 +192,7 @@ Pydantic-compatible shape:
 - `transition`: string
 - `disclaimer`: string
 
-### 5.3 MacroReport
+### 5.4 MacroReport
 
 ```json
 {
@@ -218,7 +249,19 @@ Prompt version starts at `v1`.
 출력은 반드시 제공된 JSON schema와 동일한 JSON 객체여야 합니다.
 ```
 
-### 6.2 Similarity User Prompt Template
+### 6.2 Event Similarity User Prompt Template
+
+```text
+다음 역사 이벤트 유사도 입력을 기반으로 EventSimilarityReport JSON을 작성하세요.
+similarity_score가 높은 이벤트 중 최대 5개만 설명하세요.
+actual_date가 없거나 similarity_score가 0 이하인 이벤트는 제외하세요.
+예측, 추천, 목표가격, 매수/매도 신호 표현은 금지합니다.
+
+INPUT_JSON:
+{input_json}
+```
+
+### 6.3 Similarity User Prompt Template (legacy/manual)
 
 ```text
 다음 similarity 입력을 기반으로 SimilarityReport JSON을 작성하세요.
@@ -230,7 +273,7 @@ INPUT_JSON:
 {input_json}
 ```
 
-### 6.3 Regime User Prompt Template
+### 6.4 Regime User Prompt Template
 
 ```text
 다음 regime 입력을 기반으로 RegimeReport JSON을 작성하세요.
@@ -241,7 +284,7 @@ INPUT_JSON:
 {input_json}
 ```
 
-### 6.4 Macro User Prompt Template
+### 6.5 Macro User Prompt Template
 
 ```text
 다음 macro 입력을 기반으로 MacroReport JSON을 작성하세요.
@@ -265,7 +308,7 @@ Primary key:
 
 Columns:
 
-- `use_case` text, one of `similarity_regime`, `similarity_gold`, `regime`, `macro`
+- `use_case` text, one of `similarity_events`, `similarity_regime`, `similarity_gold`, `regime`, `macro`
 - `query_date` date
 - `model_id` text
 - `prompt_version` text
@@ -339,7 +382,8 @@ Schedule:
 기본 일일 실행:
 
 - 기준일은 전일 trade date다.
-- 4개 cache use case를 생성한다: `similarity_regime`, `similarity_gold`, `regime`, `macro`
+- 현재 Dashboard-facing cache use case를 생성한다: `similarity_events`, `regime`, `macro`
+- `similarity_regime`, `similarity_gold`는 legacy/manual 확인용이며, 기간 재생성 스크립트에서 명시적으로 `--use-case`를 지정한 경우에만 생성한다.
 
 Manual backfill:
 
@@ -401,4 +445,5 @@ LIMIT 10;
 
 ## 12. 변경 이력
 
+- 2026-05-21: P32 기준 `similarity_events` use case와 역사 이벤트 유사도 설명 계약 추가. Alembic `0005`.
 - 2026-05-14: P27-1 initial SOT. `prompt_version=v1`.

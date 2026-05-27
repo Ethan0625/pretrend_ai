@@ -53,7 +53,7 @@ Freshness는 consumer가 읽는 layer에서 보이는 최신 날짜로 판단한
 | `gold_market_state_similarity_feature` | `MAX(trade_date)` | 최신 EOD/macro serving watermark 근처 | `/api/v1/regime`과 regime similarity가 stale. |
 | `similarity_regime` | `MAX(query_date)` | 최신 state feature date 근처 | Regime similarity view가 stale. |
 | `similarity_gold` | `MAX(query_date)` | 최신 Gold mirror date 근처 | Gold similarity view가 stale. |
-| `explainability_cache` | `use_case`별 `MAX(query_date)` | Dashboard에 보이는 최신 날짜 | Explanation panel이 404 또는 stale report를 표시할 수 있다. |
+| `explainability_cache` | `use_case`별 `MAX(query_date)` | Dashboard-facing `similarity_events`, `regime`, `macro`가 최신 날짜까지 생성 | Explanation panel이 404 또는 stale report를 표시할 수 있다. |
 
 P29는 audit 당시 common repaired/backfilled serving date였던 `2026-05-13` 기준으로 serving freshness를 검증했다.
 
@@ -149,7 +149,18 @@ env AIRFLOW_HOME=$PWD/airflow_pretrend \
   --conf '{"query_start":"YYYY-MM-DD","query_end":"YYYY-MM-DD"}'
 ```
 
-6. Explanation scope/window contract가 명확할 때만 explainability를 rebuild한다. Idempotency 또는 local smoke 목적이면 mock provider를 강제한다.
+6. Explainability cache를 rebuild한다. Dashboard의 유사도 설명은 `similarity_events` 기준이며, 기간 재생성은 소스 row가 없는 날짜를 skip한다.
+
+```bash
+conda run -n pretrend_pytest python -m pretrend.ops.rebuild_explainability_cache \
+  --start-date YYYY-MM-DD \
+  --end-date YYYY-MM-DD \
+  --provider api_vscode_codex \
+  --api-url http://localhost:8000/api/v1/report/explainability/analyze \
+  --health-url http://localhost:8000/health
+```
+
+Idempotency 또는 local smoke 목적이면 Airflow DAG를 `mock` provider로 수동 실행할 수 있다.
 
 ```bash
 env AIRFLOW_HOME=$PWD/airflow_pretrend \
@@ -176,3 +187,4 @@ SELECT use_case, COUNT(*), MAX(query_date) FROM explainability_cache GROUP BY 1;
 
 - 2026-05-15: 초안 작성. P29-3.
 - 2026-05-16: 문서 기준 언어를 한국어로 정리.
+- 2026-05-21: P32 `similarity_events` cache와 기간 재생성 절차 반영.

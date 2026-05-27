@@ -51,6 +51,7 @@ Agent docs publication도 같은 marker vocabulary를 사용한다. Whitelist와
 
 | 문서 | 역할 |
 | --- | --- |
+| [operation/debug_history.md](operation/debug_history.md) | 운영 중 발생한 incident 추적 인덱스. Contract → Symptom → Root Cause → Fix → Guard 구조. |
 | [operation/reproducible_runtime_contract.md](operation/reproducible_runtime_contract.md) | Docker runtime, Airflow profile, restore/backfill, 격리 test DB, 재현성 검증 절차. |
 | [operation/RUN_LOG.md](operation/RUN_LOG.md) | 로컬 운영/검증 중 발생한 재현성 이슈와 조치 내역. |
 | [testing/operational_invariant_test_contract.md](testing/operational_invariant_test_contract.md) | pytest marker/gate, runtime gate, DB synthetic row smoke 기준. |

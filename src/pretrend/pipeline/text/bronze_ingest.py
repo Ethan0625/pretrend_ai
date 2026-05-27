@@ -116,7 +116,7 @@ def _write_partition(
     tmp_path = partition_dir / f".tmp_{uuid.uuid4().hex}_{filename}"
 
     df.to_parquet(tmp_path, index=False, compression="snappy")
-    tmp_path.rename(out_path)
+    tmp_path.replace(out_path)
     logger.info("Bronze written: %s (%d rows)", out_path, len(df))
     return out_path
 

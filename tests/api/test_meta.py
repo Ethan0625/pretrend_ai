@@ -9,7 +9,7 @@ from .helpers import FakeResult, FakeSession
 
 def _meta_session() -> FakeSession:
     return FakeSession(
-        FakeResult(scalar="0004"),
+        FakeResult(scalar="0005"),
         FakeResult(one=(3, date(2026, 5, 11))),
         FakeResult(one=(4, date(2026, 5, 12))),
         FakeResult(one=(5, date(2026, 5, 13))),
@@ -26,7 +26,7 @@ async def test_meta_returns_alembic(async_client, override_session, api_headers)
     response = await async_client.get("/api/v1/meta", headers=api_headers)
 
     assert response.status_code == 200
-    assert response.json()["alembic"] == "0004"
+    assert response.json()["alembic"] == "0005"
 
 
 @pytest.mark.anyio

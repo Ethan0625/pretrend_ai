@@ -45,7 +45,7 @@ def test_explainability_cache_check_constraint_use_case() -> None:
     assert len(constraints) == 1
     assert constraints[0].name == "ck_explainability_cache_use_case"
     sql = str(constraints[0].sqltext)
-    for value in ["similarity_regime", "similarity_gold", "regime", "macro"]:
+    for value in ["similarity_regime", "similarity_gold", "similarity_events", "regime", "macro"]:
         assert value in sql
 
 

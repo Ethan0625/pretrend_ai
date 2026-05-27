@@ -9,6 +9,48 @@ Status: active
 
 ---
 
+## 2026-05-27 — Docker Desktop 재시작 후 Postgres crash recovery 지연
+
+### 상황
+
+Docker Desktop/WSL 연결이 끊긴 뒤 `docker compose ps`가 `//./pipe/docker_engine` 연결 오류를 반환했다. Docker Desktop을 다시 실행한 뒤 Compose 상태는 복구되었지만, `api`와 `web`은 healthy인 반면 `postgres`는 한동안 `running (unhealthy)` 상태였다.
+
+API `/health`는 200을 반환했지만 `/api/v1/meta` 같은 DB 의존 endpoint는 500을 반환했다.
+
+### 원인
+
+이전 정전/중단 이후 Postgres data directory가 crash recovery를 수행하고 있었다. 로그에는 아래 패턴이 나타났다.
+
+```text
+PANIC: could not fdatasync file ...: I/O error
+database system was interrupted
+syncing data directory (pre-fsync)
+FATAL: the database system is starting up
+```
+
+`api` healthcheck는 프로세스 생존 여부를 확인하므로 DB가 아직 복구 중이어도 healthy로 보일 수 있다. 반면 serving endpoint는 Postgres 연결과 쿼리에 의존하므로 recovery 중에는 500이 날 수 있다.
+
+### 조치
+
+1. Docker Desktop을 완전히 재시작했다.
+2. `docker compose ps`로 daemon 연결과 container 상태를 확인했다.
+3. `docker compose logs --tail=120 postgres`로 Postgres recovery 로그를 확인했다.
+4. `postgres`가 `healthy`로 돌아온 뒤 `/api/v1/meta`를 재확인했다.
+
+### 결과
+
+- `pretrend-postgres`가 `running (healthy)`로 복귀했다.
+- API 재시작 없이 DB 의존 endpoint가 정상 응답했다.
+- serving freshness 기준 최신 날짜는 `2026-05-20`으로 확인되어, `2026-05-21`부터 최신 완전 거래일까지 증분 backfill이 필요하다.
+
+### 후속 메모
+
+- `docker compose down -v`는 사용하지 않는다. 운영 data volume 삭제 위험이 있다.
+- `postgres`가 10분 이상 `unhealthy` 상태를 유지하거나 `pg_control`, `base`, `I/O error` panic이 반복되면 기존 data directory를 보존한 뒤 dump restore + Gold/similarity/cache 재생성으로 전환한다.
+- API `/health`가 200이어도 `/api/v1/meta`를 함께 확인해야 serving DB까지 정상이라고 판단할 수 있다.
+
+---
+
 ## 2026-05-20 — Docker Desktop credential helper 오류
 
 ### 상황

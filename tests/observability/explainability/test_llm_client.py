@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import subprocess
 from pathlib import Path
 
@@ -28,9 +29,13 @@ def test_get_provider_rejects_unknown() -> None:
 
 
 def test_vscode_codex_health_check(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    codex = tmp_path / "codex"
-    codex.write_text("#!/bin/sh\nexit 0\n")
-    codex.chmod(0o755)
+    if os.name == "nt":
+        codex = tmp_path / "codex.cmd"
+        codex.write_text("@echo off\r\nexit /b 0\r\n")
+    else:
+        codex = tmp_path / "codex"
+        codex.write_text("#!/bin/sh\nexit 0\n")
+        codex.chmod(0o755)
     provider = VSCodeCodexProvider(codex)
 
     assert provider.health_check()

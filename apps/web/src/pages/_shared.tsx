@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { CodeBlock } from "@/components/primitives/CodeBlock";
 import { PanelHead } from "@/components/primitives/PanelHead";
 import { Pill, type PillVariant } from "@/components/primitives/Pill";
+import { ApiError } from "@/api/client";
 import type { ExplainResponse, JsonValue, MetaResponse } from "@/api/types";
 
 export const MACRO_INDICATORS = [
@@ -74,7 +75,18 @@ export function PageState({
   );
 }
 
-export function ErrorState({ error, endpoint }: { error: unknown; endpoint?: string }) {
+export function ErrorState({ error, endpoint, explain = false }: { error: unknown; endpoint?: string; explain?: boolean }) {
+  if (explain && error instanceof ApiError && error.status === 404 && error.payload?.reason === "not_yet_built") {
+    const latest = error.payload.latest_available;
+    return (
+      <PageState
+        title="설명 미생성"
+        detail={latest ? `아직 생성되지 않은 날짜입니다. 최신 생성일: ${latest}` : "아직 생성되지 않은 날짜입니다."}
+        endpoint={endpoint}
+      />
+    );
+  }
+
   return (
     <PageState
       title="API 오류"
@@ -185,6 +197,30 @@ function renderExplainBody(response: ExplainResponse) {
     );
   }
 
+  if (response.use_case === "similarity_events") {
+    const events = Array.isArray(response.report.events) ? response.report.events : [];
+    return (
+      <>
+        <ExplainSection title="요약" value={textValue(response.report.summary)} />
+        <div className="explain-section">
+          <div className="explain-section-title">역사 이벤트 유사시기</div>
+          {events.length ? (
+            <div className="explain-list">
+              {events.map((event, index) => (
+                <div className="explain-list-item" key={index}>
+                  {renderEventSimilarity(event)}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="muted">cache에 이벤트 유사시기 근거가 포함되지 않았습니다.</p>
+          )}
+        </div>
+        <ExplainSection title="주의" value={textValue(response.report.disclaimer)} muted />
+      </>
+    );
+  }
+
   const indicators = Array.isArray(response.report.indicators) ? response.report.indicators : [];
   return (
     <>
@@ -224,6 +260,22 @@ function renderNeighbor(value: JsonValue) {
       <div className="explain-list-head">
         <span>{textValue(row.neighbor_date) || "UNKNOWN"}</span>
         <span>rank={textValue(row.rank) || "UNKNOWN"} · score={textValue(row.score) || "UNKNOWN"}</span>
+      </div>
+      <p>{reasons.length ? reasons.join(" ") : "근거 문장이 cache에 포함되지 않았습니다."}</p>
+    </>
+  );
+}
+
+function renderEventSimilarity(value: JsonValue) {
+  const row = objectValue(value);
+  const reasons = Array.isArray(row.match_reasons) ? row.match_reasons.map(textValue).filter(Boolean) : [];
+  return (
+    <>
+      <div className="explain-list-head">
+        <span>{textValue(row.event_name) || "UNKNOWN"}</span>
+        <span>
+          actual={textValue(row.actual_date) || "UNKNOWN"} · score={textValue(row.similarity_score) || "UNKNOWN"}
+        </span>
       </div>
       <p>{reasons.length ? reasons.join(" ") : "근거 문장이 cache에 포함되지 않았습니다."}</p>
     </>

@@ -8,8 +8,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from pretrend.api.auth import require_api_key
 from pretrend.api.db import get_session
-from pretrend.api.routers._utils import not_found, row_to_dict
-from pretrend.api.schemas import RegimeResponse
+from pretrend.api.routers._utils import not_found, row_to_dict, validate_timeline_range
+from pretrend.api.schemas import RegimeResponse, RegimeTimelineResponse
 from pretrend.models import GoldMarketStateSimilarityFeature
 
 
@@ -38,4 +38,33 @@ async def get_regime(
         trade_date=row.trade_date,
         feature=row_to_dict(row, exclude={"trade_date", "built_at"}),
         built_at=row.built_at,
+    )
+
+
+@router.get("/timeline", response_model=RegimeTimelineResponse)
+async def get_regime_timeline(
+    start: date,
+    end: date,
+    session: AsyncSession = Depends(get_session),
+) -> RegimeTimelineResponse:
+    validate_timeline_range(start, end)
+    result = await session.execute(
+        select(GoldMarketStateSimilarityFeature)
+        .where(
+            GoldMarketStateSimilarityFeature.trade_date >= start,
+            GoldMarketStateSimilarityFeature.trade_date <= end,
+        )
+        .order_by(GoldMarketStateSimilarityFeature.trade_date)
+    )
+    return RegimeTimelineResponse(
+        start=start,
+        end=end,
+        data=[
+            RegimeResponse(
+                trade_date=row.trade_date,
+                feature=row_to_dict(row, exclude={"trade_date", "built_at"}),
+                built_at=row.built_at,
+            )
+            for row in result.scalars().all()
+        ],
     )

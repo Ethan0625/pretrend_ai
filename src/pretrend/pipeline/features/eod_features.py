@@ -78,18 +78,22 @@ def _iter_load_dates(start: dt.date, end: dt.date) -> Iterable[dt.date]:
 
 
 def _list_bronze_eod_files(ctx: EodFeatureRunContext) -> list[Path]:
-    if not ctx.cfg.target_symbols:
-        return sorted(ctx.cfg.bronze_root.rglob("eod.parquet"))
-
     files: list[Path] = []
     seen: set[Path] = set()
-    for symbol in ctx.cfg.target_symbols:
+
+    symbol_parts = (
+        [f"symbol={symbol}" for symbol in ctx.cfg.target_symbols]
+        if ctx.cfg.target_symbols
+        else ["symbol=*"]
+    )
+
+    for symbol_part in symbol_parts:
         for trade_date in _iter_load_dates(
             ctx.load_start_date,
             ctx.feature_end_date,
         ):
             pattern = (
-                f"source=*/theme=*/symbol={symbol}/"
+                f"source=*/theme=*/{symbol_part}/"
                 f"trade_date={trade_date.isoformat()}/eod.parquet"
             )
             for path in ctx.cfg.bronze_root.glob(pattern):

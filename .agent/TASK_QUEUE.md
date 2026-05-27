@@ -55,12 +55,14 @@ v2026.05.12
 | **P30 Reproducible Runtime & Data Bootstrap** | DONE | `.agent/task/P30_parent_reproducible_runtime.md` |
 | **P31 Observability Dashboard** | DONE | `.agent/task/archive/P31/P31_parent_observability_dashboard.md` |
 | **Phase 3 코드/UI layer** | DONE | P31 — `apps/web/` + 8 screen + 4 chart + docker 통합 |
+| **P32 Phase 3 후속작업** | DONE | `.agent/task/P32_parent_phase3_followup.md` |
+| **P33 Debug History System** | IN_PROGRESS | `.agent/task/P33_parent_debug_history.md` |
 
 ---
 
 ## Active Queue
 
-No active leaf task is registered. Phase 3 코드/UI layer는 P31에서 완료했다. 다음 진입은 Cloudflare Tunnel 운영 등록이며, 도메인/계정/토큰 셋업이 준비된 뒤 별도 task로 진행한다.
+현재 active task 없음.
 
 Backlog:
 - P29 hotfix backlog: resolved after P29.
@@ -79,6 +81,61 @@ Backlog:
 ## Completed (2026Q2~)
 
 > Personal Track 자산의 Completed Log는 `.agent/task/archive/TASK_QUEUE_pre-2026Q2.md` 참조.
+
+### P33 — Debug History System (문서 + Dashboard 탭)
+
+**Why now**: P31/P32 완료 후 포트폴리오 보강 단계. 운영 incident를 `Contract → Prevention` 구조로 추적하는 체계 신설 + 대시보드 탭 추가.
+
+**DoD**:
+- [ ] `docs/operation/debug_history.md`, `incident_template.md`, `incidents/P-001-example.md`, `docs/assets/screenshots/README.md` 생성
+- [ ] `docs/README.md`에서 `debug_history.md` 링크 접근 가능
+- [ ] dashboard "디버그 히스토리" 탭 렌더링 + build PASS
+- [ ] 기존 코드/API/architecture 문서 회귀 없음
+
+**Risk**: P33-2 Sidebar nav 수정 시 기존 항목 깨질 가능성 → 마지막에만 추가
+
+**Source(anchor)**: `.agent/task/P33_parent_debug_history.md`
+
+| Leaf | 제목 | depends_on | 상태 |
+|---|---|---|---|
+| P33-1 | Debug History 문서 체계 생성 | — | DONE |
+| P33-2 | Dashboard 디버그 히스토리 탭 | — | TODO |
+
+---
+
+### P32 — Phase 3 후속작업 (시계열 API / 404 개선 / 역사 이벤트 유사시기)
+
+- **결과**: P31 대시보드 follow-up을 완료했다. Regime timeline placeholder를 실제 `gold_market_state_similarity_feature` 시계열 API로 교체하고, explainability cache 404에 생성 상태 맥락을 추가했으며, 역사 이벤트 기준 regime similarity를 backend/frontend에 연결했다.
+- **Artifacts**:
+  - `src/pretrend/api/routers/regime.py`
+  - `src/pretrend/api/routers/explain.py`
+  - `src/pretrend/api/routers/similarity.py`
+  - `src/pretrend/api/schemas.py`
+  - `src/pretrend/observability/similarity/events.py`
+  - `src/pretrend/observability/explainability/event_similarity_explainer.py`
+  - `src/pretrend/ops/rebuild_explainability_cache.py`
+  - `migrations/versions/0005_similarity_events_explainability.py`
+  - `apps/web/src/api/types.ts`, `apps/web/src/api/hooks.ts`
+  - `apps/web/src/charts/RegimeTimeline.tsx`
+  - `apps/web/src/pages/Regime.tsx`, `apps/web/src/pages/Similarity.tsx`, `apps/web/src/pages/Macro.tsx`, `apps/web/src/pages/Explain.tsx`, `apps/web/src/pages/_shared.tsx`
+  - `apps/web/src/components/Toolbar.tsx`
+  - `tests/api/test_regime_timeline.py`, `tests/api/test_similarity_events.py`, `tests/observability/explainability/test_event_similarity_explainer.py`, `tests/web/test_p32_dashboard_contract.py`
+- **Verification**:
+  - `docker compose --profile web-dev run --rm web-node sh -lc "npm run build"` PASS.
+  - `docker compose build web` PASS.
+  - `conda run -n pretrend_pytest pytest tests/models/test_explainability_cache_model.py tests/api/test_explain.py tests/api/test_similarity_events.py tests/ops/test_rebuild_explainability_cache.py tests/web/test_p32_dashboard_contract.py -q --tb=short` → `26 passed`.
+  - `conda run -n pretrend_pytest pytest tests/observability/explainability/test_event_similarity_explainer.py tests/dags/test_explainability_build_dag.py -q --tb=short` → `10 passed, 2 skipped`.
+  - `conda run -n pretrend_pytest pytest -q --tb=short` → `530 passed, 39 skipped, 2 warnings`.
+  - 운영 DB 복구 후 `/api/v1/meta` 확인: `gold_macro_features=30,204`, `gold_eod_features=212,159`, `similarity_regime=577,066`, `similarity_gold=572,377`, 모두 max date `2026-05-20`.
+  - Alembic `0005` 적용 후 `api_vscode_codex`로 `explainability_cache` 기간 row 재생성: `similarity_events`, `regime`, `macro` 포함, 2026-05-13~2026-05-20 관측일 6개.
+- **Follow-up Fixes During Gate**:
+  - DB write/truncate pytest가 운영 `.env`의 `pretrend_obs`를 참조하지 않도록 `isolated_test_engine()` 기준으로 보정.
+  - `tests/ops/test_destructive_db_test_safety.py`를 추가해 destructive DB test가 격리 DB helper 없이 추가되면 실패하도록 고정.
+  - `src/pretrend/ops/rebuild_explainability_cache.py`를 추가해 cache 소실 시 `api_vscode_codex` 기준으로 단일 날짜 또는 기간 재생성이 가능하게 구성.
+  - Dashboard의 유사도 설명을 기존 날짜 Top-N 설명이 아니라 `similarity_events` 역사 이벤트 유사시기 설명으로 교체.
+  - Windows에서 text bronze partition overwrite가 실패하지 않도록 `Path.replace()` 기반으로 보정.
+  - Windows pytest에서 VSCode Codex health check fixture가 실행 가능한 `.cmd`를 사용하도록 보정.
+- **Source(anchor)**: `.agent/task/P32_parent_phase3_followup.md`
 
 ### P31 — Observability Dashboard (apps/web/ + 8 screen + Recharts)
 

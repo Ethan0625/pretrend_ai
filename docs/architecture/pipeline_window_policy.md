@@ -91,6 +91,7 @@ Status: active
 - `tests/pipeline/test_gold_macro_feature_v1.py::test_load_silver_macro_scopes_to_requested_window`
 - `tests/pipeline/test_gold_eod_features.py::test_ge5_load_silver_scopes_to_requested_window_and_symbols`
 - `tests/pipeline/test_eod_silver_writer_idempotency.py::test_load_bronze_eod_scopes_to_requested_dates_and_symbols`
+- `tests/pipeline/test_eod_silver_writer_idempotency.py::test_load_bronze_eod_scopes_to_requested_dates_without_symbol_filter`
 - `tests/pipeline/test_calendar.py`
 - `tests/dags/test_daily_dag_interval_contract.py`
 - `tests/pipeline/sync/test_gold_postgres_sync_scope.py`

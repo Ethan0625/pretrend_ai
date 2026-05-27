@@ -36,6 +36,12 @@ const NAV: NavGroup[] = [
       { id: "dags", label: "작업", path: "airflow" },
     ],
   },
+  {
+    group: "운영",
+    items: [
+      { id: "debug-history", label: "디버그 히스토리", path: "docs/operation" },
+    ],
+  },
 ];
 
 export interface SidebarProps {

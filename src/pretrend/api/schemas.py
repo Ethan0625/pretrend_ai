@@ -10,6 +10,8 @@ class ErrorResponse(BaseModel):
     detail: str
     resource: str | None = None
     query: dict[str, Any] | None = None
+    reason: str | None = None
+    latest_available: date | None = None
     request_id: str | None = None
 
 
@@ -36,6 +38,12 @@ class RegimeResponse(BaseModel):
     built_at: datetime
 
 
+class RegimeTimelineResponse(BaseModel):
+    start: date
+    end: date
+    data: list[RegimeResponse]
+
+
 class SimilarityNeighbor(BaseModel):
     neighbor_date: date
     rank: int
@@ -47,6 +55,18 @@ class SimilarityResponse(BaseModel):
     query_date: date
     view: Literal["regime", "gold"]
     neighbors: list[SimilarityNeighbor]
+
+
+class EventSimilarityItem(BaseModel):
+    event_name: str
+    anchor_date: date
+    actual_date: date | None
+    similarity_score: float | None
+
+
+class EventSimilarityResponse(BaseModel):
+    query_date: date
+    data: list[EventSimilarityItem]
 
 
 class MacroFeature(BaseModel):
@@ -108,7 +128,7 @@ class EodTimelineResponse(BaseModel):
 
 
 class ExplainResponse(BaseModel):
-    use_case: Literal["similarity_regime", "similarity_gold", "regime", "macro"]
+    use_case: Literal["similarity_regime", "similarity_gold", "similarity_events", "regime", "macro"]
     query_date: date
     model_id: str
     prompt_version: str

@@ -10,8 +10,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from pretrend.api.auth import require_api_key
 from pretrend.api.db import get_session
 from pretrend.api.routers._utils import not_found
-from pretrend.api.schemas import SimilarityNeighbor, SimilarityResponse
+from pretrend.api.schemas import (
+    EventSimilarityItem,
+    EventSimilarityResponse,
+    SimilarityNeighbor,
+    SimilarityResponse,
+)
 from pretrend.models import SimilarityGold, SimilarityRegime
+from pretrend.observability.similarity.events import compute_event_similarities
 
 
 router = APIRouter(
@@ -53,5 +59,27 @@ async def get_similarity(
                 gap_days=row.gap_days,
             )
             for row in rows
+        ],
+    )
+
+
+@router.get("/events", response_model=EventSimilarityResponse)
+async def get_similarity_events(
+    query_date: date,
+    session: AsyncSession = Depends(get_session),
+) -> EventSimilarityResponse:
+    query_row, event_rows = await compute_event_similarities(query_date, session)
+    if query_row is None:
+        raise not_found("regime", {"trade_date": query_date.isoformat()})
+    return EventSimilarityResponse(
+        query_date=query_date,
+        data=[
+            EventSimilarityItem(
+                event_name=event.name,
+                anchor_date=event.anchor_date,
+                actual_date=actual_date,
+                similarity_score=score,
+            )
+            for event, actual_date, score in event_rows
         ],
     )

@@ -6,6 +6,7 @@ import { queryClient } from "./api/queryClient";
 import { useMeta } from "./api/hooks";
 import type { ScreenId } from "./types/screen";
 import { Dags } from "./pages/Dags";
+import { DebugHistory } from "./pages/DebugHistory";
 import { Eod } from "./pages/Eod";
 import { Explain } from "./pages/Explain";
 import { Lineage } from "./pages/Lineage";
@@ -23,6 +24,7 @@ const routeByScreen: Record<ScreenId, string> = {
   explain: "/explain",
   lineage: "/lineage",
   dags: "/dags",
+  "debug-history": "/debug-history",
 };
 
 const labelByScreen: Record<ScreenId, { title: string; sub: string }> = {
@@ -34,6 +36,7 @@ const labelByScreen: Record<ScreenId, { title: string; sub: string }> = {
   explain: { title: "설명", sub: "cached observer-only reports" },
   lineage: { title: "데이터 흐름", sub: "Bronze -> Silver -> Gold -> Postgres mirror" },
   dags: { title: "작업", sub: "Airflow fixture · runtime schedule" },
+  "debug-history": { title: "디버그 히스토리", sub: "운영 incident 추적 · Contract → Root Cause → Guard" },
 };
 
 export const router = createBrowserRouter([
@@ -48,6 +51,7 @@ export const router = createBrowserRouter([
       { path: "/explain", element: <Explain /> },
       { path: "/lineage", element: <Lineage /> },
       { path: "/dags", element: <Dags /> },
+      { path: "/debug-history", element: <DebugHistory /> },
     ],
   },
 ]);

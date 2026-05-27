@@ -86,7 +86,7 @@ Swagger UI는 `/docs`에서 제공한다.
 
 ## 7. Endpoint 요약
 
-P28은 11 endpoints를 정의한다. P28-4 smoke 검증은 12 calls를 사용한다. 이유는 `/api/v1/similarity/explain`을 `view=regime`, `view=gold`로 각각 한 번씩 호출하기 때문이다.
+P28은 11 endpoints로 시작했다. P32에서 regime timeline, 역사 이벤트 유사도, 이벤트 유사도 설명 endpoint가 추가되었다. Dashboard의 유사도 설명은 P32부터 날짜 Top-N 설명이 아니라 `similarity_events` cache를 읽는다.
 
 | # | method | path | auth | source |
 | --- | --- | --- | --- | --- |
@@ -95,12 +95,14 @@ P28은 11 endpoints를 정의한다. P28-4 smoke 검증은 12 calls를 사용한
 | 3 | GET | `/api/v1/regime?trade_date=YYYY-MM-DD` | yes | `gold_market_state_similarity_feature` |
 | 4 | GET | `/api/v1/regime/explain?trade_date=YYYY-MM-DD` | yes | `explainability_cache` |
 | 5 | GET | `/api/v1/similarity?query_date=YYYY-MM-DD&view=regime\|gold&top_n=10` | yes | `similarity_regime` / `similarity_gold` |
-| 6 | GET | `/api/v1/similarity/explain?query_date=YYYY-MM-DD&view=regime\|gold` | yes | `explainability_cache` |
-| 7 | GET | `/api/v1/macro?trade_date=YYYY-MM-DD&indicator_id=...` | yes | `gold_macro_features` |
-| 8 | GET | `/api/v1/macro/timeline?indicator_id=...&start=YYYY-MM-DD&end=YYYY-MM-DD` | yes | `gold_macro_features` |
-| 9 | GET | `/api/v1/macro/explain?trade_date=YYYY-MM-DD` | yes | `explainability_cache` |
-| 10 | GET | `/api/v1/eod?symbol=...&trade_date=YYYY-MM-DD` | yes | `gold_eod_features` |
-| 11 | GET | `/api/v1/eod/timeline?symbol=...&start=YYYY-MM-DD&end=YYYY-MM-DD` | yes | `gold_eod_features` |
+| 6 | GET | `/api/v1/similarity/events?query_date=YYYY-MM-DD` | yes | `gold_market_state_similarity_feature` |
+| 7 | GET | `/api/v1/similarity/events/explain?query_date=YYYY-MM-DD` | yes | `explainability_cache` (`similarity_events`) |
+| legacy | GET | `/api/v1/similarity/explain?query_date=YYYY-MM-DD&view=regime\|gold` | yes | `explainability_cache` (`similarity_regime`, `similarity_gold`) |
+| 8 | GET | `/api/v1/macro?trade_date=YYYY-MM-DD&indicator_id=...` | yes | `gold_macro_features` |
+| 9 | GET | `/api/v1/macro/timeline?indicator_id=...&start=YYYY-MM-DD&end=YYYY-MM-DD` | yes | `gold_macro_features` |
+| 10 | GET | `/api/v1/macro/explain?trade_date=YYYY-MM-DD` | yes | `explainability_cache` |
+| 11 | GET | `/api/v1/eod?symbol=...&trade_date=YYYY-MM-DD` | yes | `gold_eod_features` |
+| 12 | GET | `/api/v1/eod/timeline?symbol=...&start=YYYY-MM-DD&end=YYYY-MM-DD` | yes | `gold_eod_features` |
 
 ## 8. Endpoint Schema
 
@@ -117,7 +119,7 @@ class HealthResponse(BaseModel):
 예시:
 
 ```json
-{"status": "ok", "alembic": "0004"}
+{"status": "ok", "alembic": "0005"}
 ```
 
 ### GET /api/v1/meta
@@ -140,7 +142,7 @@ class MetaResponse(BaseModel):
 
 ```json
 {
-  "alembic": "0004",
+  "alembic": "0005",
   "tables": {
     "gold_macro_features": {"row_count": 26101, "max_trade_date": "2026-05-12"},
     "similarity_regime": {"row_count": 800, "max_query_date": "2026-05-12"}
@@ -186,7 +188,7 @@ Query params:
 
 ```python
 class ExplainResponse(BaseModel):
-    use_case: Literal["similarity_regime", "similarity_gold", "regime", "macro"]
+    use_case: Literal["similarity_regime", "similarity_gold", "similarity_events", "regime", "macro"]
     query_date: date
     model_id: str
     prompt_version: str
@@ -244,7 +246,41 @@ class SimilarityResponse(BaseModel):
 
 neighbor가 없으면 `404`를 반환한다. 잘못된 `view` 또는 `top_n`은 `422`를 반환한다.
 
+### GET /api/v1/similarity/events
+
+Query params:
+
+- `query_date: date`
+
+응답 모델:
+
+```python
+class EventSimilarityItem(BaseModel):
+    event_name: str
+    anchor_date: date
+    actual_date: date | None
+    similarity_score: float | None
+
+class EventSimilarityResponse(BaseModel):
+    query_date: date
+    data: list[EventSimilarityItem]
+```
+
+역사 이벤트 anchor와 현재 `gold_market_state_similarity_feature` row를 기존 regime similarity와 같은 normalization으로 비교한다. 사용자 노출 score는 `0.0~1.0`이며 음수 raw cosine은 `0.0`으로 clamp한다.
+
+### GET /api/v1/similarity/events/explain
+
+Query params:
+
+- `query_date: date`
+
+`use_case=similarity_events`로 매핑한다. Dashboard의 유사도 설명 패널은 이 endpoint를 사용한다.
+
+응답 모델: `ExplainResponse`.
+
 ### GET /api/v1/similarity/explain
+
+Legacy/manual endpoint. Dashboard 설명 패널은 P32부터 `/api/v1/similarity/events/explain`을 사용한다.
 
 Query params:
 
@@ -461,4 +497,5 @@ P28의 명시적 out-of-scope:
 
 ## 11. 변경 이력
 
+- 2026-05-21: P32 이벤트 유사도 endpoint와 `similarity_events` 설명 cache를 반영. Alembic 예시는 `0005`.
 - 2026-05-14: P28-1 초안 작성. API version=0.1.0. 금지 prefix/term set: `predicted_`, `forecast_`, `recommend_`, `should_buy_`, `target_price`, `target_return`, `buy_signal`, `sell_signal`, `trading_signal`.

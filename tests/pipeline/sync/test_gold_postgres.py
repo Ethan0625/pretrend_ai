@@ -5,51 +5,25 @@ from pathlib import Path
 
 import pandas as pd
 import pytest
-from pydantic import ValidationError
-from sqlalchemy import Engine, create_engine, text
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy import Engine, text
 
 from pretrend.pipeline.sync.gold_postgres import (
     _get_watermark,
     sync_gold_eod,
     sync_gold_macro,
 )
+from tests.observability.db_test_utils import isolated_test_engine
+
+
+REQUIRED_TABLES = {
+    "gold_macro_features",
+    "gold_eod_features",
+}
 
 
 @pytest.fixture(scope="module")
 def pg_engine() -> Engine:
-    try:
-        from pretrend.config import get_settings
-    except ModuleNotFoundError as exc:
-        pytest.skip(f"postgres settings dependency unavailable: {exc}")
-
-    try:
-        database_url = get_settings().database_url
-    except ValidationError as exc:
-        pytest.skip(f"postgres settings unavailable for sync tests: {exc}")
-
-    engine = create_engine(database_url)
-    try:
-        with engine.connect() as conn:
-            tables = conn.execute(
-                text(
-                    """
-                    SELECT table_name
-                    FROM information_schema.tables
-                    WHERE table_schema = 'public'
-                      AND table_name IN (
-                        'gold_macro_features',
-                        'gold_eod_features'
-                      )
-                    """
-                )
-            ).scalars().all()
-    except SQLAlchemyError as exc:
-        pytest.skip(f"postgres unavailable for sync tests: {exc}")
-
-    if set(tables) != {"gold_macro_features", "gold_eod_features"}:
-        pytest.skip("gold postgres tables are not migrated")
-    return engine
+    return isolated_test_engine(REQUIRED_TABLES)
 
 
 @pytest.fixture(autouse=True)

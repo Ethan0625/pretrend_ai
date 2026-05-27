@@ -73,7 +73,7 @@ export function Macro() {
       <div className="panel">
         <PanelHead title="거시 설명" sub={`GET /api/v1/macro/explain?trade_date=${activeDate}`} right={<Pill variant="info">CACHE</Pill>} />
         {explain.isLoading ? <PageState title="불러오는 중" detail="설명 cache를 조회하고 있습니다." /> : null}
-        {explain.error ? <ErrorState error={explain.error} /> : null}
+        {explain.error ? <ErrorState error={explain.error} explain /> : null}
         {explain.data ? <ExplainReportView response={explain.data} /> : null}
       </div>
     </>

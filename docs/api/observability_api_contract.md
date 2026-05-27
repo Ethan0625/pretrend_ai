@@ -45,7 +45,9 @@ P28 구현은 key가 없거나 invalid인 경우 `401`을 반환한다. 향후 `
 | `GET /api/v1/regime` | 단일 날짜 fixed-width regime feature | Dashboard `/regime` | `gold_market_state_similarity_feature` | Yes |
 | `GET /api/v1/regime/explain` | Cached regime explanation | Dashboard `/regime` explanation panel | `explainability_cache` | Yes |
 | `GET /api/v1/similarity` | Top-N historical neighbor | Dashboard `/similarity` | `similarity_regime`, `similarity_gold` | Yes |
-| `GET /api/v1/similarity/explain` | Cached similarity explanation | Dashboard `/similarity` explanation panel | `explainability_cache` | Yes |
+| `GET /api/v1/similarity/events` | 역사 이벤트 anchor 기준 regime similarity | Dashboard `/similarity` 이벤트 탭 | `gold_market_state_similarity_feature` | Yes |
+| `GET /api/v1/similarity/events/explain` | Cached event similarity explanation | Dashboard `/similarity` explanation panel | `explainability_cache` (`similarity_events`) | Yes |
+| `GET /api/v1/similarity/explain` | Cached date-neighbor similarity explanation | Legacy/manual 확인 | `explainability_cache` (`similarity_regime`, `similarity_gold`) | Yes |
 | `GET /api/v1/macro` | 단일 macro indicator observation | Dashboard `/macro` | `gold_macro_features` | Yes |
 | `GET /api/v1/macro/timeline` | Macro indicator timeline | Dashboard `/macro` chart | `gold_macro_features` | Yes |
 | `GET /api/v1/macro/explain` | Cached macro explanation | Dashboard `/macro` explanation panel | `explainability_cache` | Yes |
@@ -67,7 +69,7 @@ P28 구현은 key가 없거나 invalid인 경우 `401`을 반환한다. 향후 `
 응답 예시:
 
 ```json
-{"status": "ok", "alembic": "0004"}
+{"status": "ok", "alembic": "0005"}
 ```
 
 불변식:
@@ -89,7 +91,7 @@ P28 구현은 key가 없거나 invalid인 경우 `401`을 반환한다. 향후 `
 
 ```json
 {
-  "alembic": "0004",
+  "alembic": "0005",
   "tables": {
     "gold_macro_features": {"row_count": 26106, "max_trade_date": "2026-05-13"},
     "similarity_regime": {"row_count": 576566, "max_query_date": "2026-05-13"}
@@ -182,7 +184,69 @@ P28 구현은 key가 없거나 invalid인 경우 `401`을 반환한다. 향후 `
 
 - Similarity means historical comparison, not future prediction.
 
-### 4.6 `GET /api/v1/similarity/explain`
+### 4.6 `GET /api/v1/similarity/events`
+
+| 항목 | 값 |
+| --- | --- |
+| Auth | `X-API-Key` |
+| Query param | `query_date: date` |
+| Response schema | `EventSimilarityResponse` |
+| Nullable | `actual_date`, `similarity_score` can be null when anchor row is unavailable |
+| Date semantic | `query_date` is compared with fixed historical event anchors |
+| Error case | `401`, `404`, `422`, `500` |
+
+응답 예시 형태:
+
+```json
+{
+  "query_date": "2026-05-20",
+  "data": [
+    {
+      "event_name": "VIX 폭발",
+      "anchor_date": "2018-02-05",
+      "actual_date": "2018-02-05",
+      "similarity_score": 0.25
+    }
+  ]
+}
+```
+
+불변식:
+
+- 기존 regime similarity와 같은 feature normalization을 사용한다.
+- 사용자 노출 score는 `0.0~1.0`이며, raw cosine이 음수이면 `0.0`으로 clamp한다.
+
+### 4.7 `GET /api/v1/similarity/events/explain`
+
+| 항목 | 값 |
+| --- | --- |
+| Auth | `X-API-Key` |
+| Query param | `query_date: date` |
+| Response schema | `ExplainResponse` |
+| Nullable | report fields follow cached JSON schema |
+| Date semantic | `use_case=similarity_events` |
+| Error case | `401`, `404`, `422`, `500` |
+
+응답 예시 형태:
+
+```json
+{
+  "use_case": "similarity_events",
+  "query_date": "2026-05-20",
+  "model_id": "vscode_codex",
+  "prompt_version": "v1",
+  "report": {"summary": "역사 이벤트 유사시기 관측 요약"}
+}
+```
+
+불변식:
+
+- Dashboard의 유사도 설명은 P32부터 이 endpoint를 사용한다.
+- `similarity_score <= 0` 또는 source row가 없는 이벤트는 설명 report에서 제외한다.
+
+### 4.8 `GET /api/v1/similarity/explain`
+
+> Legacy/manual endpoint. Dashboard 설명 패널은 P32부터 `/api/v1/similarity/events/explain`을 사용한다.
 
 | 항목 | 값 |
 | --- | --- |
@@ -209,7 +273,7 @@ P28 구현은 key가 없거나 invalid인 경우 `401`을 반환한다. 향후 `
 
 - Explanation text must stay evidence-bound to the similarity rows.
 
-### 4.7 `GET /api/v1/macro`
+### 4.9 `GET /api/v1/macro`
 
 | 항목 | 값 |
 | --- | --- |
@@ -235,7 +299,7 @@ P28 구현은 key가 없거나 invalid인 경우 `401`을 반환한다. 향후 `
 
 - `selected_release_date` must be earlier than `trade_date` when present.
 
-### 4.8 `GET /api/v1/macro/timeline`
+### 4.10 `GET /api/v1/macro/timeline`
 
 | 항목 | 값 |
 | --- | --- |
@@ -261,7 +325,7 @@ P28 구현은 key가 없거나 invalid인 경우 `401`을 반환한다. 향후 `
 
 - Timeline must not synthesize unavailable future observations.
 
-### 4.9 `GET /api/v1/macro/explain`
+### 4.11 `GET /api/v1/macro/explain`
 
 | 항목 | 값 |
 | --- | --- |
@@ -286,7 +350,7 @@ P28 구현은 key가 없거나 invalid인 경우 `401`을 반환한다. 향후 `
 
 - Macro explanation may describe current and historical macro observations only.
 
-### 4.10 `GET /api/v1/eod`
+### 4.12 `GET /api/v1/eod`
 
 | 항목 | 값 |
 | --- | --- |
@@ -312,7 +376,7 @@ P28 구현은 key가 없거나 invalid인 경우 `401`을 반환한다. 향후 `
 
 - EOD response is an observation and must not imply action.
 
-### 4.11 `GET /api/v1/eod/timeline`
+### 4.13 `GET /api/v1/eod/timeline`
 
 | 항목 | 값 |
 | --- | --- |
@@ -355,7 +419,7 @@ P28 구현은 key가 없거나 invalid인 경우 `401`을 반환한다. 향후 `
 | --- | --- |
 | Operations health monitor | `/health`, `/api/v1/meta` |
 | Dashboard `/regime` | `/api/v1/regime`, `/api/v1/regime/explain` |
-| Dashboard `/similarity` | `/api/v1/similarity`, `/api/v1/similarity/explain` |
+| Dashboard `/similarity` | `/api/v1/similarity`, `/api/v1/similarity/events`, `/api/v1/similarity/events/explain` |
 | Dashboard `/macro` | `/api/v1/macro`, `/api/v1/macro/timeline`, `/api/v1/macro/explain` |
 | Dashboard `/eod` | `/api/v1/eod`, `/api/v1/eod/timeline` |
 
@@ -363,4 +427,5 @@ Consumer routes are Phase 3 placeholders. API contracts are stable enough for a 
 
 ## 7. 변경 이력
 
+- 2026-05-21: P32 기준 역사 이벤트 유사도와 `similarity_events` 설명 endpoint 추가. Alembic 예시는 `0005`.
 - 2026-05-15: 초안 작성. P29-3.
