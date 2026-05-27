@@ -57,6 +57,66 @@ class SimilarityResponse(BaseModel):
     neighbors: list[SimilarityNeighbor]
 
 
+class ReplayPathPoint(BaseModel):
+    trade_date: date
+    day_offset: int
+    adj_close: float | None = None
+    normalized_return: float | None = None
+
+
+class ReplayAssetPath(BaseModel):
+    symbol: str
+    asset_name: str
+    asset_group: str | None = None
+    base_date: date | None = None
+    base_adj_close: float | None = None
+    points: list[ReplayPathPoint]
+
+
+class ReplayAssetRanking(BaseModel):
+    symbol: str
+    asset_name: str
+    asset_group: str | None = None
+    trajectory_similarity_score: float | None = None
+
+
+class ReplayAssetOverlay(BaseModel):
+    symbol: str
+    asset_name: str
+    asset_group: str | None = None
+    trajectory_similarity_score: float | None = None
+    current_path: ReplayAssetPath
+    historical_path: ReplayAssetPath
+
+
+class ReplayTrajectory(BaseModel):
+    label: str
+    event_name: str | None = None
+    anchor_date: date
+    actual_date: date
+    rank: int
+    state_similarity_score: float
+    trajectory_similarity_score: float | None = None
+    compare_start: date
+    compare_end: date
+    window_start: date
+    window_end: date
+    current_path: ReplayAssetPath
+    historical_path: ReplayAssetPath
+    overlay_assets: list[ReplayAssetOverlay] = Field(default_factory=list)
+    asset_rankings: list[ReplayAssetRanking] = Field(default_factory=list)
+
+
+class SimilarityReplayResponse(BaseModel):
+    query_date: date
+    view: Literal["events", "regime", "gold"]
+    symbol: str
+    asset_name: str
+    compare_days: int
+    forward_days: int
+    trajectories: list[ReplayTrajectory]
+
+
 class EventSimilarityItem(BaseModel):
     event_name: str
     anchor_date: date

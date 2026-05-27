@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib
 from datetime import date
 from pathlib import Path
 
@@ -118,6 +119,88 @@ def strategy_root(tmp_path: Path) -> Path:
         date(2026, 5, 12),
     )
     return root
+
+
+def test_runtime_source_keeps_strategy_snapshot_imports_lazy() -> None:
+    module = importlib.import_module("pretrend.observability.similarity.runtime_source")
+    source = module.__loader__.get_source(module.__name__)
+    assert source is not None
+
+    top_level = source.split("def load_market_state_runtime_source", 1)[0]
+    assert "pretrend.pipeline.utils.snapshot" not in top_level
+    assert "pretrend.pipeline.config.eod_observability" not in top_level
+    assert "pretrend.observability.regime.rotation.io" not in top_level
+    assert "pretrend.observability.regime.transition.io" not in top_level
+
+
+def test_build_market_state_similarity_features_from_db_uses_gold_builder(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = importlib.import_module("pretrend.observability.similarity.runtime_source")
+    from pretrend.observability.regime import regime_feature_builder as gold_builder
+
+    engine = object()
+    market_state = pd.DataFrame(
+        [
+            {
+                "trade_date": date(2026, 5, 12),
+                "long_phase": "LATE_CYCLE",
+                "mid_regime": "RISK_OFF",
+                "short_signal": "STABLE",
+            }
+        ]
+    )
+    rotation = pd.DataFrame(
+        [
+            {
+                "trade_date": date(2026, 5, 12),
+                "asset_group": "INDEX",
+                "asset_name": "SP500",
+                "group_state_now": "NEUTRAL",
+            }
+        ]
+    )
+    calls: dict[str, object] = {}
+
+    def fake_market_state_df(db_engine, query_start, query_end):
+        calls["market_state_engine"] = db_engine
+        calls["query_start"] = query_start
+        calls["query_end"] = query_end
+        return market_state
+
+    def fake_rotation_df(db_engine, query_start, query_end):
+        calls["rotation_engine"] = db_engine
+        return rotation
+
+    def fake_producer(query_start, query_end, *, engine, market_state_df, rotation_df):
+        calls["producer_engine"] = engine
+        calls["producer_market_state_rows"] = len(market_state_df)
+        calls["producer_rotation_rows"] = len(rotation_df)
+        return {"rows_upserted": 1, "query_count": 1, "table": "feature"}
+
+    monkeypatch.setattr(module, "_get_engine", lambda: engine)
+    monkeypatch.setattr(gold_builder, "build_market_state_df_from_gold", fake_market_state_df)
+    monkeypatch.setattr(gold_builder, "build_rotation_df_from_gold", fake_rotation_df)
+    monkeypatch.setattr(module, "build_market_state_similarity_features", fake_producer)
+
+    result = module.build_market_state_similarity_features_from_db(
+        date(2026, 5, 12),
+        date(2026, 5, 13),
+    )
+
+    assert calls["market_state_engine"] is engine
+    assert calls["rotation_engine"] is engine
+    assert calls["producer_engine"] is engine
+    assert calls["query_start"] == date(2026, 5, 12)
+    assert calls["query_end"] == date(2026, 5, 13)
+    assert result == {
+        "rows_upserted": 1,
+        "query_count": 1,
+        "table": "feature",
+        "source": "gold_db",
+        "source_market_state_rows": 1,
+        "source_rotation_rows": 1,
+    }
 
 
 def test_load_market_state_runtime_source(strategy_root: Path) -> None:

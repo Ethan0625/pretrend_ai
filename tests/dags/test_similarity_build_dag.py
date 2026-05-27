@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 from datetime import date
+from pathlib import Path
 from types import SimpleNamespace
 
 
@@ -53,6 +54,14 @@ def test_dag_task_dependencies() -> None:
     assert "build_regime" in build_market_state_features.downstream_task_ids
     assert "build_gold" not in build_regime.downstream_task_ids
     assert "build_regime" not in build_gold.downstream_task_ids
+
+
+def test_market_state_task_uses_gold_db_source() -> None:
+    module = _dag_module()
+    source = Path(module.__file__).read_text(encoding="utf-8")
+
+    assert "build_market_state_similarity_features_from_db" in source
+    assert "build_market_state_similarity_features_from_runtime" not in source
 
 
 def test_manual_conf_query_range() -> None:

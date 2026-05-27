@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date
 from typing import Any
 
 from fastapi import HTTPException
@@ -14,14 +15,29 @@ def row_to_dict(row: Any, exclude: set[str] | None = None) -> dict[str, Any]:
     }
 
 
-def not_found(resource: str, query: dict[str, Any]) -> HTTPException:
+def not_found(
+    resource: str,
+    query: dict[str, Any],
+    *,
+    reason: str | None = None,
+    latest_available: date | str | None = None,
+) -> HTTPException:
+    payload: dict[str, Any] = {
+        "detail": "Not found",
+        "resource": resource,
+        "query": query,
+    }
+    if reason is not None:
+        payload["reason"] = reason
+    if latest_available is not None:
+        payload["latest_available"] = (
+            latest_available.isoformat()
+            if isinstance(latest_available, date)
+            else latest_available
+        )
     return HTTPException(
         status_code=404,
-        detail={
-            "detail": "Not found",
-            "resource": resource,
-            "query": query,
-        },
+        detail=payload,
     )
 
 

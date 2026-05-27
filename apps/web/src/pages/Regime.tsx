@@ -4,6 +4,7 @@ import { PanelHead } from "@/components/primitives/PanelHead";
 import { Pill } from "@/components/primitives/Pill";
 import { Toolbar } from "@/components/Toolbar";
 import { useMeta, useRegime, useRegimeExplain, useRegimeTimeline } from "@/api/hooks";
+import type { RegimeFeature } from "@/api/types";
 import { RegimeTimeline, type RegimeTimelinePoint } from "@/charts/RegimeTimeline";
 
 import { ErrorState, ExplainReportView, PageState, addDays, getMaxDate } from "./_shared";
@@ -41,6 +42,7 @@ export function Regime() {
           {timeline.error ? <ErrorState error={timeline.error} /> : null}
           {regime.data ? (
             <>
+              <RegimeSnapshot feature={regime.data.feature} />
               <RegimeTimeline data={timelineRows} />
               <table className="tbl">
                 <thead>
@@ -75,11 +77,120 @@ export function Regime() {
 function toRegimeTimelinePoints(rows: Array<{ trade_date: string; feature: Record<string, unknown> }>): RegimeTimelinePoint[] {
   return rows.map((row) => ({
     trade_date: row.trade_date,
+    mid_regime_code: featureNumber(row.feature.mid_regime_code),
     short_signal_code: featureNumber(row.feature.short_signal_code),
+    sojourn_prob_10d: featureNumber(row.feature.sojourn_prob_10d),
     transition_hazard_10d: featureNumber(row.feature.transition_hazard_10d),
   }));
 }
 
 function featureNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function RegimeSnapshot({ feature }: { feature: RegimeFeature }) {
+  const midRegime = featureNumber(feature.mid_regime_code);
+  const shortSignal = featureNumber(feature.short_signal_code);
+  const transitionHazard = featureNumber(feature.transition_hazard_10d);
+  const sojournProb = featureNumber(feature.sojourn_prob_10d);
+  const riskGate = featureNumber(feature.risk_gate_flag);
+  const runUniverse = featureNumber(feature.run_universe_flag);
+
+  return (
+    <div className="metric-strip">
+      <SnapshotMetric
+        label="중기 국면"
+        sub={`mid_regime_code=${formatCode(midRegime)}`}
+        tone={stateTone(midRegime)}
+        value={stateLabel(midRegime, "mid")}
+      />
+      <SnapshotMetric
+        label="단기 신호"
+        sub={`short_signal_code=${formatCode(shortSignal)}`}
+        tone={stateTone(shortSignal)}
+        value={stateLabel(shortSignal, "short")}
+      />
+      <SnapshotMetric
+        label="10일 전환 위험"
+        sub={`sojourn_prob_10d=${formatProbability(sojournProb)}`}
+        value={formatProbability(transitionHazard)}
+      />
+      <SnapshotMetric
+        label="리스크 게이트"
+        sub={`run_universe_flag=${flagLabel(runUniverse)}`}
+        tone={riskGate === 1 ? "negative" : ""}
+        value={flagLabel(riskGate)}
+      />
+    </div>
+  );
+}
+
+function SnapshotMetric({
+  label,
+  sub,
+  tone = "",
+  value,
+}: {
+  label: string;
+  sub: string;
+  tone?: string;
+  value: string;
+}) {
+  return (
+    <div className="metric-cell">
+      <div className="metric-label">{label}</div>
+      <div className={`metric-value ${tone}`}>{value}</div>
+      <div className="metric-sub">{sub}</div>
+    </div>
+  );
+}
+
+function stateLabel(value: number | null, kind: "mid" | "short"): string {
+  if (value === null) {
+    return "UNKNOWN";
+  }
+  if (kind === "mid") {
+    if (value > 0) {
+      return "RISK_ON";
+    }
+    if (value < 0) {
+      return "RISK_OFF";
+    }
+    return "NEUTRAL";
+  }
+  if (value > 0) {
+    return "RELIEF";
+  }
+  if (value < 0) {
+    return "PANIC";
+  }
+  return "STABLE";
+}
+
+function stateTone(value: number | null): string {
+  if (value === null || value === 0) {
+    return "";
+  }
+  return value > 0 ? "positive" : "negative";
+}
+
+function flagLabel(value: number | null): string {
+  if (value === null) {
+    return "UNKNOWN";
+  }
+  return value === 1 ? "ON" : "OFF";
+}
+
+function formatCode(value: number | null): string {
+  return value === null ? "UNKNOWN" : value.toFixed(0);
+}
+
+function formatProbability(value: number | null): string {
+  if (value === null) {
+    return "UNKNOWN";
+  }
+  return `${(value * 100).toLocaleString("ko-KR", {
+    maximumFractionDigits: 1,
+    minimumFractionDigits: 1,
+  })}%`;
 }

@@ -133,11 +133,11 @@ def similarity_build():
     @task(task_id="build_market_state_features")
     def build_market_state_features_task() -> dict[str, Any]:
         from pretrend.observability.similarity.runtime_source import (
-            build_market_state_similarity_features_from_runtime,
+            build_market_state_similarity_features_from_db,
         )
 
         query_start, query_end = _resolve_query_range(_current_context())
-        return build_market_state_similarity_features_from_runtime(query_start, query_end)
+        return build_market_state_similarity_features_from_db(query_start, query_end)
 
     @task(task_id="build_regime")
     def build_regime_task() -> dict[str, Any]:

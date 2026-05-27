@@ -488,12 +488,14 @@ The chunk policy is required for first backfill. Daily scheduled runs use only t
 The builder accepts a query date range:
 
 ```text
-build_market_state_similarity_features_from_runtime(query_start, query_end)
+build_market_state_similarity_features_from_db(query_start, query_end)
 build_similarity_regime(query_start, query_end)
 build_similarity_gold(query_start, query_end)
 ```
 
-`build_market_state_similarity_features_from_runtime`는 `data/strategy` runtime snapshot에서 `gold_market_state_similarity_feature`를 먼저 upsert한다. Docker/Airflow runtime에서는 `PRETREND_DATA_ROOT` 또는 `PRETREND_DATA_DIR` 기준의 `/app/data/strategy`를 읽는다.
+P34 이후 `build_market_state_similarity_features_from_db`가 `gold_macro_features`와 `gold_eod_features`만 읽어 `gold_market_state_similarity_feature`를 먼저 upsert한다. 기본 일일 build는 `query_start - 730 days`부터 `query_end`까지만 읽고, 최종 저장 대상은 `query_start ~ query_end`로 자른다. 이 lookback은 transition/state-age 계열 feature의 과거 맥락을 확보하면서도 전체 history scan을 일일 실행에 강제하지 않기 위한 운영 상한이다.
+
+`build_market_state_similarity_features_from_runtime`는 과거 `data/strategy` snapshot 호환 경로로만 남긴다. `similarity_build_dag`의 기본 task는 이 경로를 호출하지 않는다.
 
 For each `query_date`, the similarity builder must:
 
@@ -504,6 +506,59 @@ For each `query_date`, the similarity builder must:
 This avoids `(query_date, rank)` unique conflicts and keeps repeated runs idempotent.
 
 Same input plus same query range must produce the same `(query_date, neighbor_date, rank, score, gap_days)` rows, except for `built_at`.
+
+## 10.1 Replay Read Model
+
+P35부터 `GET /api/v1/similarity/replay`가 현재 구간과 과거 유사 구간의 EOD 관측 궤적을 같은 상대일 축에서 비교한다.
+
+입력:
+
+- `gold_market_state_similarity_feature`: `view=events`에서 현재 `query_date`와 역사 이벤트 anchor의 regime feature 유사도 계산
+- `similarity_regime`, `similarity_gold`: `view=regime|gold`에서 날짜 기반 Top-N neighbor anchor 제공
+- `gold_eod_features`: 현재 anchor(`query_date`)와 과거 anchor(`actual_date` 또는 `neighbor_date`) 전후의 EOD 가격 경로
+
+제약:
+
+- `view=events|regime|gold`
+- `top_n <= 10`
+- `compare_days + forward_days <= 365`
+- `symbol`은 단일 선택 자산이다. 화면 표시는 `asset_name` 중심, 내부 식별자는 `symbol` 중심으로 유지한다.
+- `top_assets <= 10`
+- `ranking_symbols <= 60`
+- DB write 없이 read-only로 동작한다.
+
+응답의 `current_path.points[]`는 `query_date`를 0일로, `historical_path.points[]`는 과거 anchor를 0일로 둔 `day_offset` 축을 사용한다. 기본 표시 범위는 현재 구간 `D-60 ~ D`, 과거 구간 `D-60 ~ D+30`이다. 각 path는 anchor일의 `adj_close`를 기준으로 `normalized_return = adj_close / base_adj_close - 1`을 제공한다.
+
+Score semantics:
+
+- `state_similarity_score`: feature 상태 유사도. `events`는 역사 이벤트 catalog와 현재 feature row의 cosine similarity, `regime|gold`는 기존 similarity table의 `score`다.
+- `trajectory_similarity_score`: 선택 자산의 현재 normalized return path와 과거 normalized return path를 `D-compare_days ~ D` 구간에서 비교한 cosine similarity다.
+- `overlay_assets`: 동일 anchor 기준 `trajectory_similarity_score` 상위 Asset Name의 과거 EOD path다. 기본 화면은 Top 5 overlay를 사용한다.
+- `asset_rankings`: 동일 anchor 기준으로 Asset Name별 `trajectory_similarity_score`를 정렬한 보조 ranking이다. 이것은 어떤 자산의 현재 궤적이 해당 과거 구간과 가장 비슷한지 확인하기 위한 관측 surface다.
+
+이 endpoint는 현재와 유사한 역사 이벤트 또는 유사 날짜에서 EOD 경로가 실제로 어떻게 흘렀는지 보여주기 위한 read model이며, anchor 이후 결과를 예측값으로 해석하지 않는다.
+
+### 10.2 Replay Window Policy
+
+P35 replay 화면은 다음 기준을 기본값으로 사용한다.
+
+- 비교 구간과 이후 관측 구간을 분리한다.
+  - 기본 비교 구간: `D-60 ~ D`
+  - 기본 이후 관측 구간: `D+30`
+  - 기본 표시 구간: `D-60 ~ D+30`
+- `trajectory_similarity_score`는 기본적으로 `D-60 ~ D` 구간만 사용해 계산한다.
+- `D+1 ~ D+30`은 유사도 계산에 쓰지 않고, 과거 유사 구간 이후 실제 흐름을 관측하는 영역으로만 표시한다.
+- 기본 화면은 `trajectory_similarity_score` 상위 Asset Name 5개를 overlay한다.
+- 사용자는 Asset Name을 직접 선택해 특정 자산의 현재 path와 과거 path를 2-line detail chart로 확인할 수 있어야 한다.
+- API는 `compare_days`, `forward_days`, `top_assets` query parameter를 지원한다. 차후에는 이 값을 사용자가 직접 조정할 수 있도록 대시보드 control을 추가할 수 있다.
+
+이 구조의 사용자 해석 흐름은 다음과 같다.
+
+1. 현재 국면이 어떤 역사 이벤트 또는 유사 날짜와 닮았는지 확인한다.
+2. 그 anchor 기준으로 현재까지의 `D-60 ~ D` 자산 궤적과 가장 닮은 Asset Name을 확인한다.
+3. 과거 유사 구간의 `D+1 ~ D+30` 실제 흐름을 참고해, 강세 지속/약세 전환/반등 같은 관측 시나리오를 점검한다.
+
+주의: 이 기능은 예측 확률이나 매수/매도 신호를 만들지 않는다. `D+30` 영역은 과거 관측 결과이며, 현재 이후의 결과로 해석하면 안 된다.
 
 ## 11. DAG Schedule Recommendation
 
@@ -521,7 +576,7 @@ Reason:
 - Gold Postgres sync runs at 11:00 KST.
 - Similarity starts one hour later to provide a buffer.
 - DAG has no hard dependency chain to sync DAG.
-- Inside `similarity_build_dag`, `build_market_state_features` must run before `build_regime`. `build_gold` can run independently because it reads Gold mirror tables directly.
+- `similarity_build_dag` 안에서는 `build_market_state_features`가 `build_regime`보다 먼저 실행되어야 한다. `build_market_state_features`와 `build_gold`는 모두 Gold mirror table을 읽고, `build_regime`은 갱신된 canonical regime feature table에 의존한다.
 
 Daily default query window:
 

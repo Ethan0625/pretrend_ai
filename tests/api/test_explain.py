@@ -6,7 +6,7 @@ import httpx
 import pytest
 
 from pretrend.api.db import get_session
-from pretrend.models import ExplainabilityCache
+from pretrend.models import ExplainabilityCache, GoldMarketStateSimilarityFeature
 from .helpers import FakeResult, FakeSession
 
 
@@ -50,7 +50,12 @@ async def test_explain_similarity_cache_hit(async_client, override_session, api_
 
 @pytest.mark.anyio
 async def test_explain_similarity_events_cache_hit(async_client, override_session, api_headers) -> None:
-    override_session(FakeSession(FakeResult(scalar=_row("similarity_events"))))
+    override_session(
+        FakeSession(
+            FakeResult(scalar=_row("similarity_events")),
+            FakeResult(scalars=[]),
+        )
+    )
 
     response = await async_client.get(
         "/api/v1/similarity/events/explain?query_date=2026-05-14",
@@ -59,6 +64,63 @@ async def test_explain_similarity_events_cache_hit(async_client, override_sessio
 
     assert response.status_code == 200
     assert response.json()["use_case"] == "similarity_events"
+
+
+@pytest.mark.anyio
+async def test_explain_similarity_events_overlays_canonical_scores(
+    async_client,
+    override_session,
+    api_headers,
+) -> None:
+    report = {
+        "summary": "현재 관측 상태는 리먼 파산과 유사합니다.",
+        "events": [
+            {
+                "event_name": "리먼 파산",
+                "anchor_date": "2008-09-15",
+                "actual_date": "2008-09-15",
+                "similarity_score": 0.12,
+                "match_reasons": ["관측 feature가 유사합니다."],
+            }
+        ],
+        "disclaimer": "관측 해석이며 투자 조언이 아닙니다.",
+    }
+    override_session(
+        FakeSession(
+            FakeResult(scalar=_row("similarity_events", report)),
+            FakeResult(
+                scalars=[
+                    GoldMarketStateSimilarityFeature(
+                        trade_date=date(2008, 9, 15),
+                        short_signal_code=1,
+                        transition_hazard_10d=0.2,
+                        built_at=datetime(2026, 5, 14, tzinfo=timezone.utc),
+                    ),
+                    GoldMarketStateSimilarityFeature(
+                        trade_date=date(2026, 5, 14),
+                        short_signal_code=1,
+                        transition_hazard_10d=0.2,
+                        built_at=datetime(2026, 5, 14, tzinfo=timezone.utc),
+                    ),
+                    GoldMarketStateSimilarityFeature(
+                        trade_date=date(2020, 3, 16),
+                        short_signal_code=-1,
+                        transition_hazard_10d=0.8,
+                        built_at=datetime(2026, 5, 14, tzinfo=timezone.utc),
+                    ),
+                ]
+            ),
+        )
+    )
+
+    response = await async_client.get(
+        "/api/v1/similarity/events/explain?query_date=2026-05-14",
+        headers=api_headers,
+    )
+
+    assert response.status_code == 200
+    event = response.json()["report"]["events"][0]
+    assert event["similarity_score"] == 1.0
 
 
 @pytest.mark.anyio

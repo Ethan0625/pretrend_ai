@@ -53,7 +53,9 @@ def explain_similarity_events(
     if not force_refresh:
         cached = lookup(db_engine, USE_CASE, query_date, llm.model_id, PROMPT_VERSION)
         if cached is not None:
-            return EventSimilarityReport.model_validate(cached)
+            report = EventSimilarityReport.model_validate(cached)
+            _canonicalize_report_scores(report, _load_event_similarity_payload(db_engine, query_date))
+            return report
 
     payload = _load_event_similarity_payload(db_engine, query_date)
     raw = llm.call(
@@ -65,6 +67,7 @@ def explain_similarity_events(
     )
     check_invariant_or_raise(raw)
     report = EventSimilarityReport.model_validate_json(raw)
+    _canonicalize_report_scores(report, payload)
     report.events = [
         event
         for event in report.events
@@ -130,3 +133,19 @@ def _user_prompt(payload: dict) -> str:
         "예측, 추천, 목표가격, 매수/매도 신호 표현은 금지합니다.\n"
         f"INPUT_JSON:\n{json.dumps(payload, ensure_ascii=False, default=str)}"
     )
+
+
+def _canonicalize_report_scores(report: EventSimilarityReport, payload: dict) -> None:
+    canonical = {
+        item["event_name"]: item
+        for item in payload.get("events", [])
+        if isinstance(item, dict) and item.get("similarity_score") is not None
+    }
+    for event in report.events:
+        item = canonical.get(event.event_name)
+        if not item:
+            continue
+        event.anchor_date = date.fromisoformat(str(item["anchor_date"]))
+        actual_date = item.get("actual_date")
+        event.actual_date = date.fromisoformat(str(actual_date)) if actual_date else None
+        event.similarity_score = float(item["similarity_score"])

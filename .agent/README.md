@@ -23,14 +23,6 @@ CLAUDE.md
 .agent/TASK_QUEUE.md
 .agent/TASK_TEMPLATE.md
 .agent/PARENTS_TASK_TEMPLATE.md
-.agent/task/P30_parent_reproducible_runtime.md
-.agent/task/P30-0_formalize_runtime_contract.md
-.agent/task/P30-1_runtime_volume_contract.md
-.agent/task/P30-2_docker_build_test_runtime.md
-.agent/task/P30-3_data_bootstrap_db_restore_contract.md
-.agent/task/P30-4_reproducibility_verification.md
-.agent/task/P30-5_agent_docs_publication_safety.md
-.agent/task/P30-6_docs_marker_classification.md
 ```
 
 ## Excluded By Default
@@ -55,6 +47,7 @@ Exclusion reasons:
 - Session logs and historical handoff records.
 - Workspace/editor files.
 - Archive/history files that are not required for a fresh clone.
+- Completed task instruction files. Public runtime guidance must be promoted to `README.md` or `docs/`.
 
 ## Marker Policy
 
@@ -74,7 +67,7 @@ Use these checks before staging publication changes:
 ```bash
 git check-ignore -v .agent/RUN_LOG.md .agent/settings.local.json
 git status --short --ignored .agent AGENTS.md CLAUDE.md
-grep -RIlE "(API_KEY|TOKEN|SECRET|PASSWORD|[\\/]home[\\/][^[:space:]]+|\\.env.airflow)" AGENTS.md CLAUDE.md .agent/README.md .agent/STABLE_CONTEXT.md .agent/INVARIANTS.md .agent/WORKFLOW.md .agent/CHANGE_GATES.md .agent/TASK_QUEUE.md .agent/TASK_TEMPLATE.md .agent/PARENTS_TASK_TEMPLATE.md .agent/task/P30_parent_reproducible_runtime.md .agent/task/P30-[0-9]*.md
+grep -RIlE "(API_KEY|TOKEN|SECRET|PASSWORD|[\\/]home[\\/][^[:space:]]+|\\.env.airflow)" AGENTS.md CLAUDE.md .agent/README.md .agent/STABLE_CONTEXT.md .agent/INVARIANTS.md .agent/WORKFLOW.md .agent/CHANGE_GATES.md .agent/TASK_QUEUE.md .agent/TASK_TEMPLATE.md .agent/PARENTS_TASK_TEMPLATE.md
 ```
 
 The grep check is a review aid, not an automatic failure by itself. Placeholder key names and policy text are allowed; actual secret values and local absolute paths are not allowed.

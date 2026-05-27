@@ -8,13 +8,10 @@ from typing import Any
 import pandas as pd
 from sqlalchemy.engine import Engine
 
-from pretrend.observability.regime.rotation.io import load_universe_for_group_transition
-from pretrend.observability.regime.transition.io import load_next_step_for_runtime
 from pretrend.observability.similarity.producer import (
+    _get_engine,
     build_market_state_similarity_features,
 )
-from pretrend.pipeline.config.eod_observability import LABEL_BY_SYMBOL_V1
-from pretrend.pipeline.utils.snapshot import load_strategy_snapshot
 
 
 DEFAULT_DATA_ROOT = Path("data")
@@ -62,6 +59,9 @@ def load_market_state_runtime_source(
     query_end: date,
     strategy_root: Path | str | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
+    from pretrend.observability.regime.rotation.io import load_universe_for_group_transition
+    from pretrend.observability.regime.transition.io import load_next_step_for_runtime
+
     root = Path(strategy_root) if strategy_root is not None else _default_strategy_root()
     axis = _load_snapshot(root, "axis_horizon_state")
     position = _load_snapshot(root, "market_position")
@@ -93,6 +93,8 @@ def build_market_state_similarity_features_from_runtime(
     engine: Engine | None = None,
     strategy_root: Path | str | None = None,
 ) -> dict[str, Any]:
+    # DEPRECATED (P34): kept for legacy data/strategy snapshot compatibility.
+    # New scheduled builds must use build_market_state_similarity_features_from_db().
     market_state, rotation = load_market_state_runtime_source(
         query_start,
         query_end,
@@ -112,7 +114,37 @@ def build_market_state_similarity_features_from_runtime(
     }
 
 
+def build_market_state_similarity_features_from_db(
+    query_start: date,
+    query_end: date,
+    engine: Engine | None = None,
+) -> dict[str, Any]:
+    from pretrend.observability.regime.regime_feature_builder import (
+        build_market_state_df_from_gold,
+        build_rotation_df_from_gold,
+    )
+
+    db_engine = engine or _get_engine()
+    market_state = build_market_state_df_from_gold(db_engine, query_start, query_end)
+    rotation = build_rotation_df_from_gold(db_engine, query_start, query_end)
+    result = build_market_state_similarity_features(
+        query_start,
+        query_end,
+        engine=db_engine,
+        market_state_df=market_state,
+        rotation_df=rotation,
+    )
+    return {
+        **result,
+        "source": "gold_db",
+        "source_market_state_rows": len(market_state),
+        "source_rotation_rows": len(rotation),
+    }
+
+
 def _load_snapshot(strategy_root: Path, stage_name: str) -> pd.DataFrame:
+    from pretrend.pipeline.utils.snapshot import load_strategy_snapshot
+
     df = load_strategy_snapshot(strategy_root, stage_name)
     return df.copy() if df is not None and not df.empty else pd.DataFrame()
 
@@ -206,6 +238,8 @@ def _build_rotation_source(
     query_start: date,
     query_end: date,
 ) -> pd.DataFrame:
+    from pretrend.pipeline.config.eod_observability import LABEL_BY_SYMBOL_V1
+
     columns = ["trade_date", "asset_group", "asset_name", "group_state_now"]
     if universe is None or universe.empty or "symbol" not in universe.columns:
         return pd.DataFrame(columns=columns)

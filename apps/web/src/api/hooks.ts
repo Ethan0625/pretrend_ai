@@ -13,6 +13,7 @@ import type {
   MetaResponse,
   RegimeResponse,
   RegimeTimelineResponse,
+  SimilarityReplayResponse,
   SimilarityResponse,
   SimilarityView,
 } from "./types";
@@ -90,6 +91,47 @@ export function useSimilarityEvents(
     queryKey: ["similarity", "events", queryDate],
     queryFn: () => apiFetch<EventSimilarityResponse>(withQuery("/api/v1/similarity/events", { query_date: queryDate })),
     enabled: enabled && hasValue(queryDate),
+  });
+}
+
+export function useSimilarityReplay(
+  queryDate: OptionalParam,
+  view: "events" | SimilarityView,
+  symbol: string,
+  enabled = true,
+  topN = 5,
+  compareDays = 60,
+  forwardDays = 30,
+  topAssets = 5,
+  rankingSymbols: string[] = [],
+): UseQueryResult<SimilarityReplayResponse, ApiError> {
+  return useQuery({
+    queryKey: [
+      "similarity",
+      "replay",
+      queryDate,
+      view,
+      symbol,
+      topN,
+      compareDays,
+      forwardDays,
+      topAssets,
+      rankingSymbols.join(","),
+    ],
+    queryFn: () =>
+      apiFetch<SimilarityReplayResponse>(
+        withQuery("/api/v1/similarity/replay", {
+          query_date: queryDate,
+          view,
+          top_n: String(topN),
+          compare_days: String(compareDays),
+          forward_days: String(forwardDays),
+          top_assets: String(topAssets),
+          symbol,
+          ranking_symbols: rankingSymbols.join(","),
+        }),
+      ),
+    enabled: enabled && hasValue(queryDate) && hasValue(symbol),
   });
 }
 

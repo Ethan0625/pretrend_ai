@@ -141,7 +141,31 @@ SELECT use_case, COUNT(*), MAX(query_date) FROM explainability_cache GROUP BY 1;
 | API forbidden term live-response | 문서/negative fixture가 아니라 실제 응답이 observer-only인지 확인. | `invariant` |
 | Airflow metadata paused-state check | archived execution DAG가 의도치 않게 켜지는 것을 방지. | `dag`, `contract` |
 
-## 8. 변경 이력
+## 8. Boundary Import 검사 기준 (allowlist-aware)
+
+`tests/observability/test_boundary_imports.py`는 grep 기반이 아니라 Python AST 파싱 기반이다. `ast.Import` / `ast.ImportFrom` 노드를 순회하며 아래 `FORBIDDEN_MODULE_PREFIXES` 튜플로 시작하는 import를 위반으로 판정한다.
+
+```python
+FORBIDDEN_MODULE_PREFIXES = (
+    "pretrend.pipeline.backtest",
+    "pretrend.pipeline.strategy_engine",
+    "pretrend.pipeline.paper",
+    "pretrend.pipeline.broker",
+    "pretrend.backtest",
+    "pretrend.paper",
+    "pretrend.broker",
+)
+```
+
+**허용 범위(implicit allowlist)**: 위 튜플에 포함되지 않은 모든 모듈 경로는 허용된다. 스캔 범위는 `src/pretrend/observability/**/*.py`이므로, 다른 경로(예: `dags/`, `tests/`, `src/pretrend/pipeline/strategy_engine/` 내부)는 검사 대상이 아니다.
+
+**re-export shim 패턴**: backward compat을 위해 Personal Track 모듈이 Observability 모듈 기능을 re-export하는 shim을 두는 것은 허용된다. 이 경우 shim 파일은 Personal Track namespace(`pretrend.pipeline.strategy_engine.*`) 안에 두며, Observability 코드가 Personal Track namespace를 import하는 방향이 되면 안 된다.
+
+**금지 목록 확장 시**: 새 Personal Track 네임스페이스가 추가되면 `FORBIDDEN_MODULE_PREFIXES` 튜플에 추가하고, `boundary` 그룹 테스트를 재실행해 위반 0을 확인한다.
+
+---
+
+## 9. 변경 이력
 
 - 2026-05-15: P29 운영 invariant 테스트 계약 초안 작성.
 - 2026-05-15: P30 runtime, volume, restore gate 추가.
@@ -149,3 +173,4 @@ SELECT use_case, COUNT(*), MAX(query_date) FROM explainability_cache GROUP BY 1;
 - 2026-05-17: shadow restore command plan과 observability chain smoke를 P2 pytest anchor로 승격.
 - 2026-05-17: 운영 장애 시나리오 카탈로그와 synthetic test data 기준 연결.
 - 2026-05-17: DB contract 테스트는 운영 DB rollback 대신 격리된 `pretrend_test*` DB synthetic row insert/read로 검증하도록 명시.
+- 2026-05-27: §8 Boundary import 검사 기준 추가 — AST 기반 allowlist-aware 기준, re-export shim 패턴, 금지 목록 확장 방법 명시 (follow-up-P29-1.C).

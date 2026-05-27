@@ -14,7 +14,7 @@ KST 기준 일일 순서:
 1. `eod_pipeline_dag`가 08:00에 실행되어 Gold EOD Parquet을 갱신한다.
 2. `macro_pipeline_dag`가 09:00에 실행되어 Gold macro Parquet을 갱신한다.
 3. `gold_postgres_sync_dag`가 11:00에 실행되어 Gold Parquet을 Postgres로 mirror한다.
-4. `similarity_build_dag`가 12:00에 실행되어 regime/gold historical similarity output을 쓴다.
+4. `similarity_build_dag`가 12:00에 실행되어 Gold DB 기반 regime feature와 regime/gold historical similarity output을 쓴다.
 5. `explainability_build_dag`가 13:00에 실행되어 cached explanation report를 쓴다.
 6. FastAPI는 Postgres serving table을 읽는다.
 7. Phase 3 Dashboard는 FastAPI를 읽는다.
@@ -29,7 +29,7 @@ KST 기준 일일 순서:
 | `macro_pipeline_dag` | `0 9 * * *` | FRED/source macro data | `data/gold/macro/macro_features` 아래 Gold macro Parquet | Macro API와 gold similarity macro feature가 stale 상태가 된다. |
 | `strategy_engine_dag` | `0 10 * * *` | Gold와 archived strategy input | Strategy snapshot과 report | 보관된 strategy-report 용도. 기본 paused 유지. |
 | `gold_postgres_sync_dag` | `0 11 * * *` | Gold macro/EOD Parquet | `gold_macro_features`, `gold_eod_features` | API가 stale mirror data를 읽고, similarity가 최신 Gold 값을 놓칠 수 있다. |
-| `similarity_build_dag` | `0 12 * * *` | Gold Postgres mirror와 regime feature builder | `gold_market_state_similarity_feature`, `similarity_regime`, `similarity_gold` | Similarity API와 관련 explanation panel이 stale 또는 unavailable 상태가 된다. |
+| `similarity_build_dag` | `0 12 * * *` | `gold_macro_features`, `gold_eod_features`와 regime feature builder | `gold_market_state_similarity_feature`, `similarity_regime`, `similarity_gold` | Similarity API와 관련 explanation panel이 stale 또는 unavailable 상태가 된다. |
 | `explainability_build_dag` | `0 13 * * *` | Postgres evidence table | `explainability_cache` | Explain endpoint가 stale report 또는 404를 반환할 수 있다. Raw data endpoint는 계속 동작한다. |
 
 추가 운영 DAG:
@@ -50,7 +50,7 @@ Freshness는 consumer가 읽는 layer에서 보이는 최신 날짜로 판단한
 | Gold EOD Parquet | latest partition / `trade_date` | 마지막 완료 US trading day | Postgres EOD mirror가 전진하지 못한다. |
 | `gold_macro_features` | `MAX(trade_date)` | 최신 Gold macro `trade_date` 근처 | `/api/v1/macro*`와 gold similarity가 stale. |
 | `gold_eod_features` | `MAX(trade_date)` | 최신 Gold EOD `trade_date` 근처 | `/api/v1/eod*`와 gold similarity가 stale. |
-| `gold_market_state_similarity_feature` | `MAX(trade_date)` | 최신 EOD/macro serving watermark 근처 | `/api/v1/regime`과 regime similarity가 stale. |
+| `gold_market_state_similarity_feature` | `MAX(trade_date)` | 최신 EOD/macro serving watermark 근처 | `/api/v1/regime`과 regime similarity가 stale. P34 이후 기본 생성 경로는 `data/strategy`가 아니라 Gold DB이다. |
 | `similarity_regime` | `MAX(query_date)` | 최신 state feature date 근처 | Regime similarity view가 stale. |
 | `similarity_gold` | `MAX(query_date)` | 최신 Gold mirror date 근처 | Gold similarity view가 stale. |
 | `explainability_cache` | `use_case`별 `MAX(query_date)` | Dashboard-facing `similarity_events`, `regime`, `macro`가 최신 날짜까지 생성 | Explanation panel이 404 또는 stale report를 표시할 수 있다. |

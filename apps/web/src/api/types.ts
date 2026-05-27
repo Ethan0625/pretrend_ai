@@ -60,6 +60,66 @@ export interface SimilarityResponse {
   neighbors: SimilarityNeighbor[];
 }
 
+export interface ReplayPathPoint {
+  trade_date: DateString;
+  day_offset: number;
+  adj_close: number | null;
+  normalized_return: number | null;
+}
+
+export interface ReplayAssetPath {
+  symbol: string;
+  asset_name: string;
+  asset_group?: string | null;
+  base_date: DateString | null;
+  base_adj_close: number | null;
+  points: ReplayPathPoint[];
+}
+
+export interface ReplayAssetRanking {
+  symbol: string;
+  asset_name: string;
+  asset_group?: string | null;
+  trajectory_similarity_score: number | null;
+}
+
+export interface ReplayAssetOverlay {
+  symbol: string;
+  asset_name: string;
+  asset_group?: string | null;
+  trajectory_similarity_score: number | null;
+  current_path: ReplayAssetPath;
+  historical_path: ReplayAssetPath;
+}
+
+export interface ReplayTrajectory {
+  label: string;
+  event_name?: string | null;
+  anchor_date: DateString;
+  actual_date: DateString;
+  rank: number;
+  state_similarity_score: number;
+  trajectory_similarity_score: number | null;
+  compare_start: DateString;
+  compare_end: DateString;
+  window_start: DateString;
+  window_end: DateString;
+  current_path: ReplayAssetPath;
+  historical_path: ReplayAssetPath;
+  overlay_assets: ReplayAssetOverlay[];
+  asset_rankings: ReplayAssetRanking[];
+}
+
+export interface SimilarityReplayResponse {
+  query_date: DateString;
+  view: "events" | "regime" | "gold";
+  symbol: string;
+  asset_name: string;
+  compare_days: number;
+  forward_days: number;
+  trajectories: ReplayTrajectory[];
+}
+
 export interface EventSimilarityItem {
   event_name: string;
   anchor_date: DateString;

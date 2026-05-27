@@ -16,6 +16,30 @@ Status: reference
 
 > 참고: changelog 과거 섹션은 작성 시점 원문을 보존한다.
 
+## v2026.05.27 — P35 완료: Similarity Replay
+
+### feat(observability): 유사 구간 이후 관측 궤적 API와 대시보드 탭 추가
+- `GET /api/v1/similarity/replay`를 추가했다. `view=events`는 역사 이벤트 anchor를, `view=regime|gold`는 기존 Top-N 유사 날짜를 과거 anchor로 사용한다.
+- replay API는 `top_n <= 10`, `compare_days + forward_days <= 365`, `top_assets <= 10`, `ranking_symbols <= 60`으로 제한한다. anchor가 없는 날짜는 `404`와 함께 `reason="not_yet_built"`, `latest_available` 힌트를 반환한다.
+- EOD 경로는 단일 `symbol`을 선택해 현재 비교 구간(`query_date - compare_days ~ query_date`)과 과거 표시 구간(`actual_date - compare_days ~ actual_date + forward_days`)을 같은 `day_offset` 축으로 정렬한다. 각 path는 anchor일의 `adj_close`를 0% 기준점으로 삼아 `normalized_return`을 제공한다.
+- 기본값은 `D-60 ~ D` 비교, `D+30` 이후 관측이다. `trajectory_similarity_score`는 `D-60 ~ D`만 사용해 계산하고, `D+1 ~ D+30`은 과거 이후 흐름 관측으로만 표시한다.
+- `state_similarity_score`는 feature 상태 유사도, `trajectory_similarity_score`는 선택 자산 궤적 유사도로 분리했다. `overlay_assets`는 Asset Name Top 5 과거 trajectory overlay, `asset_rankings`는 Asset Name별 trajectory 유사도를 보여준다.
+- Similarity 대시보드에 "유사 구간 궤적" 탭을 추가했다. 기존 `regime/gold/events` 탭과 분리된 page tab 상태로 관리하며, Top 5 Asset overlay chart와 선택 Asset의 현재/과거 detail chart를 렌더링한다.
+- `ReplayPathPoint`, `ReplayAssetPath`, `ReplayAssetRanking`, `ReplayAssetOverlay`, `ReplayTrajectory`, `SimilarityReplayResponse` API/frontend type과 `useSimilarityReplay()` hook을 추가했다.
+- `similarity_events` 설명 cache는 반환 직전에 deterministic event score로 덮어써 `/similarity/events`, `/similarity/events/explain`, `/similarity/replay` 간 score 불일치를 방지한다.
+- 검증: `conda run -n pretrend_pytest pytest tests/api/test_similarity_replay.py tests/api/test_explain.py tests/api/test_similarity_events.py tests/web/test_p35_dashboard_contract.py tests/web/test_p32_dashboard_contract.py -q --tb=short` → `27 passed`; `conda run -n pretrend_pytest pytest tests/api/ tests/web/test_p32_dashboard_contract.py tests/web/test_p35_dashboard_contract.py -q --tb=short` → `71 passed`; `conda run -n pretrend_pytest pytest --gate fast -q --tb=short` → `549 passed, 27 skipped, 12 deselected`; `docker compose --profile web-dev run --rm web-node sh -lc "npm run build"` → PASS; `docker compose up -d --build api web` → PASS; web proxy smoke `view=events`, `view=regime` → 200, `overlay_assets` 포함 확인.
+
+## v2026.05.27 — P34 완료: Observability Regime Feature Pipeline 독립화
+
+### feat(observability): Gold DB 기반 regime feature builder 전환
+- `src/pretrend/observability/regime/regime_feature_builder.py`를 추가했다. `gold_macro_features`와 `gold_eod_features`만 읽어 axis → horizon → market position → next step → rotation source를 재구성하고, 최종 출력은 `query_start ~ query_end` 범위로 자른다.
+- 기본 lookback은 730일로 고정했다. 이는 state-age/transition 계열 feature가 과거 맥락을 확보하도록 하되, 일일 DAG가 전체 history를 매번 scan하지 않도록 하기 위한 운영 상한이다.
+- `similarity_build_dag`의 `build_market_state_features` task를 Gold DB 경로인 `build_market_state_similarity_features_from_db`로 교체했다.
+- 기존 `build_market_state_similarity_features_from_runtime`는 과거 `data/strategy` snapshot 호환 경로로만 유지하고, Personal/strategy snapshot 관련 import는 함수 내부 lazy import로 내렸다.
+- Synthetic SQLite 기반 builder 테스트, runtime source lazy import/Gold builder delegation 테스트, DAG source contract 테스트를 추가했다.
+- P-104 debug history를 Resolved로 전환했다. `gold_market_state_similarity_feature`, `similarity_regime`, `similarity_gold` max date가 모두 `2026-05-26`임을 운영 SQL로 확인했다.
+- 검증: `conda run -n pretrend_pytest pytest tests/observability/regime/test_regime_feature_builder.py tests/observability/similarity/test_market_state_feature_runtime_source.py tests/dags/test_similarity_build_dag.py -q --tb=short` → `14 passed, 1 skipped`; `conda run -n pretrend_pytest pytest --gate fast -q --tb=short` → `537 passed, 27 skipped, 12 deselected`; `docker compose --profile web-dev run --rm web-node sh -lc "npm run build"` → PASS.
+
 ## v2026.05.21 — P32 완료: Phase 3 Dashboard Follow-up
 
 ### feat(observability): Regime timeline API + 역사 이벤트 유사도 추가

@@ -49,10 +49,10 @@ export const INCIDENTS: IncidentSummary[] = [
     date: "2026-05-27",
     area: "Regime Similarity",
     severity: "Medium",
-    status: "Deferred",
+    status: "Resolved",
     symptom: "Gold/EOD freshness는 최신인데 similarity_regime만 과거 날짜에 머묾",
     rootCause: "regime similarity source가 legacy strategy_job snapshot에 의존",
-    guard: "P33 이후 Observability regime runtime snapshot 독립화 task로 분리",
+    guard: "P34 Gold DB 기반 regime feature builder와 DAG source contract test",
     detailPath: "https://github.com/Ethan0625/pretrend_ai/blob/main/docs/operation/incidents/P-104-regime-snapshot-dependency.md",
   },
 ];

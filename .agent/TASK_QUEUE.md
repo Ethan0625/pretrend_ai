@@ -52,12 +52,14 @@ v2026.05.12
 | Personal Track 전체 | FROZEN + SERVICE STOPPED | `docs/architecture/track_separation.md §2.2` |
 | Infrastructure (Bronze/Silver/Gold, Macro/EOD DAG) | OPERATIONAL | 운영 유지 |
 | **Phase 2 stage gate** | DONE | P22~P29 완료 + P29 follow-up hotfix 반영. Phase 3 dashboard 진입 준비 |
-| **P30 Reproducible Runtime & Data Bootstrap** | DONE | `.agent/task/P30_parent_reproducible_runtime.md` |
+| **P30 Reproducible Runtime & Data Bootstrap** | DONE | `.agent/task/archive/P30/P30_parent_reproducible_runtime.md` |
 | **P31 Observability Dashboard** | DONE | `.agent/task/archive/P31/P31_parent_observability_dashboard.md` |
 | **Phase 3 코드/UI layer** | DONE | P31 — `apps/web/` + 8 screen + 4 chart + docker 통합 |
 | **P32 Phase 3 후속작업** | DONE | `.agent/task/archive/P32/P32_parent_phase3_followup.md` |
-| **P33 Debug History System** | DONE | `.agent/task/P33_parent_debug_history.md` |
-| **P34 Observability Regime Feature Pipeline 독립화** | TODO | `.agent/task/P34_parent_regime_pipeline_independence.md` |
+| **P33 Debug History System** | DONE | `.agent/task/archive/P33/P33_parent_debug_history.md` |
+| **P34 Observability Regime Feature Pipeline 독립화** | DONE | `.agent/task/archive/P34/P34_parent_regime_pipeline_independence.md` |
+| **P35 Similarity Replay: 유사 구간 이후 궤적 탐색** | DONE | `.agent/task/archive/P35/P35_parent_similarity_replay.md` |
+| **P36 Macro 관측 강화 (Overview UI + Reaction 관측)** | TODO | `.agent/task/P36_parent_macro_observability.md` |
 
 ---
 
@@ -68,34 +70,92 @@ v2026.05.12
 **Why now**: `similarity_regime`이 Personal Track frozen 코드(`strategy_job`) 산출물에 의존해 수동 개입 없이는 Gold Macro/EOD와 날짜가 어긋난다. Observability Track 자립 파이프라인의 핵심 선행 조건.
 
 **DoD**:
-- [ ] Gold DB(`gold_eod_features`, `gold_macro_features`)만 읽어 `gold_market_state_similarity_feature`를 생성하는 Observability-native builder 완성
-- [ ] `similarity_build_dag`의 `build_market_state_features_task`가 새 경로로 교체됨
-- [ ] `data/strategy/` 없이 `similarity_regime` 갱신 확인
-- [ ] 기존 `_from_runtime()` 함수는 deprecated 표기(삭제 아님)
-- [ ] `pytest -q --tb=short` 전체 회귀 없음
+- [x] Gold DB(`gold_eod_features`, `gold_macro_features`)만 읽어 `gold_market_state_similarity_feature`를 생성하는 Observability-native builder 완성
+- [x] `similarity_build_dag`의 `build_market_state_features_task`가 새 경로로 교체됨
+- [x] `data/strategy/` 없이 `similarity_regime` 갱신 확인
+- [x] 기존 `_from_runtime()` 함수는 deprecated 표기(삭제 아님)
+- [x] `pytest --gate fast -q --tb=short` 전체 회귀 없음
 
 **Risk**: axis 모듈 입력 컬럼과 Gold DB 컬럼 불일치 → builder 내부 rename/select로 대응
 
-**Source(anchor)**: `.agent/task/P34_parent_regime_pipeline_independence.md`
+**Source(anchor)**: `.agent/task/archive/P34/P34_parent_regime_pipeline_independence.md`
 
 | Leaf | 제목 | depends_on | 상태 |
 |---|---|---|---|
-| P34-1 | Observability-native Regime Feature Builder 신설 | — | TODO |
-| P34-2 | runtime_source + DAG 교체 | P34-1 | TODO |
+| P34-1 | Observability-native Regime Feature Builder 신설 | — | DONE |
+| P34-2 | runtime_source + DAG 교체 | P34-1 | DONE |
+
+**결과**
+- `src/pretrend/observability/regime/regime_feature_builder.py`가 Gold DB 기반으로 market-state/rotation source를 재구성한다.
+- `similarity_build_dag`는 `build_market_state_similarity_features_from_db`를 호출한다. 기존 runtime snapshot 경로는 호환용 lazy import 경로로만 유지한다.
+- 운영 smoke: Airflow 컨테이너에서 `2026-05-26` 1일 재생성 → `gold_market_state_similarity_feature` 1 row, `similarity_regime` 100 row upsert. 이후 `gold_market_state_similarity_feature`, `similarity_regime`, `similarity_gold` max date 모두 `2026-05-26`.
+- 검증: `conda run -n pretrend_pytest pytest --gate fast -q --tb=short` → `537 passed, 27 skipped, 12 deselected`.
+
+---
+
+### P35 — Similarity Replay: 유사 구간 이후 궤적 탐색
+
+**Why now**: P34 완료로 `gold_market_state_similarity_feature` 자립 갱신이 확보되면, replay 기능의 데이터 신뢰도가 뒷받침된다. Similarity 화면이 현재 "Top-N 날짜 목록"에서 끝나 관측 스토리가 얕다는 것이 핵심 동기다.
+
+**DoD**:
+- [x] `GET /api/v1/similarity/replay` 엔드포인트 등록됨
+- [x] Similarity 페이지에 "유사 구간 궤적" 탭 추가됨
+- [x] 이벤트/날짜 anchor별 현재 구간 vs 과거 구간 EOD normalized trajectory 카드 렌더링, 앵커 기준선 표시
+- [x] 기존 regime/gold/events 탭 회귀 없음
+- [x] `pytest --gate fast -q --tb=short` 전체 회귀 없음, `npm run build` PASS
+
+**Risk**: P34가 완료되어 최신 운영일 기준 replay smoke를 진행할 수 있다. P35에서는 replay window가 지나치게 커져 API 응답이 무거워지는 문제와 기존 `regime/gold/events` 탭 회귀를 우선 관리한다.
+
+**Source(anchor)**: `.agent/task/archive/P35/P35_parent_similarity_replay.md`
+
+| Leaf | 제목 | depends_on | 상태 |
+|---|---|---|---|
+| P35-1 | Similarity Replay API 엔드포인트 신설 | — | DONE |
+| P35-2 | Similarity Replay 대시보드 UI | P35-1 | DONE |
+
+**결과**
+- `GET /api/v1/similarity/replay`가 `events/regime/gold` anchor 기준의 현재 구간 vs 과거 구간 EOD normalized trajectory를 단일 응답으로 반환한다.
+- Similarity 화면 마지막 탭으로 "유사 구간 궤적"을 추가하고, `D-60~D` 기준 Top 5 Asset overlay + 선택 Asset 현재/과거 detail chart + Asset Name별 trajectory ranking을 렌더링한다.
+- 운영 smoke: web proxy 기준 `2026-05-26` replay `view=events`, `view=regime` 호출 200, `current_path/historical_path/overlay_assets/asset_rankings` payload 반환.
+- 검증: `conda run -n pretrend_pytest pytest tests/api/ tests/web/test_p32_dashboard_contract.py tests/web/test_p35_dashboard_contract.py -q --tb=short` → `71 passed`; `conda run -n pretrend_pytest pytest --gate fast -q --tb=short` → `549 passed, 27 skipped, 12 deselected`; `docker compose --profile web-dev run --rm web-node sh -lc "npm run build"` → PASS; `docker compose up -d --build api web` → PASS.
+
+---
+
+### P36 — Macro 관측 강화 (Overview UI + Reaction 관측)
+
+**Why now**: P35 완료로 similarity replay가 추가됐다. Macro 화면은 Phase 3(P31/P32) 이후 개선되지 않아 단일 지표 조회 수준에 머물러 있다. `gold_eod_features`가 전체 ETF universe를 보유하고 있어 reaction 계산의 데이터 근거가 충분하다.
+
+**DoD**:
+- [ ] Macro 화면에 5개 고정 지표 overview 카드 그리드 표시
+- [ ] 각 카드에 `selected_value`, `selected_release_date`, `delta_3m`, `zscore_12m`, `regime` 배지 표시
+- [ ] `GET /api/v1/macro/reaction` 엔드포인트 등록됨
+- [ ] 지표 선택 → "ETF 반응" 탭 → Top 5 순위 테이블 + normalized overlay 차트
+- [ ] 예측 표현 없음 — 관측 표현만
+- [ ] `pytest -q --tb=short` 전체 회귀 없음, `npm run build` PASS
+
+**Risk**: P36-1/P36-2 병렬 실행 가능. P36-3는 두 task 완료 후 진행. `Macro.tsx` 파일이 P36-1 → P36-3 순차 수정 대상 — 동시 수정 금지.
+
+**Source(anchor)**: `.agent/task/P36_parent_macro_observability.md`
+
+| Leaf | 제목 | depends_on | 상태 |
+|---|---|---|---|
+| P36-1 | Macro Overview UI 개선 | — | TODO |
+| P36-2 | Macro Reaction API 신설 | — | TODO |
+| P36-3 | Macro Reaction 대시보드 UI | P36-1, P36-2 | TODO |
 
 ---
 
 Backlog:
-- P29 hotfix backlog: resolved after P29.
-  - `hotfix-P29-1.A` Broader Observability boundary cleanup: shared snapshot IO 추출 + historical backfill helper를 runtime Observability 밖으로 이동.
-  - `hotfix-P29-1.B` Strategy Engine shim package-level exports: package-level export + contract test 추가.
-  - `hotfix-P29-2.A` Personal Track DAG operational state mismatch: project Airflow metadata에서 3개 Personal DAG paused 확인.
-  - `follow-up-P29-1.C` Forbidden-prefix grep allowlist: testing contract에 allowlist-aware 기준 반영.
-  - `follow-up-P29-2.B` Airflow CLI environment guard: operation guide에 project env command 추가.
-- Phase 3 dashboard (resolved 2026-05-21): P31에서 `apps/web/` + 8 screen + Recharts chart + docker `web` 서비스를 완료.
-- `frontend_decisions.md` → `frontend_contract.md` 승격 재평가: P31 로컬 E2E는 PASS이나 운영 1주 안정화 조건 미충족으로 보류. 1주 운영 후 재평가.
+- P29 hotfix backlog (모두 resolved):
+  - `hotfix-P29-1.A` DONE — Observability boundary cleanup, `tests/observability/test_boundary_imports.py` 추가.
+  - `hotfix-P29-1.B` DONE — Strategy shim package-level exports 보호.
+  - `hotfix-P29-2.A` DONE — project Airflow metadata에서 3개 Personal DAG paused 확인.
+  - `follow-up-P29-1.C` DONE — `docs/testing/operational_invariant_test_contract.md §8` AST-based allowlist-aware 기준 반영 (2026-05-27).
+  - `follow-up-P29-2.B` DONE — `docs/operation_guide.md` "Project Airflow CLI guard" 섹션에 project env command 추가됨 (P29 follow-up 시 완료).
+- `frontend_decisions.md` → `frontend_contract.md` 승격 재평가: P31 로컬 E2E PASS, `tokens.css` 운영 1주 안정화 조건 충족 시(2026-05-28~) 승격. 승격 작업: `git mv` + Status 변경 + §1·§5 압축.
+- Similarity Replay follow-up: API는 `compare_days`, `forward_days`, `top_assets`를 지원한다. 대시보드에서 사용자가 window/기간을 직접 조정하는 control은 후속 후보로 유지한다. 설계 기준은 `docs/architecture/similarity_design.md §10.2`에 기록됨.
 - 외부 노출 운영 등록: Phase 3 dashboard 로컬 검증 완료 후 trigger됨. 실제 진행은 도메인/계정/토큰 결정 이후 별도 task.
-- Phase 4+ 후보: ETF heatmap(Visx 검토), similarity replay, window-aware explainability, 외부 사용자 auth/onboarding.
+- Phase 4+ 후보: ETF heatmap(Visx 검토), window-aware explainability, 외부 사용자 auth/onboarding.
 
 ---
 
@@ -130,7 +190,7 @@ Backlog:
 
 **Risk**: P33-2 Sidebar nav 수정 시 기존 항목 깨질 가능성 → 마지막에만 추가
 
-**Source(anchor)**: `.agent/task/P33_parent_debug_history.md`
+**Source(anchor)**: `.agent/task/archive/P33/P33_parent_debug_history.md`
 
 | Leaf | 제목 | depends_on | 상태 |
 |---|---|---|---|
@@ -220,7 +280,7 @@ Backlog:
   - Volume mount / sensitive-file image checks PASS.
   - Agent public whitelist status PASS; excluded `.agent` files remain ignored.
   - Docs marker/status inventory PASS.
-- **Source(anchor)**: `.agent/task/P30_parent_reproducible_runtime.md`
+- **Source(anchor)**: `.agent/task/archive/P30/P30_parent_reproducible_runtime.md`
 
 ### P29 — Phase 2 Stage Gate (정합 검증 + 문서 정비 + 신규 architecture docs)
 
